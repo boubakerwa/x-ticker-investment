@@ -1,0 +1,4 @@
+node_modules/
+data/x-ticker.sqlite-shm
+data/x-ticker.sqlite-wal
+.DS_Store

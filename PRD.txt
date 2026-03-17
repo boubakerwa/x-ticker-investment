@@ -1,0 +1,793 @@
+Below is the revised **PDR** based on your new constraints.
+
+A few direct answers first:
+
+* **Long exposure** means you profit if the asset price goes **up** because you own it. That fits your v1.
+* For v1, I recommend **long-only** decisions. So instead of generic `buy / sell / hold`, use:
+
+  * `BUY`
+  * `HOLD`
+  * `SELL`
+* Reason: it is cleaner than introducing shorts, hedges, or derivatives too early.
+
+---
+
+# PDR — Social Signal Investment Assistant (v1)
+
+## 1. Product Summary
+
+A system that monitors a curated list of X accounts, interprets their posts, clusters related posts into higher-level events, and translates them into explainable, multi-day investment suggestions for a **small, focused tradable universe**.
+
+The initial universe will be intentionally narrow and centered on **tech and AI-related assets**, with the ability to expand later.
+
+The system is **not** an autonomous trading system in v1.
+It is a **decision-support engine** that produces explainable recommendations:
+
+* `BUY`
+* `HOLD`
+* `SELL`
+
+It will also explicitly explain:
+
+* why an action was proposed
+* why no action was proposed
+* why a signal was vetoed or downgraded
+
+---
+
+## 2. Problem
+
+Monitoring a handful of high-signal X accounts manually is slow, inconsistent, and prone to bias. Useful information gets mixed with noise, hype, repeated narratives, and opinion masquerading as fact.
+
+The product should help answer:
+
+> “Given the accounts I trust enough to monitor, and a narrow asset universe I care about, what should I do over a multi-day horizon?”
+
+The system must do this in a way that is:
+
+* constrained
+* auditable
+* explainable
+* expandable later
+
+---
+
+## 3. Product Goals
+
+### Primary goals
+
+* Convert monitored X posts into structured investment suggestions.
+* Focus on **multi-day reactions**, not intraday trading.
+* Restrict the decision space to a narrow action set and a focused asset universe.
+* Provide strong explainability for both positive and negative decisions.
+* Merge repeated aligned posts across monitored accounts into a single higher-level signal/event.
+
+### Secondary goals
+
+* Build a reusable architecture that can later support:
+
+  * broader asset coverage
+  * simulation/backtesting
+  * decision logging with locked prices
+  * paper trading or execution workflows
+
+---
+
+## 4. Non-goals for v1
+
+* No autonomous execution
+* No intraday trading
+* No short-selling logic
+* No unrestricted asset discovery
+* No open-ended “trade anything” behavior
+* No portfolio optimization engine
+* No real simulation engine yet
+
+---
+
+## 5. Initial Product Scope
+
+## 5.1 Tradable Universe
+
+The initial asset universe will be:
+
+* relatively small
+* manually curated
+* focused on **tech and AI**
+
+Examples of likely starting buckets:
+
+* AI/semiconductor stocks
+* large-cap tech stocks
+* selected AI/tech ETFs
+* selected crypto assets with strong relevance to monitored narratives
+
+Exact symbols will be defined in a later iteration.
+
+The system must support future expansion into:
+
+* more equities
+* ETFs
+* crypto
+* bonds and other instruments that can be bought/sold in shares or accessible units
+
+---
+
+## 5.2 Action Space
+
+For v1, recommended action set:
+
+* `BUY`
+* `HOLD`
+* `SELL`
+
+### Why this is the right choice
+
+This is simpler and more honest than adding:
+
+* short
+* reduce/add sizing categories
+* hedges
+* derivative-specific actions
+
+You said multi-day, no daily trading. That points to **discrete directional suggestions**, not hyper-granular execution logic.
+
+### Interpretation
+
+* `BUY`: signal suggests initiating or increasing long exposure
+* `HOLD`: signal suggests maintaining position or taking no change
+* `SELL`: signal suggests exiting or reducing long exposure
+
+---
+
+## 5.3 Time Horizon
+
+Target holding / reaction horizon:
+
+* **multi-day**
+* acceptable end-to-end decision latency: **up to 12 hours**
+
+That means the architecture should optimize for:
+
+* quality over speed
+* event grouping over instant reaction
+* explainability over ultra-low-latency inference
+
+---
+
+## 6. Key Design Principles
+
+1. **Narrow before broad**
+   Small asset universe, small action space, few monitored accounts.
+
+2. **Controlled, not fully agentic**
+   The system should use bounded LLM modules, not an unconstrained autonomous agent.
+
+3. **Explainability is mandatory**
+   The system must explain both action and inaction.
+
+4. **Events matter more than single tweets**
+   Repeated aligned posts should be merged into one narrative/event object.
+
+5. **Deterministic decision layers**
+   LLMs interpret; rule/policy layers decide; risk layers veto.
+
+6. **Future-proofing**
+   Architecture must leave room for simulations, decision logs, and future execution support.
+
+---
+
+## 7. Agentic AI Structure
+
+The prior concept improves if we treat “agentic AI” as **bounded specialist modules**, not a free-form planner.
+
+## 7.1 Recommended AI/Agent Modules
+
+### A. Claim Extraction Agent
+
+Input:
+
+* raw X post
+* quoted/replied-to context if relevant
+
+Output:
+
+* claim type
+* direction
+* time horizon
+* certainty level
+* mentioned entities/themes
+* whether the post is actionable or just commentary
+
+### B. Asset Mapping Agent
+
+Input:
+
+* extracted claim
+* approved tradable universe
+
+Output:
+
+* mapped asset(s)
+* mapping confidence
+* rejected mappings
+
+Constraint:
+
+* may only map into the approved universe
+
+### C. Event Clustering Agent
+
+Input:
+
+* multiple posts across sources and time
+
+Output:
+
+* grouped event/narrative cluster
+* cluster summary
+* source agreement/disagreement
+* novelty and repetition signals
+
+This becomes important because you explicitly want repeated aligned posts merged.
+
+### D. Explanation Agent
+
+Input:
+
+* final decision object
+* intermediate reasons and vetoes
+
+Output:
+
+* human-readable explanation:
+
+  * why `BUY`, `HOLD`, or `SELL`
+  * why not something else
+  * what evidence mattered
+  * what uncertainty remains
+
+---
+
+## 7.2 Non-agentic Core Layers
+
+These should remain deterministic:
+
+* source registry
+* asset universe configuration
+* policy engine
+* market-context enrichment
+* veto/risk engine
+* audit log
+* future simulation and locked-price page
+
+This split is critical.
+Otherwise the system becomes clever-looking but unreliable.
+
+---
+
+## 8. Functional Requirements
+
+## 8.1 Source Monitoring
+
+The system shall ingest posts from a curated list of X accounts within the accepted latency window.
+
+## 8.2 Source Registry
+
+The system shall maintain metadata for each source, including:
+
+* source category
+* baseline credibility
+* preferred horizon
+* policy template
+* relevant sectors/assets
+* special handling rules
+
+Examples of categories:
+
+* prediction-market/news
+* macro commentator
+* trader/opinion account
+* official institution
+* company/operator account
+
+You already asked that different account types receive different treatment. This registry is how that happens.
+
+## 8.3 Claim Extraction
+
+The system shall transform raw posts into structured claims with:
+
+* sentiment/direction
+* claim type
+* explicitness
+* themes/entities
+* horizon
+* confidence
+
+## 8.4 Asset Mapping
+
+The system shall map claims only to the approved tradable universe.
+
+## 8.5 Event Clustering
+
+The system shall merge repeated aligned posts across monitored accounts into a single event object when appropriate.
+
+Examples:
+
+* multiple accounts pushing the same AI infrastructure thesis over 24–72 hours
+* repeated references to a specific company, theme, or macro driver
+
+## 8.6 Market Context Enrichment
+
+The system shall enrich signal candidates with external market context.
+
+Because you asked “any ideas?” on market context, the best v1 categories are:
+
+### Recommended confirmation/context sources
+
+* recent price trend over multi-day windows
+* volatility regime
+* volume anomalies for equities/ETFs
+* sector ETF behavior
+* broad market regime
+* crypto market trend context, if crypto is in scope
+* major news corroboration when relevant
+
+This is enough for v1.
+You do **not** need a giant data platform.
+
+## 8.7 Policy Evaluation
+
+The system shall evaluate whether a clustered event is eligible to influence a tradable asset using deterministic policy rules.
+
+## 8.8 Decision Output
+
+The system shall output:
+
+* asset
+* action (`BUY`, `HOLD`, `SELL`)
+* confidence
+* time horizon
+* reasons
+* blocked/vetoed status
+* explanation text
+
+## 8.9 Explainability
+
+The system shall explain:
+
+* why action was proposed
+* why no action was proposed
+* why a veto happened
+* what accounts contributed
+* what market context mattered
+* what uncertainty remained
+
+This is a major block, so it must be first-class, not an afterthought.
+
+## 8.10 Placeholder Simulation / Decision Log Page
+
+The system shall include a placeholder page for future:
+
+* simulation runs
+* decision logging
+* price locking / reference price capture
+* later replay and evaluation
+
+This page does not need to simulate in v1, but the product must reserve the object model and UI entry point now.
+
+---
+
+## 9. Decision Framework
+
+The system should not do:
+
+`tweet -> LLM -> trade`
+
+It should do:
+
+`posts -> claims -> clustered event -> asset mapping -> market context -> policy evaluation -> veto/risk check -> decision`
+
+## 9.1 Hard Checks First
+
+Before any action is scored:
+
+* is the source allowed?
+* is the content actionable?
+* does it map to an allowed asset?
+* is the event new enough?
+* is the mapping confidence acceptable?
+* is this repetitive/stale?
+* does market context support or contradict it?
+
+## 9.2 Then Action Selection
+
+Once the event survives hard checks, choose among:
+
+* `BUY`
+* `HOLD`
+* `SELL`
+
+## 9.3 Why no sizing yet
+
+You mentioned “small/bigger sums,” but that should not enter v1 decision language yet.
+It adds ambiguity fast.
+
+A better approach:
+
+* v1 returns directional recommendation only
+* later versions can add conviction tiers or size bands
+
+---
+
+## 10. Market Context Proposal
+
+You asked for ideas. Here is the practical v1 recommendation.
+
+## 10.1 Equities / ETFs
+
+Use:
+
+* 5d / 10d / 20d returns
+* relative performance vs sector ETF
+* basic volume abnormality
+* major market trend filter
+
+## 10.2 Crypto
+
+Use:
+
+* 3d / 7d / 14d returns
+* volatility
+* broad crypto market direction
+* optionally funding/open interest later, not mandatory in v1
+
+## 10.3 Narrative Confirmation
+
+For high-impact cases:
+
+* one additional confirmation source such as major financial/news coverage or repeated signal convergence from monitored accounts
+
+This is enough.
+Do not overbuild this part initially.
+
+---
+
+## 11. Explainability Requirements
+
+Each decision page/card should answer:
+
+### If `BUY`
+
+* what happened
+* which accounts contributed
+* why this maps to this asset
+* what market context supports it
+* why horizon is multi-day
+* key risks / uncertainty
+
+### If `SELL`
+
+* same logic, but focused on deterioration, negative narrative, or adverse context
+
+### If `HOLD`
+
+* why the signal was insufficient or already priced
+* what blocked escalation to buy/sell
+
+### If vetoed
+
+* exact veto reason:
+
+  * weak mapping
+  * stale signal
+  * contradictory market context
+  * low source confidence
+  * excessive ambiguity
+  * duplicate/redundant event
+
+---
+
+## 12. System Architecture
+
+```mermaid
+flowchart TD
+    A[Curated X Accounts] --> B[Ingestion Worker]
+    B --> C[Raw Post Store]
+
+    C --> D[Claim Extraction Agent]
+    D --> E[Asset Mapping Agent]
+    E --> F[Event Clustering Agent]
+
+    F --> G[Structured Claims and Event Candidates]
+
+    H[Source Registry] --> I[Policy Engine]
+    J[Market Context Service] --> I
+    G --> I
+
+    I --> K[Risk and Veto Engine]
+
+    K --> L[Decision Object]
+    L --> M[Explainability Layer]
+    M --> N[Dashboard and API]
+
+    L --> O[Decision Log Store]
+    O --> P[Placeholder Simulation and Locked-Price Page]
+
+    K --> Q{Execution Enabled?}
+    Q -->|No in v1| N
+    Q -->|Future| R[Execution Layer]
+    R --> S[Outcomes and Attribution]
+    O --> S
+```
+
+---
+
+## 13. Core Components
+
+## 13.1 Ingestion Worker
+
+Responsibilities:
+
+* fetch monitored posts
+* deduplicate
+* persist raw content
+* preserve timestamps and thread/quote relationships
+
+## 13.2 Claim Extraction Agent
+
+Responsibilities:
+
+* convert noisy social text into structured claims
+* classify whether post is news, opinion, rumor, commentary, or direct signal
+
+## 13.3 Asset Mapping Agent
+
+Responsibilities:
+
+* connect claims to allowed assets only
+* reject low-confidence mappings
+
+## 13.4 Event Clustering Agent
+
+Responsibilities:
+
+* merge repeated aligned posts
+* generate cluster-level summaries
+* reduce noise from isolated tweets
+
+## 13.5 Source Registry
+
+Responsibilities:
+
+* define how each account should be interpreted
+* apply separate templates for:
+
+  * Polymarket-like sources
+  * trader/opinion accounts
+  * future official sources
+
+## 13.6 Market Context Service
+
+Responsibilities:
+
+* enrich events with price and market regime information
+* help separate interesting from tradable
+
+## 13.7 Policy Engine
+
+Responsibilities:
+
+* determine whether an event is eligible to affect an asset
+* choose candidate action
+
+## 13.8 Risk and Veto Engine
+
+Responsibilities:
+
+* block weak, stale, ambiguous, or contradicted signals
+* downgrade overconfident but unsupported signals
+
+## 13.9 Explainability Layer
+
+Responsibilities:
+
+* produce user-facing rationale
+* expose reasons for action, hold, or veto
+
+## 13.10 Placeholder Simulation / Locked-Price Page
+
+Responsibilities:
+
+* reserve future UI/backend entry point for:
+
+  * price locking
+  * replay
+  * simulations
+  * decision outcome tracking
+
+---
+
+## 14. Data Model
+
+Core entities:
+
+* `sources`
+* `posts_raw`
+* `claims`
+* `event_clusters`
+* `signal_candidates`
+* `decisions`
+* `decision_logs`
+* `locked_prices_placeholder`
+* `simulation_runs_placeholder`
+
+### Example important fields
+
+## sources
+
+* handle
+* source_type
+* baseline_reliability
+* policy_template
+* horizon
+* allowed_assets
+
+## claims
+
+* post_id
+* claim_type
+* direction
+* explicitness
+* themes
+* confidence
+
+## event_clusters
+
+* cluster_id
+* related_post_ids
+* summary
+* dominant_direction
+* novelty
+* agreement_score
+* time_window
+
+## decisions
+
+* asset
+* action
+* confidence
+* rationale
+* vetoed
+* veto_reason
+* horizon
+* timestamp
+
+## decision_logs
+
+* decision_id
+* asset
+* reference_price
+* log_status
+* notes
+
+---
+
+## 15. UX / Product Surfaces
+
+## 15.1 Main Dashboard
+
+Shows:
+
+* latest monitored posts
+* clustered events
+* latest decisions
+* confidence and explanation
+* vetoed/held cases
+
+## 15.2 Asset View
+
+Shows:
+
+* related recent events
+* active decision
+* explanation
+* monitored source contributions
+
+## 15.3 Source View
+
+Shows:
+
+* recent posts from each monitored account
+* associated events and decisions
+* source category/template
+
+## 15.4 Placeholder Simulation / Decision Log Page
+
+Shows:
+
+* decision history
+* locked/reference prices when enabled later
+* future simulation status
+* future replay hooks
+
+---
+
+## 16. MVP Definition
+
+## Phase 1
+
+* curated X account monitoring
+* focused tech/AI tradable universe
+* claim extraction
+* asset mapping
+* event clustering
+* market context enrichment
+* `BUY / HOLD / SELL`
+* explainability
+* placeholder simulation/logging page
+* no execution
+* no real simulation
+
+This is the correct v1.
+
+---
+
+## 17. Success Metrics
+
+* percentage of decisions judged useful by operator
+* percentage of decisions with acceptable explanation quality
+* reduction in manual monitoring effort
+* signal-to-noise ratio after clustering
+* percentage of vetoed signals later judged correctly blocked
+* percentage of event clusters that map cleanly to allowed assets
+
+Later:
+
+* outcome attribution
+* locked-price comparison
+* simulation performance
+
+---
+
+## 18. Risks
+
+* source overfitting
+* confusing influence with tradability
+* weak asset mapping
+* repeated hype being misread as confirmation
+* LLM explanations sounding more certain than the underlying evidence
+* too-broad v1 asset universe
+* poor handling of ambiguous posts
+
+---
+
+## 19. Recommended Defaults for v1
+
+These are my blunt recommendations:
+
+* **Long-only**
+* **BUY / HOLD / SELL**
+* **small focused AI/tech asset universe**
+* **multi-day horizon**
+* **12-hour acceptable latency**
+* **event clustering enabled from day one**
+* **explainability mandatory on every decision**
+* **no execution**
+* **placeholder simulation/log page included now**
+
+That is actually coherent.
+Now it starts to look like a product instead of a vague AI trading idea.
+
+---
+
+## 20. Open Questions
+
+1. Which exact starting assets belong in the first focused tech/AI universe? -> create a pool on your own to start building the product.
+2. Should `SELL` mean full exit, partial reduction, or both under one label in v1? -> both under one label in v1
+3. Do you want crypto included from day one, or added after equities/ETFs are stable? -> added day 1.
+4. How should we define source categories exactly for accounts like Polymarket vs trader/opinion accounts? -> no overengineering for now, whatever you see fit.
+5. What minimum evidence is required before a clustered event can override `HOLD` and become `BUY` or `SELL`? -> up to you
+6. Should the dashboard emphasize assets first, sources first, or events first? not sure.
+7. For the placeholder simulation/log page, do you want manual decision entries too, or only system-generated ones? just make it a placeholder, don't add anything.
+8. Do you want the v1 explanations to be concise summaries, or include a collapsible full reasoning trace? collapsible.

@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "updatedAt": "2026-03-16T21:07:53.875Z",
+  "sources": [
+    {
+      "id": "src-builderalpha",
+      "handle": "@builderalpha",
+      "name": "Builder Alpha",
+      "category": "Operator / Company Watcher",
+      "baselineReliability": 0.71,
+      "preferredHorizon": "2-5 days",
+      "policyTemplate": "Product and enterprise demand tracker",
+      "relevantSectors": [
+        "AI Software",
+        "Enterprise Adoption"
+      ],
+      "allowedAssets": [
+        "MSFT",
+        "META",
+        "QQQ"
+      ],
+      "specialHandling": "Operator anecdotes are down-weighted unless there is broader source convergence.",
+      "tone": "Insider-ish",
+      "lastActive": "2026-03-16 10:24 CET"
+    },
+    {
+      "id": "src-chainpulse",
+      "handle": "@chainpulse",
+      "name": "Chain Pulse",
+      "category": "Crypto Market Desk",
+      "baselineReliability": 0.68,
+      "preferredHorizon": "1-5 days",
+      "policyTemplate": "Crypto regime confirmation",
+      "relevantSectors": [
+        "Crypto",
+        "Risk Appetite"
+      ],
+      "allowedAssets": [
+        "BTC"
+      ],
+      "specialHandling": "Crypto signals must align with broader risk context or they default to HOLD.",
+      "tone": "Fast-moving",
+      "lastActive": "2026-03-16 09:02 CET"
+    },
+    {
+      "id": "src-macrolens",
+      "handle": "@macrolens",
+      "name": "Macro Lens",
+      "category": "Macro Commentator",
+      "baselineReliability": 0.76,
+      "preferredHorizon": "4-12 days",
+      "policyTemplate": "Context and regime confirmation",
+      "relevantSectors": [
+        "Rates",
+        "Liquidity",
+        "Risk Appetite"
+      ],
+      "allowedAssets": [
+        "QQQ",
+        "BTC",
+        "SOXX",
+        "MSFT",
+        "META"
+      ],
+      "specialHandling": "Macro opinions can confirm but not originate single-name BUY actions on their own.",
+      "tone": "Analytical",
+      "lastActive": "2026-03-16 06:35 CET"
+    },
+    {
+      "id": "src-policywire",
+      "handle": "@policywire",
+      "name": "Policy Wire",
+      "category": "Institution / Policy",
+      "baselineReliability": 0.89,
+      "preferredHorizon": "3-10 days",
+      "policyTemplate": "High-credibility, low-frequency catalyst watcher",
+      "relevantSectors": [
+        "Semiconductors",
+        "AI Infrastructure",
+        "Macro"
+      ],
+      "allowedAssets": [
+        "NVDA",
+        "AMD",
+        "TSM",
+        "SOXX",
+        "QQQ"
+      ],
+      "specialHandling": "Posts are only treated as actionable when they include explicit regulatory or procurement signals.",
+      "tone": "Measured",
+      "lastActive": "2026-03-16 08:10 CET"
+    },
+    {
+      "id": "src-semiflow",
+      "handle": "@semiflow",
+      "name": "SemiFlow",
+      "category": "Sector Specialist",
+      "baselineReliability": 0.83,
+      "preferredHorizon": "2-7 days",
+      "policyTemplate": "High-signal industry channel checks",
+      "relevantSectors": [
+        "Semiconductors",
+        "Supply Chain"
+      ],
+      "allowedAssets": [
+        "NVDA",
+        "AMD",
+        "TSM",
+        "SOXX"
+      ],
+      "specialHandling": "Repeated claims need one corroborating source before they can upgrade to BUY.",
+      "tone": "Technical",
+      "lastActive": "2026-03-16 07:42 CET"
+    }
+  ]
+}

@@ -1,0 +1,2195 @@
+{
+  "version": 1,
+  "mode": "fake-api",
+  "seededAt": "2026-03-16T16:30:15.701Z",
+  "posts": [
+    {
+      "id": "post-101",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-16T15:49:52.517Z",
+      "timestamp": "2026-03-16 16:49 GMT+1",
+      "body": "Draft export guidance looks narrower than feared. High-end AI accelerators still face scrutiny, but broad data-center demand assumptions may need to move up, not down.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI accelerators",
+        "Export policy",
+        "Demand resilience"
+      ],
+      "confidence": 0.84,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX",
+        "TSM"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-102",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-16T14:50:52.517Z",
+      "timestamp": "2026-03-16 15:50 GMT+1",
+      "body": "Board checks still point to hyperscalers pulling forward AI rack deployments into next quarter. That keeps upstream semi orders tighter than the market narrative implies.",
+      "actionable": true,
+      "claimType": "Channel check",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "Hyperscaler capex",
+        "AI racks",
+        "Semi orders"
+      ],
+      "confidence": 0.81,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-103",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T14:20:52.517Z",
+      "timestamp": "2026-03-16 15:20 GMT+1",
+      "body": "Rates are not the story this week. Risk appetite is broadening and semis are leading again; that's a better backdrop for continuation than for fading strength.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Risk appetite",
+        "Semis leadership",
+        "Market regime"
+      ],
+      "confidence": 0.73,
+      "mappedAssets": [
+        "SOXX",
+        "QQQ",
+        "BTC"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-104",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-16T13:21:52.517Z",
+      "timestamp": "2026-03-16 14:21 GMT+1",
+      "body": "Enterprise buyers are talking AI copilots again, but budget owners still want proof of ROI before expanding seats. Demand tone is better, conversion is still lumpy.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.64,
+      "mappedAssets": [
+        "MSFT"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-105",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-16T12:51:52.517Z",
+      "timestamp": "2026-03-16 13:51 GMT+1",
+      "body": "A hearing headline is moving fast, but there is no confirmed proposal that changes current procurement policy. Most of the urgency looks narrative-driven, not operational.",
+      "actionable": false,
+      "claimType": "Debunk / clarification",
+      "direction": "Neutral",
+      "explicitness": "Explicit",
+      "themes": [
+        "Policy noise",
+        "Narrative reset"
+      ],
+      "confidence": 0.79,
+      "mappedAssets": [
+        "AMD",
+        "QQQ"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-106",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-16T11:52:52.517Z",
+      "timestamp": "2026-03-16 12:52 GMT+1",
+      "body": "BTC is catching some of the same liquidity bid as AI beta, but derivatives positioning is no longer clean. Good backdrop, messy trigger.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "BTC",
+        "Liquidity",
+        "Derivatives positioning"
+      ],
+      "confidence": 0.62,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-107",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-16T11:22:52.517Z",
+      "timestamp": "2026-03-16 12:22 GMT+1",
+      "body": "Supply chain chatter still says liquid-cooled AI rack components are tight. That is usually not what you see when capex appetite is about to roll over.",
+      "actionable": true,
+      "claimType": "Supply chain read",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Liquid cooling",
+        "AI racks",
+        "Capex durability"
+      ],
+      "confidence": 0.76,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-108",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-16T10:52:52.517Z",
+      "timestamp": "2026-03-16 11:52 GMT+1",
+      "body": "A few CIOs moved AI assistant pilots from experimentation to budget review this morning. Better pipeline, but still not enough to call broad monetization unlocked.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Mixed",
+      "explicitness": "Explicit",
+      "themes": [
+        "Enterprise AI",
+        "Pilots",
+        "Budget review"
+      ],
+      "confidence": 0.67,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-109",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-16T09:53:52.517Z",
+      "timestamp": "2026-03-16 10:53 GMT+1",
+      "body": "Nothing in the latest briefing points to a broad-based freeze in AI hardware procurement. The market is still over-reading the headline risk.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "Procurement",
+        "AI hardware",
+        "Headline risk"
+      ],
+      "confidence": 0.82,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-110",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T09:23:52.517Z",
+      "timestamp": "2026-03-16 10:23 GMT+1",
+      "body": "If growth leadership keeps rotating back toward software without a rates scare, QQQ stays supported, but semis still have the cleaner social-signal setup.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Growth leadership",
+        "Software",
+        "QQQ"
+      ],
+      "confidence": 0.69,
+      "mappedAssets": [
+        "QQQ",
+        "MSFT",
+        "SOXX"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-111",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-16T08:24:52.517Z",
+      "timestamp": "2026-03-16 09:24 GMT+1",
+      "body": "Spot demand is fine, but perp positioning is getting louder than the underlying flow. That usually keeps me from upgrading BTC from constructive to aggressive.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Explicit",
+      "themes": [
+        "BTC",
+        "Spot demand",
+        "Perp positioning"
+      ],
+      "confidence": 0.66,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-112",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-16T07:54:52.517Z",
+      "timestamp": "2026-03-16 08:54 GMT+1",
+      "body": "The loud procurement rumor going around X still has no attached draft language or committee backing. Treat the move as narrative until evidence appears.",
+      "actionable": false,
+      "claimType": "Debunk / clarification",
+      "direction": "Neutral",
+      "explicitness": "Explicit",
+      "themes": [
+        "Procurement rumor",
+        "Narrative risk",
+        "Verification"
+      ],
+      "confidence": 0.81,
+      "mappedAssets": [
+        "AMD",
+        "QQQ"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-113",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-16T07:24:52.517Z",
+      "timestamp": "2026-03-16 08:24 GMT+1",
+      "body": "ODM chatter still implies faster AI server assembly into month-end. That does not guarantee upside, but it keeps the semi slowdown narrative looking early.",
+      "actionable": true,
+      "claimType": "Channel check",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "ODMs",
+        "AI servers",
+        "Semi slowdown"
+      ],
+      "confidence": 0.74,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-114",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-16T06:25:52.517Z",
+      "timestamp": "2026-03-16 07:25 GMT+1",
+      "body": "Plenty of AI demo energy, but most enterprise buyers are still separating workflow value from showpiece features. Good for attention, not enough for a clean BUY on its own.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise buyers",
+        "Workflow value",
+        "Feature hype"
+      ],
+      "confidence": 0.63,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-015",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-16T05:55:52.517Z",
+      "timestamp": "2026-03-16 06:55 GMT+1",
+      "body": "Rumor-control read: the apparent catalyst still looks more social than operational. That keeps the signal vetoed for now.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Neutral",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Rumor control",
+        "Procurement headlines",
+        "Evidence quality"
+      ],
+      "confidence": 0.74,
+      "mappedAssets": [
+        "QQQ"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-auto-016",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-16T04:56:52.517Z",
+      "timestamp": "2026-03-16 05:56 GMT+1",
+      "body": "Fresh export-language read: the latest language still looks narrower than the market feared on AI compute. The cleanest read-through still lands on accelerators and upstream semi demand.",
+      "actionable": true,
+      "claimType": "Debunk / clarification",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.77,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-017",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-16T04:26:52.517Z",
+      "timestamp": "2026-03-16 05:26 GMT+1",
+      "body": "Operator read: usage conversations are improving faster than procurement conversion. Good tone, not decisive evidence.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Copilots",
+        "Workflow adoption",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.65,
+      "mappedAssets": [
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-018",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T03:27:52.517Z",
+      "timestamp": "2026-03-16 04:27 GMT+1",
+      "body": "Tape read: the market is rewarding AI infrastructure breadth more than it is punishing valuation right now. If the regime holds, accelerator-linked names stay first in line.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.75,
+      "mappedAssets": [
+        "NVDA",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-019",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-16T02:57:52.517Z",
+      "timestamp": "2026-03-16 03:57 GMT+1",
+      "body": "Positioning update: risk appetite helps, though the clean spot-led setup is still missing. That keeps BTC closer to HOLD than BUY.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Spot demand",
+        "Derivatives positioning",
+        "Volatility"
+      ],
+      "confidence": 0.64,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-020",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T02:27:52.517Z",
+      "timestamp": "2026-03-16 03:27 GMT+1",
+      "body": "Cross-asset read: software is participating, but it still trails semis in signal clarity. Macro confirmation helps, but it still cannot originate a single-name BUY on its own.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Copilots",
+        "Workflow adoption",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.71,
+      "mappedAssets": [
+        "MSFT",
+        "QQQ"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-021",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T01:28:52.517Z",
+      "timestamp": "2026-03-16 02:28 GMT+1",
+      "body": "Regime check: risk appetite is broad enough to confirm continuation but still concentrated enough to favor sector-specific bets. This is confirmation, not origination, but it still matters for the policy engine.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.78,
+      "mappedAssets": [
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-022",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T00:58:52.517Z",
+      "timestamp": "2026-03-16 01:58 GMT+1",
+      "body": "Leadership check: QQQ is being helped by the same risk bid, although single-name mapping remains mixed. The regime is friendly; the evidence is still partial.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "Monetization"
+      ],
+      "confidence": 0.66,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-023",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-15T23:59:52.517Z",
+      "timestamp": "2026-03-16 00:59 GMT+1",
+      "body": "ODM chatter: liquid-cooled rack parts are not behaving like a market preparing for a demand air pocket. That keeps the semi slowdown narrative looking early.",
+      "actionable": true,
+      "claimType": "Channel check",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.76,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-024",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T23:29:52.517Z",
+      "timestamp": "2026-03-16 00:29 GMT+1",
+      "body": "Liquidity lens: BTC is still getting help from the same liquidity impulse lifting AI beta. Macro helps, but crypto still has the strictest evidence threshold in this product.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "BTC",
+        "Liquidity",
+        "Risk appetite"
+      ],
+      "confidence": 0.66,
+      "mappedAssets": [
+        "BTC",
+        "QQQ"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-025",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-15T22:59:52.517Z",
+      "timestamp": "2026-03-15 23:59 GMT+1",
+      "body": "Verification note: the circulating policy headline is running ahead of what is actually confirmed. Treat it as noise until the paper trail improves.",
+      "actionable": false,
+      "claimType": "Policy interpretation",
+      "direction": "Neutral",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Rumor control",
+        "Procurement headlines",
+        "Evidence quality"
+      ],
+      "confidence": 0.77,
+      "mappedAssets": [
+        "AMD"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-auto-026",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-15T22:00:52.517Z",
+      "timestamp": "2026-03-15 23:00 GMT+1",
+      "body": "Board-check note: server assembly cadence still points to firm accelerator demand into next month. The cleanest read-through remains NVDA, TSM, and SOXX.",
+      "actionable": true,
+      "claimType": "Supply chain read",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.79,
+      "mappedAssets": [
+        "NVDA",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-027",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-15T21:30:52.517Z",
+      "timestamp": "2026-03-15 22:30 GMT+1",
+      "body": "Enterprise check: interest is broadening, even if deployment decisions are still uneven. That keeps Microsoft on HOLD-to-BUY watch rather than clean BUY today.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Software demand",
+        "Budget review",
+        "Platform usage"
+      ],
+      "confidence": 0.68,
+      "mappedAssets": [
+        "MSFT"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-028",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-15T20:31:52.517Z",
+      "timestamp": "2026-03-15 21:31 GMT+1",
+      "body": "Fresh export-language read: the latest language still looks narrower than the market feared on AI compute. The cleanest read-through still lands on accelerators and upstream semi demand.",
+      "actionable": true,
+      "claimType": "Debunk / clarification",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.82,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-029",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-15T20:01:52.517Z",
+      "timestamp": "2026-03-15 21:01 GMT+1",
+      "body": "Desk note: BTC is participating in the risk bid, even if leverage is doing too much of the talking. Good tape, mixed signal quality.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Spot demand",
+        "Derivatives positioning",
+        "Volatility"
+      ],
+      "confidence": 0.6,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-030",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T19:31:52.517Z",
+      "timestamp": "2026-03-15 20:31 GMT+1",
+      "body": "Leadership check: QQQ is being helped by the same risk bid, although single-name mapping remains mixed. The regime is friendly; the evidence is still partial.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Software demand",
+        "Budget review",
+        "Platform usage"
+      ],
+      "confidence": 0.67,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-031",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-15T18:32:52.517Z",
+      "timestamp": "2026-03-15 19:32 GMT+1",
+      "body": "Procurement takeaway: headline risk remains, but the operative restriction path is still tighter than the rumor mill suggests. That keeps NVIDIA and the semi basket skewed to continuation over retrace.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.78,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-032",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T18:02:52.517Z",
+      "timestamp": "2026-03-15 19:02 GMT+1",
+      "body": "Cross-asset read: software is participating, but it still trails semis in signal clarity. Macro confirmation helps, but it still cannot originate a single-name BUY on its own.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Copilots",
+        "Workflow adoption",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.69,
+      "mappedAssets": [
+        "MSFT",
+        "QQQ"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-033",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T17:03:52.517Z",
+      "timestamp": "2026-03-15 18:03 GMT+1",
+      "body": "Regime check: risk appetite is broad enough to confirm continuation but still concentrated enough to favor sector-specific bets. This is confirmation, not origination, but it still matters for the policy engine.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.76,
+      "mappedAssets": [
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-034",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T16:33:52.517Z",
+      "timestamp": "2026-03-15 17:33 GMT+1",
+      "body": "Macro spillover: the macro tailwind exists, though it cannot override crowded derivatives on its own. The signal survives, but it does not clear the aggressive bar.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "BTC",
+        "Liquidity",
+        "Risk appetite"
+      ],
+      "confidence": 0.69,
+      "mappedAssets": [
+        "BTC",
+        "QQQ"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-035",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-15T15:34:52.517Z",
+      "timestamp": "2026-03-15 16:34 GMT+1",
+      "body": "Rumor-control read: the apparent catalyst still looks more social than operational. That keeps the signal vetoed for now.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Neutral",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Rumor control",
+        "Procurement headlines",
+        "Evidence quality"
+      ],
+      "confidence": 0.8,
+      "mappedAssets": [
+        "AMD",
+        "QQQ"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-auto-036",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T15:04:52.517Z",
+      "timestamp": "2026-03-15 16:04 GMT+1",
+      "body": "Market context: semis are still leading the growth complex without a rates shock getting in the way. Broad tech works, but semis still have the cleaner social plus market setup.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.72,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-037",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-15T14:34:52.517Z",
+      "timestamp": "2026-03-15 15:34 GMT+1",
+      "body": "Operator read: usage conversations are improving faster than procurement conversion. Good tone, not decisive evidence.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "Monetization"
+      ],
+      "confidence": 0.64,
+      "mappedAssets": [
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-038",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-15T13:35:52.517Z",
+      "timestamp": "2026-03-15 14:35 GMT+1",
+      "body": "Board-check note: server assembly cadence still points to firm accelerator demand into next month. The cleanest read-through remains NVDA, TSM, and SOXX.",
+      "actionable": true,
+      "claimType": "Supply chain read",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.77,
+      "mappedAssets": [
+        "NVDA",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-039",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-15T13:05:52.517Z",
+      "timestamp": "2026-03-15 14:05 GMT+1",
+      "body": "Positioning update: risk appetite helps, though the clean spot-led setup is still missing. That keeps BTC closer to HOLD than BUY.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Spot demand",
+        "Derivatives positioning",
+        "Volatility"
+      ],
+      "confidence": 0.63,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-040",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T12:06:52.517Z",
+      "timestamp": "2026-03-15 13:06 GMT+1",
+      "body": "Cross-asset read: software is participating, but it still trails semis in signal clarity. Macro confirmation helps, but it still cannot originate a single-name BUY on its own.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "Monetization"
+      ],
+      "confidence": 0.7,
+      "mappedAssets": [
+        "MSFT",
+        "QQQ"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-041",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-15T11:36:52.517Z",
+      "timestamp": "2026-03-15 12:36 GMT+1",
+      "body": "Channel follow-up: upstream component tightness is inconsistent with a clean capex slowdown call. This still argues for owning the infrastructure side over fading it.",
+      "actionable": true,
+      "claimType": "Channel check",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.8,
+      "mappedAssets": [
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-042",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T11:06:52.517Z",
+      "timestamp": "2026-03-15 12:06 GMT+1",
+      "body": "Leadership check: QQQ is being helped by the same risk bid, although single-name mapping remains mixed. The regime is friendly; the evidence is still partial.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Software demand",
+        "Budget review",
+        "Platform usage"
+      ],
+      "confidence": 0.72,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-043",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-15T10:07:52.517Z",
+      "timestamp": "2026-03-15 11:07 GMT+1",
+      "body": "Procurement takeaway: headline risk remains, but the operative restriction path is still tighter than the rumor mill suggests. That keeps NVIDIA and the semi basket skewed to continuation over retrace.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.76,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-044",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T09:37:52.517Z",
+      "timestamp": "2026-03-15 10:37 GMT+1",
+      "body": "Liquidity lens: BTC is still getting help from the same liquidity impulse lifting AI beta. Macro helps, but crypto still has the strictest evidence threshold in this product.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "BTC",
+        "Liquidity",
+        "Risk appetite"
+      ],
+      "confidence": 0.65,
+      "mappedAssets": [
+        "BTC",
+        "QQQ"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-045",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-15T08:38:52.517Z",
+      "timestamp": "2026-03-15 09:38 GMT+1",
+      "body": "Verification note: the circulating policy headline is running ahead of what is actually confirmed. Treat it as noise until the paper trail improves.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Neutral",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Rumor control",
+        "Procurement headlines",
+        "Evidence quality"
+      ],
+      "confidence": 0.76,
+      "mappedAssets": [
+        "QQQ"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-auto-046",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-15T08:08:52.517Z",
+      "timestamp": "2026-03-15 09:08 GMT+1",
+      "body": "Policy note: the tape is still overpricing the odds of a full procurement freeze. It is hard to downgrade the infrastructure complex on this evidence set.",
+      "actionable": true,
+      "claimType": "Debunk / clarification",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.79,
+      "mappedAssets": [
+        "NVDA",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-047",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-15T07:09:52.517Z",
+      "timestamp": "2026-03-15 08:09 GMT+1",
+      "body": "Enterprise check: interest is broadening, even if deployment decisions are still uneven. That keeps Microsoft on HOLD-to-BUY watch rather than clean BUY today.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Copilots",
+        "Workflow adoption",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.67,
+      "mappedAssets": [
+        "MSFT"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-048",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T06:39:52.517Z",
+      "timestamp": "2026-03-15 07:39 GMT+1",
+      "body": "Market context: semis are still leading the growth complex without a rates shock getting in the way. Broad tech works, but semis still have the cleaner social plus market setup.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.77,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-049",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-15T06:09:52.517Z",
+      "timestamp": "2026-03-15 07:09 GMT+1",
+      "body": "Desk note: BTC is participating in the risk bid, even if leverage is doing too much of the talking. Good tape, mixed signal quality.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Spot demand",
+        "Derivatives positioning",
+        "Volatility"
+      ],
+      "confidence": 0.66,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-050",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T05:10:52.517Z",
+      "timestamp": "2026-03-15 06:10 GMT+1",
+      "body": "Leadership check: QQQ is being helped by the same risk bid, although single-name mapping remains mixed. The regime is friendly; the evidence is still partial.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Copilots",
+        "Workflow adoption",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.66,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-051",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T04:40:52.517Z",
+      "timestamp": "2026-03-15 05:40 GMT+1",
+      "body": "Macro lens: leadership still belongs to higher-quality AI beta, not defensive rotation. That remains a better backdrop for BUY than for sitting in HOLD.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.73,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-052",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T03:41:52.517Z",
+      "timestamp": "2026-03-15 04:41 GMT+1",
+      "body": "Cross-asset read: software is participating, but it still trails semis in signal clarity. Macro confirmation helps, but it still cannot originate a single-name BUY on its own.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "Monetization"
+      ],
+      "confidence": 0.68,
+      "mappedAssets": [
+        "MSFT",
+        "QQQ"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-053",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-15T03:11:52.517Z",
+      "timestamp": "2026-03-15 04:11 GMT+1",
+      "body": "Channel follow-up: upstream component tightness is inconsistent with a clean capex slowdown call. This still argues for owning the infrastructure side over fading it.",
+      "actionable": true,
+      "claimType": "Channel check",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.78,
+      "mappedAssets": [
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-054",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T02:41:52.517Z",
+      "timestamp": "2026-03-15 03:41 GMT+1",
+      "body": "Macro spillover: the macro tailwind exists, though it cannot override crowded derivatives on its own. The signal survives, but it does not clear the aggressive bar.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "BTC",
+        "Liquidity",
+        "Risk appetite"
+      ],
+      "confidence": 0.68,
+      "mappedAssets": [
+        "BTC",
+        "QQQ"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-055",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-15T01:42:52.517Z",
+      "timestamp": "2026-03-15 02:42 GMT+1",
+      "body": "Rumor-control read: the apparent catalyst still looks more social than operational. That keeps the signal vetoed for now.",
+      "actionable": false,
+      "claimType": "Policy interpretation",
+      "direction": "Neutral",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Rumor control",
+        "Procurement headlines",
+        "Evidence quality"
+      ],
+      "confidence": 0.79,
+      "mappedAssets": [
+        "AMD"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-auto-056",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-15T01:12:52.517Z",
+      "timestamp": "2026-03-15 02:12 GMT+1",
+      "body": "Supply chain follow-through: AI rack scheduling is still being pulled forward rather than pushed out. Foundry and accelerator names still have better support than the tape implies.",
+      "actionable": true,
+      "claimType": "Supply chain read",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.81,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-057",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-15T00:13:52.517Z",
+      "timestamp": "2026-03-15 01:13 GMT+1",
+      "body": "Operator read: usage conversations are improving faster than procurement conversion. Good tone, not decisive evidence.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Software demand",
+        "Budget review",
+        "Platform usage"
+      ],
+      "confidence": 0.63,
+      "mappedAssets": [
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-058",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T23:43:52.517Z",
+      "timestamp": "2026-03-15 00:43 GMT+1",
+      "body": "Policy note: the tape is still overpricing the odds of a full procurement freeze. It is hard to downgrade the infrastructure complex on this evidence set.",
+      "actionable": true,
+      "claimType": "Debunk / clarification",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.77,
+      "mappedAssets": [
+        "NVDA",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-059",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-14T23:13:52.517Z",
+      "timestamp": "2026-03-15 00:13 GMT+1",
+      "body": "Positioning update: risk appetite helps, though the clean spot-led setup is still missing. That keeps BTC closer to HOLD than BUY.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Spot demand",
+        "Derivatives positioning",
+        "Volatility"
+      ],
+      "confidence": 0.62,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-060",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T22:14:52.517Z",
+      "timestamp": "2026-03-14 23:14 GMT+1",
+      "body": "Cross-asset read: software is participating, but it still trails semis in signal clarity. Macro confirmation helps, but it still cannot originate a single-name BUY on its own.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Software demand",
+        "Budget review",
+        "Platform usage"
+      ],
+      "confidence": 0.69,
+      "mappedAssets": [
+        "MSFT",
+        "QQQ"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-061",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T21:44:52.517Z",
+      "timestamp": "2026-03-14 22:44 GMT+1",
+      "body": "Updated guidance read: nothing here looks like a broad stop sign for AI infrastructure spending. For now this reads as a demand reset higher, not a policy shock lower.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.8,
+      "mappedAssets": [
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-062",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T20:45:52.517Z",
+      "timestamp": "2026-03-14 21:45 GMT+1",
+      "body": "Leadership check: QQQ is being helped by the same risk bid, although single-name mapping remains mixed. The regime is friendly; the evidence is still partial.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Copilots",
+        "Workflow adoption",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.71,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-063",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T20:15:52.517Z",
+      "timestamp": "2026-03-14 21:15 GMT+1",
+      "body": "Macro lens: leadership still belongs to higher-quality AI beta, not defensive rotation. That remains a better backdrop for BUY than for sitting in HOLD.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.78,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-064",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T19:16:52.517Z",
+      "timestamp": "2026-03-14 20:16 GMT+1",
+      "body": "Liquidity lens: BTC is still getting help from the same liquidity impulse lifting AI beta. Macro helps, but crypto still has the strictest evidence threshold in this product.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "BTC",
+        "Liquidity",
+        "Risk appetite"
+      ],
+      "confidence": 0.64,
+      "mappedAssets": [
+        "BTC",
+        "QQQ"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-065",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T18:46:52.517Z",
+      "timestamp": "2026-03-14 19:46 GMT+1",
+      "body": "Verification note: the circulating policy headline is running ahead of what is actually confirmed. Treat it as noise until the paper trail improves.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Neutral",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Rumor control",
+        "Procurement headlines",
+        "Evidence quality"
+      ],
+      "confidence": 0.75,
+      "mappedAssets": [
+        "AMD",
+        "QQQ"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-auto-066",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T18:16:52.517Z",
+      "timestamp": "2026-03-14 19:16 GMT+1",
+      "body": "Tape read: the market is rewarding AI infrastructure breadth more than it is punishing valuation right now. If the regime holds, accelerator-linked names stay first in line.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.74,
+      "mappedAssets": [
+        "NVDA",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-067",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-14T17:17:52.517Z",
+      "timestamp": "2026-03-14 18:17 GMT+1",
+      "body": "Enterprise check: interest is broadening, even if deployment decisions are still uneven. That keeps Microsoft on HOLD-to-BUY watch rather than clean BUY today.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "Monetization"
+      ],
+      "confidence": 0.66,
+      "mappedAssets": [
+        "MSFT"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-068",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-14T16:47:52.517Z",
+      "timestamp": "2026-03-14 17:47 GMT+1",
+      "body": "Supply chain follow-through: AI rack scheduling is still being pulled forward rather than pushed out. Foundry and accelerator names still have better support than the tape implies.",
+      "actionable": true,
+      "claimType": "Supply chain read",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.79,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-069",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-14T15:48:52.517Z",
+      "timestamp": "2026-03-14 16:48 GMT+1",
+      "body": "Desk note: BTC is participating in the risk bid, even if leverage is doing too much of the talking. Good tape, mixed signal quality.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Spot demand",
+        "Derivatives positioning",
+        "Volatility"
+      ],
+      "confidence": 0.65,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-070",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T15:18:52.517Z",
+      "timestamp": "2026-03-14 16:18 GMT+1",
+      "body": "Leadership check: QQQ is being helped by the same risk bid, although single-name mapping remains mixed. The regime is friendly; the evidence is still partial.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "Monetization"
+      ],
+      "confidence": 0.72,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-071",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-14T14:48:52.517Z",
+      "timestamp": "2026-03-14 15:48 GMT+1",
+      "body": "ODM chatter: liquid-cooled rack parts are not behaving like a market preparing for a demand air pocket. That keeps the semi slowdown narrative looking early.",
+      "actionable": true,
+      "claimType": "Channel check",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.75,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-072",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T13:49:52.517Z",
+      "timestamp": "2026-03-14 14:49 GMT+1",
+      "body": "Cross-asset read: software is participating, but it still trails semis in signal clarity. Macro confirmation helps, but it still cannot originate a single-name BUY on its own.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Software demand",
+        "Budget review",
+        "Platform usage"
+      ],
+      "confidence": 0.67,
+      "mappedAssets": [
+        "MSFT",
+        "QQQ"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-073",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T13:19:52.517Z",
+      "timestamp": "2026-03-14 14:19 GMT+1",
+      "body": "Updated guidance read: nothing here looks like a broad stop sign for AI infrastructure spending. For now this reads as a demand reset higher, not a policy shock lower.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.78,
+      "mappedAssets": [
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-074",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T12:20:52.517Z",
+      "timestamp": "2026-03-14 13:20 GMT+1",
+      "body": "Macro spillover: the macro tailwind exists, though it cannot override crowded derivatives on its own. The signal survives, but it does not clear the aggressive bar.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "BTC",
+        "Liquidity",
+        "Risk appetite"
+      ],
+      "confidence": 0.67,
+      "mappedAssets": [
+        "BTC",
+        "QQQ"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-075",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T11:50:52.517Z",
+      "timestamp": "2026-03-14 12:50 GMT+1",
+      "body": "Rumor-control read: the apparent catalyst still looks more social than operational. That keeps the signal vetoed for now.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Neutral",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Rumor control",
+        "Procurement headlines",
+        "Evidence quality"
+      ],
+      "confidence": 0.78,
+      "mappedAssets": [
+        "QQQ"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-auto-076",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T10:51:52.517Z",
+      "timestamp": "2026-03-14 11:51 GMT+1",
+      "body": "Fresh export-language read: the latest language still looks narrower than the market feared on AI compute. The cleanest read-through still lands on accelerators and upstream semi demand.",
+      "actionable": true,
+      "claimType": "Debunk / clarification",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.81,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-077",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-14T10:21:52.517Z",
+      "timestamp": "2026-03-14 11:21 GMT+1",
+      "body": "Operator read: usage conversations are improving faster than procurement conversion. Good tone, not decisive evidence.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Copilots",
+        "Workflow adoption",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.69,
+      "mappedAssets": [
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-078",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T09:51:52.517Z",
+      "timestamp": "2026-03-14 10:51 GMT+1",
+      "body": "Tape read: the market is rewarding AI infrastructure breadth more than it is punishing valuation right now. If the regime holds, accelerator-linked names stay first in line.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.72,
+      "mappedAssets": [
+        "NVDA",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-079",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-14T08:52:52.517Z",
+      "timestamp": "2026-03-14 09:52 GMT+1",
+      "body": "Positioning update: risk appetite helps, though the clean spot-led setup is still missing. That keeps BTC closer to HOLD than BUY.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Spot demand",
+        "Derivatives positioning",
+        "Volatility"
+      ],
+      "confidence": 0.61,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-080",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T08:22:52.517Z",
+      "timestamp": "2026-03-14 09:22 GMT+1",
+      "body": "Cross-asset read: software is participating, but it still trails semis in signal clarity. Macro confirmation helps, but it still cannot originate a single-name BUY on its own.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Copilots",
+        "Workflow adoption",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.68,
+      "mappedAssets": [
+        "MSFT",
+        "QQQ"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-081",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T07:23:52.517Z",
+      "timestamp": "2026-03-14 08:23 GMT+1",
+      "body": "Regime check: risk appetite is broad enough to confirm continuation but still concentrated enough to favor sector-specific bets. This is confirmation, not origination, but it still matters for the policy engine.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.75,
+      "mappedAssets": [
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-082",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T06:53:52.517Z",
+      "timestamp": "2026-03-14 07:53 GMT+1",
+      "body": "Leadership check: QQQ is being helped by the same risk bid, although single-name mapping remains mixed. The regime is friendly; the evidence is still partial.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "Monetization"
+      ],
+      "confidence": 0.7,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-083",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-14T06:23:52.517Z",
+      "timestamp": "2026-03-14 07:23 GMT+1",
+      "body": "ODM chatter: liquid-cooled rack parts are not behaving like a market preparing for a demand air pocket. That keeps the semi slowdown narrative looking early.",
+      "actionable": true,
+      "claimType": "Channel check",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.8,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-084",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T05:24:52.517Z",
+      "timestamp": "2026-03-14 06:24 GMT+1",
+      "body": "Liquidity lens: BTC is still getting help from the same liquidity impulse lifting AI beta. Macro helps, but crypto still has the strictest evidence threshold in this product.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "BTC",
+        "Liquidity",
+        "Risk appetite"
+      ],
+      "confidence": 0.7,
+      "mappedAssets": [
+        "BTC",
+        "QQQ"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-085",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T04:54:52.517Z",
+      "timestamp": "2026-03-14 05:54 GMT+1",
+      "body": "Verification note: the circulating policy headline is running ahead of what is actually confirmed. Treat it as noise until the paper trail improves.",
+      "actionable": false,
+      "claimType": "Policy interpretation",
+      "direction": "Neutral",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Rumor control",
+        "Procurement headlines",
+        "Evidence quality"
+      ],
+      "confidence": 0.74,
+      "mappedAssets": [
+        "AMD"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-auto-086",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-14T03:55:52.517Z",
+      "timestamp": "2026-03-14 04:55 GMT+1",
+      "body": "Board-check note: server assembly cadence still points to firm accelerator demand into next month. The cleanest read-through remains NVDA, TSM, and SOXX.",
+      "actionable": true,
+      "claimType": "Supply chain read",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.76,
+      "mappedAssets": [
+        "NVDA",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-087",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-14T03:25:52.517Z",
+      "timestamp": "2026-03-14 04:25 GMT+1",
+      "body": "Enterprise check: interest is broadening, even if deployment decisions are still uneven. That keeps Microsoft on HOLD-to-BUY watch rather than clean BUY today.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Software demand",
+        "Budget review",
+        "Platform usage"
+      ],
+      "confidence": 0.65,
+      "mappedAssets": [
+        "MSFT"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-088",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T02:55:52.517Z",
+      "timestamp": "2026-03-14 03:55 GMT+1",
+      "body": "Fresh export-language read: the latest language still looks narrower than the market feared on AI compute. The cleanest read-through still lands on accelerators and upstream semi demand.",
+      "actionable": true,
+      "claimType": "Debunk / clarification",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.79,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-089",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-14T01:56:52.517Z",
+      "timestamp": "2026-03-14 02:56 GMT+1",
+      "body": "Desk note: BTC is participating in the risk bid, even if leverage is doing too much of the talking. Good tape, mixed signal quality.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Spot demand",
+        "Derivatives positioning",
+        "Volatility"
+      ],
+      "confidence": 0.64,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-090",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-14T01:26:52.517Z",
+      "timestamp": "2026-03-14 02:26 GMT+1",
+      "body": "Leadership check: QQQ is being helped by the same risk bid, although single-name mapping remains mixed. The regime is friendly; the evidence is still partial.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Software demand",
+        "Budget review",
+        "Platform usage"
+      ],
+      "confidence": 0.71,
+      "mappedAssets": [
+        "MSFT",
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-091",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T00:27:52.517Z",
+      "timestamp": "2026-03-14 01:27 GMT+1",
+      "body": "Procurement takeaway: headline risk remains, but the operative restriction path is still tighter than the rumor mill suggests. That keeps NVIDIA and the semi basket skewed to continuation over retrace.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "AI accelerators",
+        "Hyperscaler capex",
+        "Demand resilience"
+      ],
+      "confidence": 0.82,
+      "mappedAssets": [
+        "NVDA",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-092",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-13T23:57:52.517Z",
+      "timestamp": "2026-03-14 00:57 GMT+1",
+      "body": "Cross-asset read: software is participating, but it still trails semis in signal clarity. Macro confirmation helps, but it still cannot originate a single-name BUY on its own.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Copilots",
+        "Workflow adoption",
+        "ROI scrutiny"
+      ],
+      "confidence": 0.66,
+      "mappedAssets": [
+        "MSFT",
+        "QQQ"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-093",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-13T22:58:52.517Z",
+      "timestamp": "2026-03-13 23:58 GMT+1",
+      "body": "Regime check: risk appetite is broad enough to confirm continuation but still concentrated enough to favor sector-specific bets. This is confirmation, not origination, but it still matters for the policy engine.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.73,
+      "mappedAssets": [
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-094",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-13T22:28:52.517Z",
+      "timestamp": "2026-03-13 23:28 GMT+1",
+      "body": "Macro spillover: the macro tailwind exists, though it cannot override crowded derivatives on its own. The signal survives, but it does not clear the aggressive bar.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "BTC",
+        "Liquidity",
+        "Risk appetite"
+      ],
+      "confidence": 0.66,
+      "mappedAssets": [
+        "BTC",
+        "QQQ"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-095",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-13T21:58:52.517Z",
+      "timestamp": "2026-03-13 22:58 GMT+1",
+      "body": "Rumor-control read: the apparent catalyst still looks more social than operational. That keeps the signal vetoed for now.",
+      "actionable": true,
+      "claimType": "Policy interpretation",
+      "direction": "Neutral",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Rumor control",
+        "Procurement headlines",
+        "Evidence quality"
+      ],
+      "confidence": 0.77,
+      "mappedAssets": [
+        "AMD",
+        "QQQ"
+      ],
+      "clusterId": "cluster-policy-noise"
+    },
+    {
+      "id": "post-auto-096",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-13T20:59:52.517Z",
+      "timestamp": "2026-03-13 21:59 GMT+1",
+      "body": "Market context: semis are still leading the growth complex without a rates shock getting in the way. Broad tech works, but semis still have the cleaner social plus market setup.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Infrastructure demand",
+        "Semis leadership",
+        "Data center buildout"
+      ],
+      "confidence": 0.76,
+      "mappedAssets": [
+        "NVDA",
+        "TSM",
+        "SOXX"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-097",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-13T20:29:52.517Z",
+      "timestamp": "2026-03-13 21:29 GMT+1",
+      "body": "Operator read: usage conversations are improving faster than procurement conversion. Good tone, not decisive evidence.",
+      "actionable": true,
+      "claimType": "Operator commentary",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "Monetization"
+      ],
+      "confidence": 0.68,
+      "mappedAssets": [
+        "META"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    },
+    {
+      "id": "post-auto-098",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-13T19:30:52.517Z",
+      "timestamp": "2026-03-13 20:30 GMT+1",
+      "body": "Board-check note: server assembly cadence still points to firm accelerator demand into next month. The cleanest read-through remains NVDA, TSM, and SOXX.",
+      "actionable": true,
+      "claimType": "Supply chain read",
+      "direction": "Bullish",
+      "explicitness": "Explicit",
+      "themes": [
+        "AI racks",
+        "Supply chain",
+        "Semiconductor orders"
+      ],
+      "confidence": 0.81,
+      "mappedAssets": [
+        "NVDA",
+        "QQQ"
+      ],
+      "clusterId": "cluster-accelerators"
+    },
+    {
+      "id": "post-auto-099",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-13T19:00:52.517Z",
+      "timestamp": "2026-03-13 20:00 GMT+1",
+      "body": "Positioning update: risk appetite helps, though the clean spot-led setup is still missing. That keeps BTC closer to HOLD than BUY.",
+      "actionable": true,
+      "claimType": "Market desk note",
+      "direction": "Mixed",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Spot demand",
+        "Derivatives positioning",
+        "Volatility"
+      ],
+      "confidence": 0.6,
+      "mappedAssets": [
+        "BTC"
+      ],
+      "clusterId": "cluster-crypto-risk"
+    },
+    {
+      "id": "post-auto-100",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-13T18:30:52.517Z",
+      "timestamp": "2026-03-13 19:30 GMT+1",
+      "body": "Cross-asset read: software is participating, but it still trails semis in signal clarity. Macro confirmation helps, but it still cannot originate a single-name BUY on its own.",
+      "actionable": true,
+      "claimType": "Macro context",
+      "direction": "Bullish",
+      "explicitness": "Interpretive",
+      "themes": [
+        "Enterprise AI",
+        "Seat expansion",
+        "Monetization"
+      ],
+      "confidence": 0.67,
+      "mappedAssets": [
+        "MSFT",
+        "QQQ"
+      ],
+      "clusterId": "cluster-enterprise-ai"
+    }
+  ]
+}

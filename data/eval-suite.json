@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "suiteName": "default-claim-eval-suite",
+  "gates": {
+    "minimumAverageScore": 0.95,
+    "minimumExactMatchRate": 0.9,
+    "minimumPerFieldAccuracy": {
+      "clusterId": 0.95,
+      "claimType": 0.95,
+      "direction": 0.9,
+      "actionable": 0.95,
+      "mappedAssets": 0.9
+    }
+  },
+  "cases": [
+    {
+      "id": "eval-001",
+      "label": "Policy rumor should downgrade to noise",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-16T08:10:00+01:00",
+      "body": "A hearing headline is moving fast, but there is no confirmed proposal that changes current procurement policy. Most of the urgency looks narrative-driven, not operational.",
+      "expected": {
+        "clusterId": "cluster-policy-noise",
+        "claimType": "Debunk / clarification",
+        "direction": "Neutral",
+        "actionable": false,
+        "mappedAssets": ["AMD", "QQQ"]
+      }
+    },
+    {
+      "id": "eval-002",
+      "label": "Channel check should map to accelerator cluster",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-16T07:42:00+01:00",
+      "body": "Board checks still point to hyperscalers pulling forward AI rack deployments into next quarter. That keeps upstream semi orders tighter than the market narrative implies.",
+      "expected": {
+        "clusterId": "cluster-accelerators",
+        "claimType": "Channel check",
+        "direction": "Bullish",
+        "actionable": true,
+        "mappedAssets": ["NVDA", "TSM", "SOXX"]
+      }
+    },
+    {
+      "id": "eval-003",
+      "label": "Enterprise AI commentary should stay mixed",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-15T23:11:00+01:00",
+      "body": "Enterprise buyers are talking AI copilots again, but budget owners still want proof of ROI before expanding seats. Demand tone is better, conversion is still lumpy.",
+      "expected": {
+        "clusterId": "cluster-enterprise-ai",
+        "claimType": "Operator commentary",
+        "direction": "Mixed",
+        "actionable": true,
+        "mappedAssets": ["MSFT", "META", "QQQ"]
+      }
+    },
+    {
+      "id": "eval-004",
+      "label": "Crypto desk note should remain cautious",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-16T09:02:00+01:00",
+      "body": "BTC is catching some of the same liquidity bid as AI beta, but derivatives positioning is no longer clean. Good backdrop, messy trigger.",
+      "expected": {
+        "clusterId": "cluster-crypto-risk",
+        "claimType": "Market desk note",
+        "direction": "Mixed",
+        "actionable": true,
+        "mappedAssets": ["BTC"]
+      }
+    },
+    {
+      "id": "eval-005",
+      "label": "Macro semis context should confirm accelerators",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T06:35:00+01:00",
+      "body": "Rates are not the story this week. Risk appetite is broadening and semis are leading again; that's a better backdrop for continuation than for fading strength.",
+      "expected": {
+        "clusterId": "cluster-accelerators",
+        "claimType": "Macro context",
+        "direction": "Bullish",
+        "actionable": true
+      }
+    },
+    {
+      "id": "eval-006",
+      "label": "Supply chain tightness should map to infrastructure",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-16T05:58:00+01:00",
+      "body": "Supply chain chatter still says liquid-cooled AI rack components are tight. That is usually not what you see when capex appetite is about to roll over.",
+      "expected": {
+        "clusterId": "cluster-accelerators",
+        "claimType": "Supply chain read",
+        "actionable": true,
+        "mappedAssets": ["NVDA", "TSM", "SOXX"]
+      }
+    },
+    {
+      "id": "eval-007",
+      "label": "Verification without paper trail should be not actionable",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-14T16:22:00+01:00",
+      "body": "The loud procurement rumor going around X still has no attached draft language or committee backing. Treat the move as narrative until evidence appears.",
+      "expected": {
+        "clusterId": "cluster-policy-noise",
+        "claimType": "Debunk / clarification",
+        "direction": "Neutral",
+        "actionable": false
+      }
+    },
+    {
+      "id": "eval-008",
+      "label": "Operator tone improvement should not force buy",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-14T14:33:00+01:00",
+      "body": "Plenty of AI demo energy, but most enterprise buyers are still separating workflow value from showpiece features. Good for attention, not enough for a clean BUY on its own.",
+      "expected": {
+        "clusterId": "cluster-enterprise-ai",
+        "claimType": "Operator commentary",
+        "direction": "Mixed",
+        "actionable": true
+      }
+    },
+    {
+      "id": "eval-009",
+      "label": "Spot demand with loud perps should remain crypto risk",
+      "sourceId": "src-chainpulse",
+      "createdAt": "2026-03-15T21:07:00+01:00",
+      "body": "Spot demand is fine, but perp positioning is getting louder than the underlying flow. That usually keeps me from upgrading BTC from constructive to aggressive.",
+      "expected": {
+        "clusterId": "cluster-crypto-risk",
+        "claimType": "Market desk note",
+        "direction": "Mixed",
+        "mappedAssets": ["BTC"]
+      }
+    },
+    {
+      "id": "eval-010",
+      "label": "Growth rotation note should stay broad and mixed",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-15T09:46:00+01:00",
+      "body": "If growth leadership keeps rotating back toward software without a rates scare, QQQ stays supported, but semis still have the cleaner social-signal setup.",
+      "expected": {
+        "clusterId": "cluster-accelerators",
+        "claimType": "Macro context",
+        "direction": "Mixed",
+        "actionable": true,
+        "mappedAssets": ["SOXX", "QQQ"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,175 @@
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+
+const DATABASE_PATH = fileURLToPath(new URL("../data/x-ticker.sqlite", import.meta.url));
+
+let database = null;
+
+function ensureDirectory() {
+  mkdirSync(dirname(DATABASE_PATH), { recursive: true });
+}
+
+function initializeSchema(db) {
+  db.exec(`
+    PRAGMA busy_timeout = 5000;
+    PRAGMA foreign_keys = ON;
+
+    CREATE TABLE IF NOT EXISTS metadata (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sources (
+      id TEXT PRIMARY KEY,
+      handle TEXT NOT NULL UNIQUE,
+      updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sources_handle
+      ON sources(handle);
+
+    CREATE TABLE IF NOT EXISTS tweets (
+      id TEXT PRIMARY KEY,
+      source_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tweets_created_at
+      ON tweets(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_tweets_source_id
+      ON tweets(source_id);
+
+    CREATE TABLE IF NOT EXISTS extraction_cache (
+      fingerprint TEXT PRIMARY KEY,
+      prompt_version TEXT NOT NULL,
+      model TEXT NOT NULL,
+      post_id TEXT,
+      source_id TEXT,
+      cached_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_extraction_cache_post_id
+      ON extraction_cache(post_id);
+
+    CREATE TABLE IF NOT EXISTS pipeline_runs (
+      id TEXT PRIMARY KEY,
+      generated_at TEXT NOT NULL,
+      dependency_key TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pipeline_runs_generated_at
+      ON pipeline_runs(generated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS decision_history (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      generated_at TEXT NOT NULL,
+      asset TEXT NOT NULL,
+      action TEXT NOT NULL,
+      outcome_state TEXT NOT NULL,
+      last_updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_decision_history_generated_at
+      ON decision_history(generated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_decision_history_asset
+      ON decision_history(asset);
+
+    CREATE TABLE IF NOT EXISTS eval_runs (
+      id TEXT PRIMARY KEY,
+      generated_at TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      gate_passed INTEGER NOT NULL DEFAULT 1,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_eval_runs_generated_at
+      ON eval_runs(generated_at DESC);
+  `);
+}
+
+export function getDatabase() {
+  if (database) {
+    return database;
+  }
+
+  ensureDirectory();
+  database = new DatabaseSync(DATABASE_PATH);
+  initializeSchema(database);
+  return database;
+}
+
+export function parseJsonColumn(value, fallbackValue) {
+  try {
+    return value ? JSON.parse(value) : fallbackValue;
+  } catch (_error) {
+    return fallbackValue;
+  }
+}
+
+export function writeMetadata(key, value) {
+  const db = getDatabase();
+  db.prepare(
+    `
+      INSERT INTO metadata(key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `
+  ).run(String(key), String(value ?? ""));
+}
+
+export function writeMetadataEntries(entries) {
+  const db = getDatabase();
+  db.exec("BEGIN");
+
+  try {
+    const statement = db.prepare(
+      `
+        INSERT INTO metadata(key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `
+    );
+
+    for (const [key, value] of Object.entries(entries)) {
+      statement.run(String(key), String(value ?? ""));
+    }
+
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function readMetadata(key, fallbackValue = "") {
+  const db = getDatabase();
+  const row = db.prepare("SELECT value FROM metadata WHERE key = ?").get(String(key));
+  return row?.value ?? fallbackValue;
+}
+
+export function readMetadataJson(key, fallbackValue = null) {
+  return parseJsonColumn(readMetadata(key, ""), fallbackValue);
+}
+
+export function tableHasRows(tableName) {
+  const db = getDatabase();
+  const row = db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get();
+  return Number(row?.count || 0) > 0;
+}
+
+export function getDatabasePath() {
+  return DATABASE_PATH;
+}

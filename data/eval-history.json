@@ -1,0 +1,2051 @@
+{
+  "version": 1,
+  "updatedAt": "2026-03-17T07:48:59.772Z",
+  "latestRunId": "eval-1773733739771",
+  "runs": [
+    {
+      "id": "eval-1773733739771",
+      "generatedAt": "2026-03-17T07:48:59.757Z",
+      "trigger": "cli",
+      "suiteName": "default-claim-eval-suite",
+      "promptVersion": "heuristic-baseline",
+      "extractor": {
+        "requestedMode": "heuristic",
+        "activeMode": "heuristic",
+        "provider": "heuristic-fallback",
+        "model": "",
+        "cacheHits": 0,
+        "liveExtractions": 0,
+        "cacheWrites": 0,
+        "fallbackCount": 10
+      },
+      "summary": {
+        "averageScore": 1,
+        "exactMatchRate": 1,
+        "caseCount": 10,
+        "exactMatchCount": 10,
+        "perFieldAccuracy": {
+          "clusterId": 1,
+          "claimType": 1,
+          "direction": 1,
+          "actionable": 1,
+          "mappedAssets": 1
+        },
+        "deltaVsPreviousAverageScore": 0,
+        "deltaVsPreviousExactMatchRate": 0
+      },
+      "failedCases": [],
+      "warnings": [],
+      "cases": [
+        {
+          "id": "eval-001",
+          "label": "Policy rumor should downgrade to noise",
+          "sourceId": "src-policywire",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-policy-noise",
+              "actual": "cluster-policy-noise",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Debunk / clarification",
+              "actual": "Debunk / clarification",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Neutral",
+              "actual": "Neutral",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": false,
+              "actual": false,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "AMD",
+                "QQQ"
+              ],
+              "actual": [
+                "AMD",
+                "QQQ"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-001",
+            "sourceId": "src-policywire",
+            "createdAt": "2026-03-16T08:10:00+01:00",
+            "timestamp": "2026-03-16 08:10 GMT+1",
+            "body": "A hearing headline is moving fast, but there is no confirmed proposal that changes current procurement policy. Most of the urgency looks narrative-driven, not operational.",
+            "actionable": false,
+            "claimType": "Debunk / clarification",
+            "direction": "Neutral",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Policy noise",
+              "Verification",
+              "Narrative reset"
+            ],
+            "confidence": 0.81,
+            "mappedAssets": [
+              "AMD",
+              "QQQ"
+            ],
+            "clusterId": "cluster-policy-noise",
+            "agentTrace": {
+              "clusterId": "cluster-policy-noise",
+              "sourceReliability": 0.89,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-001",
+            "sourceId": "src-policywire",
+            "createdAt": "2026-03-16T08:10:00+01:00",
+            "timestamp": "2026-03-16 08:10 GMT+1",
+            "body": "A hearing headline is moving fast, but there is no confirmed proposal that changes current procurement policy. Most of the urgency looks narrative-driven, not operational.",
+            "actionable": false,
+            "claimType": "Debunk / clarification",
+            "direction": "Neutral",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Policy noise",
+              "Verification",
+              "Narrative reset"
+            ],
+            "confidence": 0.81,
+            "mappedAssets": [
+              "AMD",
+              "QQQ"
+            ],
+            "clusterId": "cluster-policy-noise",
+            "agentTrace": {
+              "clusterId": "cluster-policy-noise",
+              "sourceReliability": 0.89,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-002",
+          "label": "Channel check should map to accelerator cluster",
+          "sourceId": "src-semiflow",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-accelerators",
+              "actual": "cluster-accelerators",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Channel check",
+              "actual": "Channel check",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Bullish",
+              "actual": "Bullish",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "NVDA",
+                "TSM",
+                "SOXX"
+              ],
+              "actual": [
+                "NVDA",
+                "TSM",
+                "SOXX"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-002",
+            "sourceId": "src-semiflow",
+            "createdAt": "2026-03-16T07:42:00+01:00",
+            "timestamp": "2026-03-16 07:42 GMT+1",
+            "body": "Board checks still point to hyperscalers pulling forward AI rack deployments into next quarter. That keeps upstream semi orders tighter than the market narrative implies.",
+            "actionable": true,
+            "claimType": "Channel check",
+            "direction": "Bullish",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Hyperscaler capex",
+              "Data center buildout"
+            ],
+            "confidence": 0.91,
+            "mappedAssets": [
+              "NVDA",
+              "TSM",
+              "SOXX"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.83,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-002",
+            "sourceId": "src-semiflow",
+            "createdAt": "2026-03-16T07:42:00+01:00",
+            "timestamp": "2026-03-16 07:42 GMT+1",
+            "body": "Board checks still point to hyperscalers pulling forward AI rack deployments into next quarter. That keeps upstream semi orders tighter than the market narrative implies.",
+            "actionable": true,
+            "claimType": "Channel check",
+            "direction": "Bullish",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Hyperscaler capex",
+              "Data center buildout"
+            ],
+            "confidence": 0.91,
+            "mappedAssets": [
+              "NVDA",
+              "TSM",
+              "SOXX"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.83,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-003",
+          "label": "Enterprise AI commentary should stay mixed",
+          "sourceId": "src-builderalpha",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-enterprise-ai",
+              "actual": "cluster-enterprise-ai",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Operator commentary",
+              "actual": "Operator commentary",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "MSFT",
+                "META",
+                "QQQ"
+              ],
+              "actual": [
+                "MSFT",
+                "META",
+                "QQQ"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-003",
+            "sourceId": "src-builderalpha",
+            "createdAt": "2026-03-15T23:11:00+01:00",
+            "timestamp": "2026-03-15 23:11 GMT+1",
+            "body": "Enterprise buyers are talking AI copilots again, but budget owners still want proof of ROI before expanding seats. Demand tone is better, conversion is still lumpy.",
+            "actionable": true,
+            "claimType": "Operator commentary",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "Enterprise AI",
+              "Monetization",
+              "Workflow adoption"
+            ],
+            "confidence": 0.91,
+            "mappedAssets": [
+              "MSFT",
+              "META",
+              "QQQ"
+            ],
+            "clusterId": "cluster-enterprise-ai",
+            "agentTrace": {
+              "clusterId": "cluster-enterprise-ai",
+              "sourceReliability": 0.71,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-003",
+            "sourceId": "src-builderalpha",
+            "createdAt": "2026-03-15T23:11:00+01:00",
+            "timestamp": "2026-03-15 23:11 GMT+1",
+            "body": "Enterprise buyers are talking AI copilots again, but budget owners still want proof of ROI before expanding seats. Demand tone is better, conversion is still lumpy.",
+            "actionable": true,
+            "claimType": "Operator commentary",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "Enterprise AI",
+              "Monetization",
+              "Workflow adoption"
+            ],
+            "confidence": 0.91,
+            "mappedAssets": [
+              "MSFT",
+              "META",
+              "QQQ"
+            ],
+            "clusterId": "cluster-enterprise-ai",
+            "agentTrace": {
+              "clusterId": "cluster-enterprise-ai",
+              "sourceReliability": 0.71,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-004",
+          "label": "Crypto desk note should remain cautious",
+          "sourceId": "src-chainpulse",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-crypto-risk",
+              "actual": "cluster-crypto-risk",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Market desk note",
+              "actual": "Market desk note",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "BTC"
+              ],
+              "actual": [
+                "BTC"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-004",
+            "sourceId": "src-chainpulse",
+            "createdAt": "2026-03-16T09:02:00+01:00",
+            "timestamp": "2026-03-16 09:02 GMT+1",
+            "body": "BTC is catching some of the same liquidity bid as AI beta, but derivatives positioning is no longer clean. Good backdrop, messy trigger.",
+            "actionable": true,
+            "claimType": "Market desk note",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "BTC",
+              "Liquidity",
+              "Derivatives positioning"
+            ],
+            "confidence": 0.85,
+            "mappedAssets": [
+              "BTC"
+            ],
+            "clusterId": "cluster-crypto-risk",
+            "agentTrace": {
+              "clusterId": "cluster-crypto-risk",
+              "sourceReliability": 0.68,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-004",
+            "sourceId": "src-chainpulse",
+            "createdAt": "2026-03-16T09:02:00+01:00",
+            "timestamp": "2026-03-16 09:02 GMT+1",
+            "body": "BTC is catching some of the same liquidity bid as AI beta, but derivatives positioning is no longer clean. Good backdrop, messy trigger.",
+            "actionable": true,
+            "claimType": "Market desk note",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "BTC",
+              "Liquidity",
+              "Derivatives positioning"
+            ],
+            "confidence": 0.85,
+            "mappedAssets": [
+              "BTC"
+            ],
+            "clusterId": "cluster-crypto-risk",
+            "agentTrace": {
+              "clusterId": "cluster-crypto-risk",
+              "sourceReliability": 0.68,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-005",
+          "label": "Macro semis context should confirm accelerators",
+          "sourceId": "src-macrolens",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-accelerators",
+              "actual": "cluster-accelerators",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Macro context",
+              "actual": "Macro context",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Bullish",
+              "actual": "Bullish",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-005",
+            "sourceId": "src-macrolens",
+            "createdAt": "2026-03-16T06:35:00+01:00",
+            "timestamp": "2026-03-16 06:35 GMT+1",
+            "body": "Rates are not the story this week. Risk appetite is broadening and semis are leading again; that's a better backdrop for continuation than for fading strength.",
+            "actionable": true,
+            "claimType": "Macro context",
+            "direction": "Bullish",
+            "explicitness": "Explicit",
+            "themes": [
+              "AI accelerators",
+              "Hyperscaler capex",
+              "Supply chain"
+            ],
+            "confidence": 0.89,
+            "mappedAssets": [
+              "SOXX",
+              "QQQ"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.76,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-005",
+            "sourceId": "src-macrolens",
+            "createdAt": "2026-03-16T06:35:00+01:00",
+            "timestamp": "2026-03-16 06:35 GMT+1",
+            "body": "Rates are not the story this week. Risk appetite is broadening and semis are leading again; that's a better backdrop for continuation than for fading strength.",
+            "actionable": true,
+            "claimType": "Macro context",
+            "direction": "Bullish",
+            "explicitness": "Explicit",
+            "themes": [
+              "AI accelerators",
+              "Hyperscaler capex",
+              "Supply chain"
+            ],
+            "confidence": 0.89,
+            "mappedAssets": [
+              "SOXX",
+              "QQQ"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.76,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-006",
+          "label": "Supply chain tightness should map to infrastructure",
+          "sourceId": "src-semiflow",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-accelerators",
+              "actual": "cluster-accelerators",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Supply chain read",
+              "actual": "Supply chain read",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "NVDA",
+                "TSM",
+                "SOXX"
+              ],
+              "actual": [
+                "NVDA",
+                "TSM",
+                "SOXX"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-006",
+            "sourceId": "src-semiflow",
+            "createdAt": "2026-03-16T05:58:00+01:00",
+            "timestamp": "2026-03-16 05:58 GMT+1",
+            "body": "Supply chain chatter still says liquid-cooled AI rack components are tight. That is usually not what you see when capex appetite is about to roll over.",
+            "actionable": true,
+            "claimType": "Supply chain read",
+            "direction": "Mixed",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Hyperscaler capex",
+              "Supply chain",
+              "Data center buildout"
+            ],
+            "confidence": 0.87,
+            "mappedAssets": [
+              "NVDA",
+              "TSM",
+              "SOXX"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.83,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-006",
+            "sourceId": "src-semiflow",
+            "createdAt": "2026-03-16T05:58:00+01:00",
+            "timestamp": "2026-03-16 05:58 GMT+1",
+            "body": "Supply chain chatter still says liquid-cooled AI rack components are tight. That is usually not what you see when capex appetite is about to roll over.",
+            "actionable": true,
+            "claimType": "Supply chain read",
+            "direction": "Mixed",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Hyperscaler capex",
+              "Supply chain",
+              "Data center buildout"
+            ],
+            "confidence": 0.87,
+            "mappedAssets": [
+              "NVDA",
+              "TSM",
+              "SOXX"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.83,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-007",
+          "label": "Verification without paper trail should be not actionable",
+          "sourceId": "src-policywire",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-policy-noise",
+              "actual": "cluster-policy-noise",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Debunk / clarification",
+              "actual": "Debunk / clarification",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Neutral",
+              "actual": "Neutral",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": false,
+              "actual": false,
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-007",
+            "sourceId": "src-policywire",
+            "createdAt": "2026-03-14T16:22:00+01:00",
+            "timestamp": "2026-03-14 16:22 GMT+1",
+            "body": "The loud procurement rumor going around X still has no attached draft language or committee backing. Treat the move as narrative until evidence appears.",
+            "actionable": false,
+            "claimType": "Debunk / clarification",
+            "direction": "Neutral",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Verification",
+              "Narrative reset",
+              "Procurement headlines"
+            ],
+            "confidence": 0.76,
+            "mappedAssets": [
+              "AMD",
+              "QQQ"
+            ],
+            "clusterId": "cluster-policy-noise",
+            "agentTrace": {
+              "clusterId": "cluster-policy-noise",
+              "sourceReliability": 0.89,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-007",
+            "sourceId": "src-policywire",
+            "createdAt": "2026-03-14T16:22:00+01:00",
+            "timestamp": "2026-03-14 16:22 GMT+1",
+            "body": "The loud procurement rumor going around X still has no attached draft language or committee backing. Treat the move as narrative until evidence appears.",
+            "actionable": false,
+            "claimType": "Debunk / clarification",
+            "direction": "Neutral",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Verification",
+              "Narrative reset",
+              "Procurement headlines"
+            ],
+            "confidence": 0.76,
+            "mappedAssets": [
+              "AMD",
+              "QQQ"
+            ],
+            "clusterId": "cluster-policy-noise",
+            "agentTrace": {
+              "clusterId": "cluster-policy-noise",
+              "sourceReliability": 0.89,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-008",
+          "label": "Operator tone improvement should not force buy",
+          "sourceId": "src-builderalpha",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-enterprise-ai",
+              "actual": "cluster-enterprise-ai",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Operator commentary",
+              "actual": "Operator commentary",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-008",
+            "sourceId": "src-builderalpha",
+            "createdAt": "2026-03-14T14:33:00+01:00",
+            "timestamp": "2026-03-14 14:33 GMT+1",
+            "body": "Plenty of AI demo energy, but most enterprise buyers are still separating workflow value from showpiece features. Good for attention, not enough for a clean BUY on its own.",
+            "actionable": true,
+            "claimType": "Operator commentary",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "Enterprise AI",
+              "Workflow adoption",
+              "Software demand"
+            ],
+            "confidence": 0.83,
+            "mappedAssets": [
+              "MSFT",
+              "META",
+              "QQQ"
+            ],
+            "clusterId": "cluster-enterprise-ai",
+            "agentTrace": {
+              "clusterId": "cluster-enterprise-ai",
+              "sourceReliability": 0.71,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-008",
+            "sourceId": "src-builderalpha",
+            "createdAt": "2026-03-14T14:33:00+01:00",
+            "timestamp": "2026-03-14 14:33 GMT+1",
+            "body": "Plenty of AI demo energy, but most enterprise buyers are still separating workflow value from showpiece features. Good for attention, not enough for a clean BUY on its own.",
+            "actionable": true,
+            "claimType": "Operator commentary",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "Enterprise AI",
+              "Workflow adoption",
+              "Software demand"
+            ],
+            "confidence": 0.83,
+            "mappedAssets": [
+              "MSFT",
+              "META",
+              "QQQ"
+            ],
+            "clusterId": "cluster-enterprise-ai",
+            "agentTrace": {
+              "clusterId": "cluster-enterprise-ai",
+              "sourceReliability": 0.71,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-009",
+          "label": "Spot demand with loud perps should remain crypto risk",
+          "sourceId": "src-chainpulse",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-crypto-risk",
+              "actual": "cluster-crypto-risk",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Market desk note",
+              "actual": "Market desk note",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "BTC"
+              ],
+              "actual": [
+                "BTC"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-009",
+            "sourceId": "src-chainpulse",
+            "createdAt": "2026-03-15T21:07:00+01:00",
+            "timestamp": "2026-03-15 21:07 GMT+1",
+            "body": "Spot demand is fine, but perp positioning is getting louder than the underlying flow. That usually keeps me from upgrading BTC from constructive to aggressive.",
+            "actionable": true,
+            "claimType": "Market desk note",
+            "direction": "Mixed",
+            "explicitness": "Interpretive",
+            "themes": [
+              "BTC",
+              "Liquidity",
+              "Derivatives positioning"
+            ],
+            "confidence": 0.82,
+            "mappedAssets": [
+              "BTC"
+            ],
+            "clusterId": "cluster-crypto-risk",
+            "agentTrace": {
+              "clusterId": "cluster-crypto-risk",
+              "sourceReliability": 0.68,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-009",
+            "sourceId": "src-chainpulse",
+            "createdAt": "2026-03-15T21:07:00+01:00",
+            "timestamp": "2026-03-15 21:07 GMT+1",
+            "body": "Spot demand is fine, but perp positioning is getting louder than the underlying flow. That usually keeps me from upgrading BTC from constructive to aggressive.",
+            "actionable": true,
+            "claimType": "Market desk note",
+            "direction": "Mixed",
+            "explicitness": "Interpretive",
+            "themes": [
+              "BTC",
+              "Liquidity",
+              "Derivatives positioning"
+            ],
+            "confidence": 0.82,
+            "mappedAssets": [
+              "BTC"
+            ],
+            "clusterId": "cluster-crypto-risk",
+            "agentTrace": {
+              "clusterId": "cluster-crypto-risk",
+              "sourceReliability": 0.68,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-010",
+          "label": "Growth rotation note should stay broad and mixed",
+          "sourceId": "src-macrolens",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-accelerators",
+              "actual": "cluster-accelerators",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Macro context",
+              "actual": "Macro context",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "SOXX",
+                "QQQ"
+              ],
+              "actual": [
+                "SOXX",
+                "QQQ"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-010",
+            "sourceId": "src-macrolens",
+            "createdAt": "2026-03-15T09:46:00+01:00",
+            "timestamp": "2026-03-15 09:46 GMT+1",
+            "body": "If growth leadership keeps rotating back toward software without a rates scare, QQQ stays supported, but semis still have the cleaner social-signal setup.",
+            "actionable": true,
+            "claimType": "Macro context",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "AI accelerators",
+              "Hyperscaler capex",
+              "Supply chain"
+            ],
+            "confidence": 0.82,
+            "mappedAssets": [
+              "SOXX",
+              "QQQ"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.76,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-010",
+            "sourceId": "src-macrolens",
+            "createdAt": "2026-03-15T09:46:00+01:00",
+            "timestamp": "2026-03-15 09:46 GMT+1",
+            "body": "If growth leadership keeps rotating back toward software without a rates scare, QQQ stays supported, but semis still have the cleaner social-signal setup.",
+            "actionable": true,
+            "claimType": "Macro context",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "AI accelerators",
+              "Hyperscaler capex",
+              "Supply chain"
+            ],
+            "confidence": 0.82,
+            "mappedAssets": [
+              "SOXX",
+              "QQQ"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.76,
+              "extractedAt": "2026-03-17T07:48:59.757Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "eval-1773733007649",
+      "generatedAt": "2026-03-17T07:36:47.635Z",
+      "trigger": "cli",
+      "suiteName": "default-claim-eval-suite",
+      "promptVersion": "heuristic-baseline",
+      "extractor": {
+        "requestedMode": "heuristic",
+        "activeMode": "heuristic",
+        "provider": "heuristic-fallback",
+        "model": "",
+        "cacheHits": 0,
+        "liveExtractions": 0,
+        "cacheWrites": 0,
+        "fallbackCount": 10
+      },
+      "summary": {
+        "averageScore": 1,
+        "exactMatchRate": 1,
+        "caseCount": 10,
+        "exactMatchCount": 10,
+        "perFieldAccuracy": {
+          "clusterId": 1,
+          "claimType": 1,
+          "direction": 1,
+          "actionable": 1,
+          "mappedAssets": 1
+        },
+        "deltaVsPreviousAverageScore": null,
+        "deltaVsPreviousExactMatchRate": null
+      },
+      "failedCases": [],
+      "warnings": [],
+      "cases": [
+        {
+          "id": "eval-001",
+          "label": "Policy rumor should downgrade to noise",
+          "sourceId": "src-policywire",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-policy-noise",
+              "actual": "cluster-policy-noise",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Debunk / clarification",
+              "actual": "Debunk / clarification",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Neutral",
+              "actual": "Neutral",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": false,
+              "actual": false,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "AMD",
+                "QQQ"
+              ],
+              "actual": [
+                "AMD",
+                "QQQ"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-001",
+            "sourceId": "src-policywire",
+            "createdAt": "2026-03-16T08:10:00+01:00",
+            "timestamp": "2026-03-16 08:10 GMT+1",
+            "body": "A hearing headline is moving fast, but there is no confirmed proposal that changes current procurement policy. Most of the urgency looks narrative-driven, not operational.",
+            "actionable": false,
+            "claimType": "Debunk / clarification",
+            "direction": "Neutral",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Policy noise",
+              "Verification",
+              "Narrative reset"
+            ],
+            "confidence": 0.81,
+            "mappedAssets": [
+              "AMD",
+              "QQQ"
+            ],
+            "clusterId": "cluster-policy-noise",
+            "agentTrace": {
+              "clusterId": "cluster-policy-noise",
+              "sourceReliability": 0.89,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-001",
+            "sourceId": "src-policywire",
+            "createdAt": "2026-03-16T08:10:00+01:00",
+            "timestamp": "2026-03-16 08:10 GMT+1",
+            "body": "A hearing headline is moving fast, but there is no confirmed proposal that changes current procurement policy. Most of the urgency looks narrative-driven, not operational.",
+            "actionable": false,
+            "claimType": "Debunk / clarification",
+            "direction": "Neutral",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Policy noise",
+              "Verification",
+              "Narrative reset"
+            ],
+            "confidence": 0.81,
+            "mappedAssets": [
+              "AMD",
+              "QQQ"
+            ],
+            "clusterId": "cluster-policy-noise",
+            "agentTrace": {
+              "clusterId": "cluster-policy-noise",
+              "sourceReliability": 0.89,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-002",
+          "label": "Channel check should map to accelerator cluster",
+          "sourceId": "src-semiflow",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-accelerators",
+              "actual": "cluster-accelerators",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Channel check",
+              "actual": "Channel check",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Bullish",
+              "actual": "Bullish",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "NVDA",
+                "TSM",
+                "SOXX"
+              ],
+              "actual": [
+                "NVDA",
+                "TSM",
+                "SOXX"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-002",
+            "sourceId": "src-semiflow",
+            "createdAt": "2026-03-16T07:42:00+01:00",
+            "timestamp": "2026-03-16 07:42 GMT+1",
+            "body": "Board checks still point to hyperscalers pulling forward AI rack deployments into next quarter. That keeps upstream semi orders tighter than the market narrative implies.",
+            "actionable": true,
+            "claimType": "Channel check",
+            "direction": "Bullish",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Hyperscaler capex",
+              "Data center buildout"
+            ],
+            "confidence": 0.91,
+            "mappedAssets": [
+              "NVDA",
+              "TSM",
+              "SOXX"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.83,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-002",
+            "sourceId": "src-semiflow",
+            "createdAt": "2026-03-16T07:42:00+01:00",
+            "timestamp": "2026-03-16 07:42 GMT+1",
+            "body": "Board checks still point to hyperscalers pulling forward AI rack deployments into next quarter. That keeps upstream semi orders tighter than the market narrative implies.",
+            "actionable": true,
+            "claimType": "Channel check",
+            "direction": "Bullish",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Hyperscaler capex",
+              "Data center buildout"
+            ],
+            "confidence": 0.91,
+            "mappedAssets": [
+              "NVDA",
+              "TSM",
+              "SOXX"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.83,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-003",
+          "label": "Enterprise AI commentary should stay mixed",
+          "sourceId": "src-builderalpha",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-enterprise-ai",
+              "actual": "cluster-enterprise-ai",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Operator commentary",
+              "actual": "Operator commentary",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "MSFT",
+                "META",
+                "QQQ"
+              ],
+              "actual": [
+                "MSFT",
+                "META",
+                "QQQ"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-003",
+            "sourceId": "src-builderalpha",
+            "createdAt": "2026-03-15T23:11:00+01:00",
+            "timestamp": "2026-03-15 23:11 GMT+1",
+            "body": "Enterprise buyers are talking AI copilots again, but budget owners still want proof of ROI before expanding seats. Demand tone is better, conversion is still lumpy.",
+            "actionable": true,
+            "claimType": "Operator commentary",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "Enterprise AI",
+              "Monetization",
+              "Workflow adoption"
+            ],
+            "confidence": 0.91,
+            "mappedAssets": [
+              "MSFT",
+              "META",
+              "QQQ"
+            ],
+            "clusterId": "cluster-enterprise-ai",
+            "agentTrace": {
+              "clusterId": "cluster-enterprise-ai",
+              "sourceReliability": 0.71,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-003",
+            "sourceId": "src-builderalpha",
+            "createdAt": "2026-03-15T23:11:00+01:00",
+            "timestamp": "2026-03-15 23:11 GMT+1",
+            "body": "Enterprise buyers are talking AI copilots again, but budget owners still want proof of ROI before expanding seats. Demand tone is better, conversion is still lumpy.",
+            "actionable": true,
+            "claimType": "Operator commentary",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "Enterprise AI",
+              "Monetization",
+              "Workflow adoption"
+            ],
+            "confidence": 0.91,
+            "mappedAssets": [
+              "MSFT",
+              "META",
+              "QQQ"
+            ],
+            "clusterId": "cluster-enterprise-ai",
+            "agentTrace": {
+              "clusterId": "cluster-enterprise-ai",
+              "sourceReliability": 0.71,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-004",
+          "label": "Crypto desk note should remain cautious",
+          "sourceId": "src-chainpulse",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-crypto-risk",
+              "actual": "cluster-crypto-risk",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Market desk note",
+              "actual": "Market desk note",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "BTC"
+              ],
+              "actual": [
+                "BTC"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-004",
+            "sourceId": "src-chainpulse",
+            "createdAt": "2026-03-16T09:02:00+01:00",
+            "timestamp": "2026-03-16 09:02 GMT+1",
+            "body": "BTC is catching some of the same liquidity bid as AI beta, but derivatives positioning is no longer clean. Good backdrop, messy trigger.",
+            "actionable": true,
+            "claimType": "Market desk note",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "BTC",
+              "Liquidity",
+              "Derivatives positioning"
+            ],
+            "confidence": 0.85,
+            "mappedAssets": [
+              "BTC"
+            ],
+            "clusterId": "cluster-crypto-risk",
+            "agentTrace": {
+              "clusterId": "cluster-crypto-risk",
+              "sourceReliability": 0.68,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-004",
+            "sourceId": "src-chainpulse",
+            "createdAt": "2026-03-16T09:02:00+01:00",
+            "timestamp": "2026-03-16 09:02 GMT+1",
+            "body": "BTC is catching some of the same liquidity bid as AI beta, but derivatives positioning is no longer clean. Good backdrop, messy trigger.",
+            "actionable": true,
+            "claimType": "Market desk note",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "BTC",
+              "Liquidity",
+              "Derivatives positioning"
+            ],
+            "confidence": 0.85,
+            "mappedAssets": [
+              "BTC"
+            ],
+            "clusterId": "cluster-crypto-risk",
+            "agentTrace": {
+              "clusterId": "cluster-crypto-risk",
+              "sourceReliability": 0.68,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-005",
+          "label": "Macro semis context should confirm accelerators",
+          "sourceId": "src-macrolens",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-accelerators",
+              "actual": "cluster-accelerators",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Macro context",
+              "actual": "Macro context",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Bullish",
+              "actual": "Bullish",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-005",
+            "sourceId": "src-macrolens",
+            "createdAt": "2026-03-16T06:35:00+01:00",
+            "timestamp": "2026-03-16 06:35 GMT+1",
+            "body": "Rates are not the story this week. Risk appetite is broadening and semis are leading again; that's a better backdrop for continuation than for fading strength.",
+            "actionable": true,
+            "claimType": "Macro context",
+            "direction": "Bullish",
+            "explicitness": "Explicit",
+            "themes": [
+              "AI accelerators",
+              "Hyperscaler capex",
+              "Supply chain"
+            ],
+            "confidence": 0.89,
+            "mappedAssets": [
+              "SOXX",
+              "QQQ"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.76,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-005",
+            "sourceId": "src-macrolens",
+            "createdAt": "2026-03-16T06:35:00+01:00",
+            "timestamp": "2026-03-16 06:35 GMT+1",
+            "body": "Rates are not the story this week. Risk appetite is broadening and semis are leading again; that's a better backdrop for continuation than for fading strength.",
+            "actionable": true,
+            "claimType": "Macro context",
+            "direction": "Bullish",
+            "explicitness": "Explicit",
+            "themes": [
+              "AI accelerators",
+              "Hyperscaler capex",
+              "Supply chain"
+            ],
+            "confidence": 0.89,
+            "mappedAssets": [
+              "SOXX",
+              "QQQ"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.76,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-006",
+          "label": "Supply chain tightness should map to infrastructure",
+          "sourceId": "src-semiflow",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-accelerators",
+              "actual": "cluster-accelerators",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Supply chain read",
+              "actual": "Supply chain read",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "NVDA",
+                "TSM",
+                "SOXX"
+              ],
+              "actual": [
+                "NVDA",
+                "TSM",
+                "SOXX"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-006",
+            "sourceId": "src-semiflow",
+            "createdAt": "2026-03-16T05:58:00+01:00",
+            "timestamp": "2026-03-16 05:58 GMT+1",
+            "body": "Supply chain chatter still says liquid-cooled AI rack components are tight. That is usually not what you see when capex appetite is about to roll over.",
+            "actionable": true,
+            "claimType": "Supply chain read",
+            "direction": "Mixed",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Hyperscaler capex",
+              "Supply chain",
+              "Data center buildout"
+            ],
+            "confidence": 0.87,
+            "mappedAssets": [
+              "NVDA",
+              "TSM",
+              "SOXX"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.83,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-006",
+            "sourceId": "src-semiflow",
+            "createdAt": "2026-03-16T05:58:00+01:00",
+            "timestamp": "2026-03-16 05:58 GMT+1",
+            "body": "Supply chain chatter still says liquid-cooled AI rack components are tight. That is usually not what you see when capex appetite is about to roll over.",
+            "actionable": true,
+            "claimType": "Supply chain read",
+            "direction": "Mixed",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Hyperscaler capex",
+              "Supply chain",
+              "Data center buildout"
+            ],
+            "confidence": 0.87,
+            "mappedAssets": [
+              "NVDA",
+              "TSM",
+              "SOXX"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.83,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-007",
+          "label": "Verification without paper trail should be not actionable",
+          "sourceId": "src-policywire",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-policy-noise",
+              "actual": "cluster-policy-noise",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Debunk / clarification",
+              "actual": "Debunk / clarification",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Neutral",
+              "actual": "Neutral",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": false,
+              "actual": false,
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-007",
+            "sourceId": "src-policywire",
+            "createdAt": "2026-03-14T16:22:00+01:00",
+            "timestamp": "2026-03-14 16:22 GMT+1",
+            "body": "The loud procurement rumor going around X still has no attached draft language or committee backing. Treat the move as narrative until evidence appears.",
+            "actionable": false,
+            "claimType": "Debunk / clarification",
+            "direction": "Neutral",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Verification",
+              "Narrative reset",
+              "Procurement headlines"
+            ],
+            "confidence": 0.76,
+            "mappedAssets": [
+              "AMD",
+              "QQQ"
+            ],
+            "clusterId": "cluster-policy-noise",
+            "agentTrace": {
+              "clusterId": "cluster-policy-noise",
+              "sourceReliability": 0.89,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-007",
+            "sourceId": "src-policywire",
+            "createdAt": "2026-03-14T16:22:00+01:00",
+            "timestamp": "2026-03-14 16:22 GMT+1",
+            "body": "The loud procurement rumor going around X still has no attached draft language or committee backing. Treat the move as narrative until evidence appears.",
+            "actionable": false,
+            "claimType": "Debunk / clarification",
+            "direction": "Neutral",
+            "explicitness": "Interpretive",
+            "themes": [
+              "Verification",
+              "Narrative reset",
+              "Procurement headlines"
+            ],
+            "confidence": 0.76,
+            "mappedAssets": [
+              "AMD",
+              "QQQ"
+            ],
+            "clusterId": "cluster-policy-noise",
+            "agentTrace": {
+              "clusterId": "cluster-policy-noise",
+              "sourceReliability": 0.89,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-008",
+          "label": "Operator tone improvement should not force buy",
+          "sourceId": "src-builderalpha",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-enterprise-ai",
+              "actual": "cluster-enterprise-ai",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Operator commentary",
+              "actual": "Operator commentary",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-008",
+            "sourceId": "src-builderalpha",
+            "createdAt": "2026-03-14T14:33:00+01:00",
+            "timestamp": "2026-03-14 14:33 GMT+1",
+            "body": "Plenty of AI demo energy, but most enterprise buyers are still separating workflow value from showpiece features. Good for attention, not enough for a clean BUY on its own.",
+            "actionable": true,
+            "claimType": "Operator commentary",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "Enterprise AI",
+              "Workflow adoption",
+              "Software demand"
+            ],
+            "confidence": 0.83,
+            "mappedAssets": [
+              "MSFT",
+              "META",
+              "QQQ"
+            ],
+            "clusterId": "cluster-enterprise-ai",
+            "agentTrace": {
+              "clusterId": "cluster-enterprise-ai",
+              "sourceReliability": 0.71,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-008",
+            "sourceId": "src-builderalpha",
+            "createdAt": "2026-03-14T14:33:00+01:00",
+            "timestamp": "2026-03-14 14:33 GMT+1",
+            "body": "Plenty of AI demo energy, but most enterprise buyers are still separating workflow value from showpiece features. Good for attention, not enough for a clean BUY on its own.",
+            "actionable": true,
+            "claimType": "Operator commentary",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "Enterprise AI",
+              "Workflow adoption",
+              "Software demand"
+            ],
+            "confidence": 0.83,
+            "mappedAssets": [
+              "MSFT",
+              "META",
+              "QQQ"
+            ],
+            "clusterId": "cluster-enterprise-ai",
+            "agentTrace": {
+              "clusterId": "cluster-enterprise-ai",
+              "sourceReliability": 0.71,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-009",
+          "label": "Spot demand with loud perps should remain crypto risk",
+          "sourceId": "src-chainpulse",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-crypto-risk",
+              "actual": "cluster-crypto-risk",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Market desk note",
+              "actual": "Market desk note",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "BTC"
+              ],
+              "actual": [
+                "BTC"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-009",
+            "sourceId": "src-chainpulse",
+            "createdAt": "2026-03-15T21:07:00+01:00",
+            "timestamp": "2026-03-15 21:07 GMT+1",
+            "body": "Spot demand is fine, but perp positioning is getting louder than the underlying flow. That usually keeps me from upgrading BTC from constructive to aggressive.",
+            "actionable": true,
+            "claimType": "Market desk note",
+            "direction": "Mixed",
+            "explicitness": "Interpretive",
+            "themes": [
+              "BTC",
+              "Liquidity",
+              "Derivatives positioning"
+            ],
+            "confidence": 0.82,
+            "mappedAssets": [
+              "BTC"
+            ],
+            "clusterId": "cluster-crypto-risk",
+            "agentTrace": {
+              "clusterId": "cluster-crypto-risk",
+              "sourceReliability": 0.68,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-009",
+            "sourceId": "src-chainpulse",
+            "createdAt": "2026-03-15T21:07:00+01:00",
+            "timestamp": "2026-03-15 21:07 GMT+1",
+            "body": "Spot demand is fine, but perp positioning is getting louder than the underlying flow. That usually keeps me from upgrading BTC from constructive to aggressive.",
+            "actionable": true,
+            "claimType": "Market desk note",
+            "direction": "Mixed",
+            "explicitness": "Interpretive",
+            "themes": [
+              "BTC",
+              "Liquidity",
+              "Derivatives positioning"
+            ],
+            "confidence": 0.82,
+            "mappedAssets": [
+              "BTC"
+            ],
+            "clusterId": "cluster-crypto-risk",
+            "agentTrace": {
+              "clusterId": "cluster-crypto-risk",
+              "sourceReliability": 0.68,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        },
+        {
+          "id": "eval-010",
+          "label": "Growth rotation note should stay broad and mixed",
+          "sourceId": "src-macrolens",
+          "matched": true,
+          "score": 1,
+          "fields": [
+            {
+              "field": "clusterId",
+              "expected": "cluster-accelerators",
+              "actual": "cluster-accelerators",
+              "matched": true
+            },
+            {
+              "field": "claimType",
+              "expected": "Macro context",
+              "actual": "Macro context",
+              "matched": true
+            },
+            {
+              "field": "direction",
+              "expected": "Mixed",
+              "actual": "Mixed",
+              "matched": true
+            },
+            {
+              "field": "actionable",
+              "expected": true,
+              "actual": true,
+              "matched": true
+            },
+            {
+              "field": "mappedAssets",
+              "expected": [
+                "SOXX",
+                "QQQ"
+              ],
+              "actual": [
+                "SOXX",
+                "QQQ"
+              ],
+              "matched": true
+            }
+          ],
+          "actual": {
+            "id": "eval-010",
+            "sourceId": "src-macrolens",
+            "createdAt": "2026-03-15T09:46:00+01:00",
+            "timestamp": "2026-03-15 09:46 GMT+1",
+            "body": "If growth leadership keeps rotating back toward software without a rates scare, QQQ stays supported, but semis still have the cleaner social-signal setup.",
+            "actionable": true,
+            "claimType": "Macro context",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "AI accelerators",
+              "Hyperscaler capex",
+              "Supply chain"
+            ],
+            "confidence": 0.82,
+            "mappedAssets": [
+              "SOXX",
+              "QQQ"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.76,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          },
+          "heuristicBaseline": {
+            "id": "eval-010",
+            "sourceId": "src-macrolens",
+            "createdAt": "2026-03-15T09:46:00+01:00",
+            "timestamp": "2026-03-15 09:46 GMT+1",
+            "body": "If growth leadership keeps rotating back toward software without a rates scare, QQQ stays supported, but semis still have the cleaner social-signal setup.",
+            "actionable": true,
+            "claimType": "Macro context",
+            "direction": "Mixed",
+            "explicitness": "Explicit",
+            "themes": [
+              "AI accelerators",
+              "Hyperscaler capex",
+              "Supply chain"
+            ],
+            "confidence": 0.82,
+            "mappedAssets": [
+              "SOXX",
+              "QQQ"
+            ],
+            "clusterId": "cluster-accelerators",
+            "agentTrace": {
+              "clusterId": "cluster-accelerators",
+              "sourceReliability": 0.76,
+              "extractedAt": "2026-03-17T07:36:47.635Z",
+              "extractorMode": "heuristic",
+              "extractionNote": ""
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
