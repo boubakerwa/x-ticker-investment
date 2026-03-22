@@ -4,10 +4,10 @@ This guide covers the manual steps you need to complete on your side to turn the
 
 ## What is already implemented in the app
 
-- a manual inbox that lets you paste real posts, links, or notes and immediately rerun the pipeline
-- a live X timeline adapter that can pull recent posts from the configured source handles once you provide an X bearer token
-- a portfolio-first Today view driven by your saved holdings and watchlist
-- quick holdings import from pasted CSV / TSV / semicolon exports
+- a structured `Portfolio` setup flow for entering holdings, cash context, liabilities, pensions, and insurance products
+- a manual `Signals` inbox that lets you paste real posts, links, or notes and immediately rerun the pipeline
+- a portfolio-first `Overview` page driven by your saved holdings and watchlist
+- a focused `Advisor` workspace for questions once your profile is in place
 - Telegram-ready daily digests and pipeline alerts
 
 ## Local quickstart
@@ -24,14 +24,15 @@ cp .env.example .env
 npm start
 ```
 
-3. Open the app, go to `Advisor`, and do the minimum useful setup:
-- add your holdings or paste a holdings export into the quick-import box
-- add a small watchlist of names you care about
-- save the profile
+3. Open the app and complete the `Portfolio` tab:
+- `Profile`: add your name, investing horizon, goals, and a small watchlist
+- `Cash & Cover`: add monthly income, expenses, emergency fund, liabilities, and any long-term products such as private `Rentenversicherung`, `bAV`, or insurance wrappers
+- `Assets`: add the holdings you actually own through the form UI
+- save the portfolio
 
-4. Go to `Operator` and either:
-- paste manual posts into the Manual inbox, or
-- finish the X API setup below and switch `FEED_PROVIDER` to `x-api`
+4. Go to `Signals` and paste a few real posts or notes into the manual feed form.
+
+5. Run the pipeline, then return to `Overview` to review the queue.
 
 ## Manual X API setup
 
@@ -53,7 +54,7 @@ X_API_MAX_RESULTS_PER_SOURCE=8
 
 5. Keep the source handles in the app’s source registry aligned with the real X usernames you want to monitor.
 6. Restart the server after changing `.env`.
-7. In the app, go to `Operator` and click `Run pipeline`.
+7. In the app, go to `Operations` and click `Run pipeline`.
 
 ### Notes
 
@@ -85,14 +86,14 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 ```
 
 6. Restart the server after changing `.env`.
-7. In the app, go to `Operator` and click `Test notification`.
+7. In the app, go to `Operations` and click `Test notification`.
 8. If that works, click `Send digest` to verify the daily digest format.
 
 ## Recommended first-use workflow
 
-1. Save your profile and watchlist.
-2. Import a few real posts through the manual inbox to validate the flow before trusting the live X sync.
-3. Enable the X API feed once the manual inbox results look sensible.
+1. Complete the `Portfolio` tab with your real holdings, liabilities, and any pension or insurance products that matter for decision-making.
+2. Use `Signals` to import a few real posts and validate the flow before trusting live X sync.
+3. Enable the X API feed once the manual signal flow looks sensible.
 4. Enable Telegram only after the digest content feels right.
 
 ## Optional local-model setup

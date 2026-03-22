@@ -152,6 +152,7 @@ const state = {
 
 const app = document.querySelector("#app");
 const actionFilters = ["ALL", "BUY", "HOLD", "SELL"];
+const ADVANCED_VIEWS = ["admin", "assets", "sources", "logs", "docs"];
 const docsPrinciples = [
   {
     title: "Bounded agents, not free-form autonomy",
@@ -188,6 +189,8 @@ const getHistory = () => getData().history || EMPTY_DATA.history;
 const getEvaluation = () => getData().evaluation || EMPTY_DATA.evaluation;
 const getAdvisor = () => getData().advisor || EMPTY_DATA.advisor;
 const getRuntime = () => getData().runtime || EMPTY_DATA.runtime;
+const isAdvancedView = (view = state.view) => ADVANCED_VIEWS.includes(view);
+const getPrimaryView = (view = state.view) => (isAdvancedView(view) ? "workspace" : view);
 const formatPercent = (value) => `${Math.round(value * 100)}%`;
 const formatScorePercent = (value) => `${Math.round((value || 0) * 100)}%`;
 const formatSignedReturn = (value) =>
@@ -284,91 +287,6 @@ function buildTrackedPortfolioAnalytics(profile = getAdvisor().financialProfile 
   };
 }
 
-function parseDelimitedGrid(rawValue, delimiter) {
-  return String(rawValue || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.split(delimiter).map((item) => item.trim()));
-}
-
-function parseLooseNumber(value) {
-  const normalizedValue = String(value || "")
-    .replace(/[€$£,\s]/g, "")
-    .trim();
-  const numericValue = Number(normalizedValue);
-
-  return Number.isFinite(numericValue) ? numericValue : 0;
-}
-
-function detectTabularDelimiter(sampleLine) {
-  if ((sampleLine.match(/\t/g) || []).length > 0) {
-    return "\t";
-  }
-
-  if ((sampleLine.match(/;/g) || []).length > 0) {
-    return ";";
-  }
-
-  return ",";
-}
-
-function parseHoldingsImport(rawValue) {
-  const trimmedValue = String(rawValue || "").trim();
-
-  if (!trimmedValue) {
-    return [];
-  }
-
-  const lines = trimmedValue.split("\n").map((line) => line.trim()).filter(Boolean);
-
-  if (!lines.length) {
-    return [];
-  }
-
-  const delimiter = detectTabularDelimiter(lines[0]);
-  const rows = parseDelimitedGrid(trimmedValue, delimiter);
-  const header = rows[0].map((value) => value.toLowerCase().replace(/[^a-z]+/g, ""));
-  const hasHeader = header.some((value) =>
-    ["ticker", "symbol", "value", "currentvalue", "account", "costbasis", "notes"].includes(value)
-  );
-  const dataRows = hasHeader ? rows.slice(1) : rows;
-
-  return dataRows
-    .map((parts) => {
-      if (!parts.length) {
-        return null;
-      }
-
-      if (!hasHeader) {
-        return {
-          ticker: normalizeTicker(parts[0]),
-          category: parts[1] || "Imported holding",
-          currentValue: parseLooseNumber(parts[2]),
-          costBasis: parseLooseNumber(parts[3]),
-          accountType: parts[4] || "Brokerage",
-          notes: parts[5] || ""
-        };
-      }
-
-      const row = {};
-
-      header.forEach((key, index) => {
-        row[key] = parts[index] || "";
-      });
-
-      return {
-        ticker: normalizeTicker(row.ticker || row.symbol || row.asset || row.security),
-        category: row.category || row.assettype || row.type || "Imported holding",
-        currentValue: parseLooseNumber(row.currentvalue || row.value || row.marketvalue),
-        costBasis: parseLooseNumber(row.costbasis || row.avgcost || row.bookvalue),
-        accountType: row.account || row.accounttype || row.wrapper || "Brokerage",
-        notes: row.notes || row.comment || row.name || ""
-      };
-    })
-    .filter((item) => item && item.ticker);
-}
-
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -388,54 +306,6 @@ function getSourceBeingEdited() {
 
 function getLatestAdvisorAnswer() {
   return state.advisorAnswer || getAdvisor().history[0] || null;
-}
-
-function serializeHoldings(holdings) {
-  return (holdings || [])
-    .map(
-      (holding) =>
-        [
-          holding.ticker || "",
-          holding.category || "",
-          holding.currentValue ?? "",
-          holding.costBasis ?? "",
-          holding.accountType || "",
-          holding.notes || ""
-        ].join("|")
-    )
-    .join("\n");
-}
-
-function serializeLiabilities(liabilities) {
-  return (liabilities || [])
-    .map(
-      (liability) =>
-        [
-          liability.label || "",
-          liability.category || "",
-          liability.balance ?? "",
-          liability.interestRate ?? "",
-          liability.monthlyPayment ?? "",
-          liability.notes || ""
-        ].join("|")
-    )
-    .join("\n");
-}
-
-function serializeRetirementProducts(retirementProducts) {
-  return (retirementProducts || [])
-    .map(
-      (product) =>
-        [
-          product.label || "",
-          product.type || "",
-          product.provider || "",
-          product.currentValue ?? "",
-          product.monthlyContribution ?? "",
-          product.notes || ""
-        ].join("|")
-    )
-    .join("\n");
 }
 
 function formatCurrency(value) {
@@ -485,14 +355,213 @@ function getProfileDocumentDraft() {
   return state.profileDocumentDraft;
 }
 
+function getDefaultProfileCollectionItem(collection) {
+  if (collection === "holdings") {
+    return {
+      ticker: "",
+      category: "Stock",
+      currentValue: "",
+      costBasis: "",
+      accountType: "Brokerage",
+      notes: "",
+      label: ""
+    };
+  }
+
+  if (collection === "retirementProducts") {
+    return {
+      label: "",
+      type: "Private Rentenversicherung",
+      provider: "",
+      currentValue: "",
+      monthlyContribution: "",
+      notes: ""
+    };
+  }
+
+  if (collection === "liabilities") {
+    return {
+      label: "",
+      category: "Mortgage",
+      balance: "",
+      interestRate: "",
+      monthlyPayment: "",
+      notes: ""
+    };
+  }
+
+  return {};
+}
+
+function addProfileCollectionItem(collection) {
+  const profileDraft = getProfileDraft();
+  const currentItems = Array.isArray(profileDraft[collection]) ? profileDraft[collection] : [];
+  profileDraft[collection] = [...currentItems, getDefaultProfileCollectionItem(collection)];
+  render();
+}
+
+function removeProfileCollectionItem(collection, index) {
+  const profileDraft = getProfileDraft();
+  profileDraft[collection] = (profileDraft[collection] || []).filter((_, itemIndex) => itemIndex !== Number(index));
+  render();
+}
+
+function updateProfileCollectionItem(collection, index, field, value) {
+  const profileDraft = getProfileDraft();
+  const currentItems = Array.isArray(profileDraft[collection]) ? [...profileDraft[collection]] : [];
+  const itemIndex = Number(index);
+  const nextItem = {
+    ...getDefaultProfileCollectionItem(collection),
+    ...(currentItems[itemIndex] || {})
+  };
+  const numericFields = new Set([
+    "currentValue",
+    "costBasis",
+    "balance",
+    "interestRate",
+    "monthlyPayment",
+    "monthlyContribution"
+  ]);
+
+  nextItem[field] =
+    collection === "holdings" && field === "ticker"
+      ? normalizeTicker(value)
+      : numericFields.has(field)
+        ? Number(value || 0)
+        : value;
+
+  if (collection === "holdings" && field === "ticker" && !nextItem.label) {
+    nextItem.label = nextItem.ticker || "Holding";
+  }
+
+  currentItems[itemIndex] = nextItem;
+  profileDraft[collection] = currentItems;
+}
+
+function syncProfileCollectionFields(form) {
+  if (!form?.querySelectorAll) {
+    return;
+  }
+
+  form.querySelectorAll("[data-profile-item-field]").forEach((input) => {
+    updateProfileCollectionItem(
+      input.dataset.collection,
+      input.dataset.index,
+      input.dataset.field,
+      input.value
+    );
+  });
+}
+
+function getProfileCollectionCardTitle(collection, item, index, title) {
+  if (collection === "holdings") {
+    return item.ticker || item.notes || `Holding ${index + 1}`;
+  }
+
+  if (collection === "retirementProducts") {
+    return item.label || item.provider || item.type || `${title} ${index + 1}`;
+  }
+
+  if (collection === "liabilities") {
+    return item.label || item.category || `${title} ${index + 1}`;
+  }
+
+  return item.label || item.ticker || item.provider || item.category || `${title} ${index + 1}`;
+}
+
+function renderProfileCollectionField(collection, index, item, field) {
+  const baseAttributes = `data-profile-item-field data-collection="${collection}" data-index="${index}" data-field="${field.key}"`;
+  const value = item[field.key] ?? "";
+
+  if (field.type === "select") {
+    return `
+      <label class="form-field">
+        <span>${field.label}</span>
+        <select ${baseAttributes}>
+          ${field.options
+            .map(
+              (option) => `
+                <option value="${escapeHtml(option)}" ${option === value ? "selected" : ""}>${escapeHtml(option)}</option>
+              `
+            )
+            .join("")}
+        </select>
+      </label>
+    `;
+  }
+
+  if (field.type === "textarea") {
+    return `
+      <label class="form-field collection-field-full">
+        <span>${field.label}</span>
+        <textarea rows="${field.rows || 3}" ${baseAttributes} placeholder="${escapeHtml(field.placeholder || "")}">${escapeHtml(value)}</textarea>
+      </label>
+    `;
+  }
+
+  return `
+    <label class="form-field">
+      <span>${field.label}</span>
+      <input
+        type="${field.type === "number" ? "number" : "text"}"
+        ${field.type === "number" ? 'step="0.01"' : ""}
+        ${baseAttributes}
+        value="${escapeHtml(value)}"
+        placeholder="${escapeHtml(field.placeholder || "")}"
+      />
+    </label>
+  `;
+}
+
+function renderProfileCollectionSection({ collection, title, copy, addLabel, emptyCopy, fields }) {
+  const items = getProfileDraft()[collection] || [];
+
+  return `
+    <section class="profile-collection-section">
+      <div class="office-panel-head">
+        <div>
+          <h3>${title}</h3>
+          <p class="section-copy">${copy}</p>
+        </div>
+        <button class="mini-chip" type="button" data-add-profile-item="${collection}">${addLabel}</button>
+      </div>
+      ${
+        items.length
+          ? `
+            <div class="profile-collection-list">
+              ${items
+                .map(
+                  (item, index) => `
+                    <article class="profile-collection-card">
+                      <div class="profile-collection-card-head">
+                        <strong>${escapeHtml(getProfileCollectionCardTitle(collection, item, index, title))}</strong>
+                        <button class="mini-chip" type="button" data-remove-profile-item="${collection}:${index}">Remove</button>
+                      </div>
+                      <div class="profile-collection-grid">
+                        ${fields.map((field) => renderProfileCollectionField(collection, index, item, field)).join("")}
+                      </div>
+                    </article>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+          : `<article class="status-inline"><strong>No entries yet</strong><p>${emptyCopy}</p></article>`
+      }
+    </section>
+  `;
+}
+
 function setProfileOnboardingStep(nextStep) {
-  state.profileOnboardingStep = Math.max(0, Math.min(5, Number(nextStep) || 0));
+  state.profileOnboardingStep = Math.max(0, Math.min(2, Number(nextStep) || 0));
 }
 
 function hydrateProfileDraftFromForm(form) {
   if (!form) {
     return getProfileDraft();
   }
+
+  syncProfileCollectionFields(form);
 
   const profileDraft = {
     ...getProfileDraft()
@@ -1492,6 +1561,31 @@ function attachListeners() {
     });
   });
 
+  document.querySelectorAll("[data-add-profile-item]").forEach((button) => {
+    button.addEventListener("click", () => {
+      hydrateProfileDraftFromForm(button.closest("form"));
+      addProfileCollectionItem(button.dataset.addProfileItem);
+    });
+  });
+
+  document.querySelectorAll("[data-remove-profile-item]").forEach((button) => {
+    button.addEventListener("click", () => {
+      hydrateProfileDraftFromForm(button.closest("form"));
+      const [collection, index] = String(button.dataset.removeProfileItem || "").split(":");
+      removeProfileCollectionItem(collection, index);
+    });
+  });
+
+  document.querySelectorAll("[data-profile-item-field]").forEach((input) => {
+    input.addEventListener("input", () => {
+      updateProfileCollectionItem(input.dataset.collection, input.dataset.index, input.dataset.field, input.value);
+    });
+
+    input.addEventListener("change", () => {
+      updateProfileCollectionItem(input.dataset.collection, input.dataset.index, input.dataset.field, input.value);
+    });
+  });
+
   document.querySelectorAll("[data-profile-documents]").forEach((input) => {
     input.addEventListener("change", () => {
       const existingDraft = getProfileDocumentDraft();
@@ -1517,28 +1611,6 @@ function attachListeners() {
     button.addEventListener("click", () => {
       state.profileDocumentDraft = getProfileDocumentDraft().filter((item) => item.id !== button.dataset.removeDocument);
       getProfileDraft().documents = state.profileDocumentDraft;
-      render();
-    });
-  });
-
-  document.querySelectorAll("[data-import-holdings]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const form = button.closest("form");
-      const importField = form?.querySelector("[name='holdingsImport']");
-      const importedHoldings = parseHoldingsImport(importField?.value || "");
-
-      hydrateProfileDraftFromForm(form);
-
-      if (!importedHoldings.length) {
-        state.advisorError = "Paste at least one holding row before importing.";
-        state.advisorNotice = "";
-        render();
-        return;
-      }
-
-      getProfileDraft().holdings = importedHoldings;
-      state.advisorNotice = `Imported ${importedHoldings.length} holdings from the pasted table.`;
-      state.advisorError = "";
       render();
     });
   });
@@ -1583,8 +1655,8 @@ function renderStatusBanner() {
       <section class="section-card status-banner">
         <div>
           <span class="eyebrow">Refreshing</span>
-          <h3>Pulling the latest local fake-API snapshot</h3>
-          <p>The current UI stays visible while the app reloads the persisted tweet feed and snapshot data.</p>
+          <h3>Pulling the latest local snapshot</h3>
+          <p>The current view stays visible while the app reloads the stored feed and decision data.</p>
         </div>
       </section>
     `;
@@ -1599,13 +1671,13 @@ function renderLoading() {
       <section class="hero-panel">
         <div>
           <span class="eyebrow">Loading</span>
-          <h2>Pulling the operator snapshot from the local agent engine.</h2>
-          <p>The UI now waits for the persisted tweet feed, the local API, and the server-side claim-to-decision runtime before hydrating.</p>
+          <h2>Pulling the latest local brief.</h2>
+          <p>The app is waiting for the stored feed, the latest pipeline snapshot, and your saved profile context.</p>
         </div>
         <div class="hero-decision">
           <span class="pill pill-muted">Engine mode</span>
           <strong>Request in flight</strong>
-          <p>Once the snapshot lands, the dashboard, asset pages, source registry, and operator runtime will hydrate automatically.</p>
+          <p>Once the snapshot lands, the brief, setup flow, advisor, and workspace will all hydrate automatically.</p>
         </div>
       </section>
       <section class="loading-shell">
@@ -1654,46 +1726,58 @@ function renderStatCards() {
 }
 
 function renderNav() {
-  const { monitoredUniverse, sources } = getData();
-  const history = getHistory();
-  const items = [
-    ["dashboard", "Today"],
-    ["advisor", "Advisor"],
-    ["admin", "Operator"],
-    ["docs", "Docs"],
-    ["assets", "Asset View"],
-    ["sources", "Source Registry"],
-    ["logs", "Run History"]
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const metadata = getData().metadata || EMPTY_DATA.metadata;
+  const feedMode = getFeedMode();
+  const setupState = buildSingleUserSetupState(profile);
+  const trackedAssets = buildTrackedPortfolioAnalytics(profile).trackedAssets.length;
+  const primaryItems = [
+    ["dashboard", "Overview", trackedAssets || "0"],
+    ["setup", "Portfolio", `${profile.holdings.length} holdings`],
+    ["signals", "Signals", `${getRecentAnalysedPosts().length} posts`],
+    ["advisor", "Advisor", getAdvisor().history.length || "0"],
+    [isAdvancedView() ? state.view : "admin", "Operations", getHistory().runs.length || "0"]
   ];
+  const activePrimary = state.view === "signals" ? "signals" : getPrimaryView();
 
   return `
-    <nav class="side-nav">
-      <div class="brand-block">
-        <p class="brand-kicker">X-Ticker Investment</p>
-        <h1>Explainable social-signal investing for a narrow AI/tech universe.</h1>
-        <p class="brand-copy">
-          Bounded agents interpret social signals; deterministic policy and veto layers make the call.
-        </p>
+    <header class="office-header">
+      <div class="office-titlebar">
+        <div>
+          <p class="brand-kicker">Local investment desk</p>
+          <h1>X Ticker Investment</h1>
+        </div>
+        <div class="office-meta">
+          <div class="office-meta-item">
+            <span>Updated</span>
+            <strong>${formatGeneratedAt(metadata.generatedAt)}</strong>
+          </div>
+          <div class="office-meta-item">
+            <span>Feed</span>
+            <strong>${formatEnumLabel(feedMode)}</strong>
+          </div>
+          <div class="office-meta-item">
+            <span>Setup</span>
+            <strong>${setupState.completedCount}/4</strong>
+          </div>
+          <button class="refresh-button office-refresh" data-refresh>
+            ${state.isRefreshing ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
       </div>
-      <div class="nav-list">
-        ${items
+      <div class="office-tabs">
+        ${primaryItems
           .map(
-            ([view, label]) => `
-            <button class="nav-button ${state.view === view ? "is-active" : ""}" data-view="${view}">
+            ([view, label, value]) => `
+            <button class="office-tab ${activePrimary === (label === "Operations" ? "workspace" : view) || (label === "Operations" && isAdvancedView()) ? "is-active" : ""}" data-view="${view}">
               <span>${label}</span>
-              <small>${view === "dashboard" ? "Live" : view === "advisor" ? (getAdvisor().history.length || "Ask") : view === "admin" ? "Engine" : view === "docs" ? "Guide" : view === "assets" ? monitoredUniverse.length : view === "sources" ? sources.length : history.runs.length || "v1"}</small>
+              <small>${value}</small>
             </button>
           `
           )
           .join("")}
       </div>
-      <div class="sidebar-note">
-        <span class="pill pill-muted">Execution disabled</span>
-        <p>
-          v1 stays in decision-support mode, but now persists pipeline runs, eval history, and replayable decision logs.
-        </p>
-      </div>
-    </nav>
+    </header>
   `;
 }
 
@@ -1730,596 +1814,90 @@ function renderHero() {
 }
 
 function renderAdminPage() {
-  const status = getStoreStatus();
-  const engine = getEngine();
   const history = getHistory();
   const evaluation = getEvaluation();
   const runtime = getRuntime();
-  const { sources, clusters, decisions, vetoedSignals, ingestion, market } = getData();
-  const editingSource = getSourceBeingEdited();
-  const extractor = engine.extractor || EMPTY_DATA.engine.extractor;
   const latestRun = history.runs[0] || null;
   const latestEval = evaluation.latestRun || evaluation.history[0] || null;
-  const bySource = status.bySource
-    .map((entry) => {
-      const source = getSource(entry.sourceId);
-      return `
-        <article class="context-item">
-          <span>${source?.handle || entry.sourceId}</span>
-          <strong>${entry.count} tweets</strong>
-        </article>
-      `;
-    })
-    .join("");
-  const byCluster = status.byCluster
-    .map((entry) => {
-      const cluster = getCluster(entry.clusterId);
-      return `
-        <article class="context-item">
-          <span>${cluster?.title || entry.clusterId}</span>
-          <strong>${entry.count} analysed posts</strong>
-        </article>
-      `;
-    })
-    .join("");
-  const ingestionWatermarks = ingestion?.watermarks || [];
-  const marketLeaders = market?.assets?.slice(0, 4) || [];
-  const notificationConfig = runtime.orchestrator?.notifications?.config || {};
-  const manualSourceOptions = sources
-    .map(
-      (source) => `
-        <option value="${escapeHtml(source.id)}">${escapeHtml(source.handle)} · ${escapeHtml(source.name)}</option>
-      `
-    )
-    .join("");
+  const quickLinks = [
+    ["logs", "Run history"],
+    ["sources", "Sources"],
+    ["assets", "Assets"],
+    ["docs", "Rules"]
+  ];
 
-  const heroSection = `
-    <section class="hero-panel admin-hero">
-        <div>
-          <span class="eyebrow">Operator</span>
-          <h2>The local feed now runs through a persisted server-side pipeline before it reaches the app.</h2>
-          <p>
-            Tweets are fetched and append-only in this phase. The pipeline now persists ingestion snapshots, market context, claim extraction output, clusters, decisions, and eval history so the UI can replay runs instead of recomputing everything on every request.
-          </p>
-        </div>
-        <div class="hero-decision">
-          <span class="pill pill-muted">${engine.mode || "engine offline"}</span>
-          <strong>${engine.summary.claimCount || 0} analysed posts</strong>
-          <span>Run at ${formatGeneratedAt(engine.generatedAt || status.seededAt)}</span>
-          <p>Extractor: ${extractor.activeMode || status.extractorMode || "heuristic"}${extractor.model ? ` via ${extractor.model}` : ""}. Use the controls below to rerun the pipeline, test notifications, send a daily digest, import a manual feed, or reset back to the fake seed.</p>
-          <div class="action-stack">
-            <button class="refresh-button" data-run-pipeline>${state.isRunningPipeline ? "Running pipeline..." : "Run pipeline"}</button>
-            <button class="refresh-button" data-run-evals>${state.isRunningEvals ? "Running evals..." : "Run eval harness"}</button>
-            <button class="refresh-button" data-send-digest>${state.isSendingDigest ? "Sending digest..." : "Send digest"}</button>
-            <button class="mini-chip" data-test-notification>${state.isTestingNotification ? "Testing..." : "Test notification"}</button>
-            <button class="refresh-button" data-reseed-fake-tweets>${state.isReseeding ? "Reseeding..." : "Reseed 140 fake tweets"}</button>
-          </div>
-        </div>
-      </section>
-  `;
-
-  const statSection = `
-      <section class="stat-grid">
-        <article class="stat-card">
-          <span class="eyebrow">Latest run</span>
-          <strong>${formatShortId(latestRun?.id || history.latestRunId)}</strong>
-          <p>${latestRun ? `${formatEnumLabel(latestRun.trigger)} at ${formatGeneratedAt(latestRun.generatedAt)}` : "Waiting for a persisted pipeline run."}</p>
-        </article>
-        <article class="stat-card">
-          <span class="eyebrow">Market regime</span>
-          <strong>${market?.summary?.marketRegime || engine.summary.marketRegime || "Pending"}</strong>
-          <p>${market?.summary?.strongestTicker ? `${market.summary.strongestTicker} currently leads the mocked market snapshot.` : "Market context appears after the pipeline runs."}</p>
-        </article>
-        <article class="stat-card">
-          <span class="eyebrow">Eval harness</span>
-          <strong>${latestEval ? formatScorePercent(latestEval.summary.averageScore) : "Pending"}</strong>
-          <p>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount} exact matches in ${latestEval.suiteName}.` : "Run the eval harness to populate regression history."}</p>
-        </article>
-        <article class="stat-card">
-          <span class="eyebrow">Ingestion contract</span>
-          <strong>${ingestion?.contractVersion || "raw-post-v1"}</strong>
-          <p>${ingestion ? `${ingestion.dedupedCount} deduped posts from ${ingestion.sourcesCovered} sources in ${status.mode || "fake-api"} mode.` : "The raw-post and normalized-post contracts appear after the first run."}</p>
-        </article>
-      </section>
-  `;
-
-  const pipelineSection = `
-      <section class="section-card split-card">
-        <div>
-          <div class="section-header">
-            <div>
-              <span class="eyebrow">Pipeline state</span>
-              <h3>Persisted ingestion, extraction, and market summary</h3>
-            </div>
-          </div>
-          <div class="context-grid">
-            <article class="context-item">
-              <span>Feed mode</span>
-              <strong>${status.mode || "fake-api"}</strong>
-            </article>
-            <article class="context-item">
-              <span>Fetched / deduped</span>
-              <strong>${ingestion ? `${ingestion.fetchedCount} / ${ingestion.dedupedCount}` : `${status.postCount || 0}`}</strong>
-            </article>
-            <article class="context-item">
-              <span>Duplicates removed</span>
-              <strong>${ingestion?.duplicateCount ?? 0}</strong>
-            </article>
-            <article class="context-item">
-              <span>Clusters / decisions</span>
-              <strong>${engine.summary.clusterCount || 0} / ${engine.summary.decisionCount || 0}</strong>
-            </article>
-            <article class="context-item">
-              <span>Policy vetoes</span>
-              <strong>${engine.summary.vetoCount || 0}</strong>
-            </article>
-            <article class="context-item">
-              <span>Avg 5d returns</span>
-              <strong>${market?.summary?.averageReturns5d || "Pending"}</strong>
-            </article>
-            <article class="context-item">
-              <span>Scheduler</span>
-              <strong>${runtime.scheduler.active ? `Every ${runtime.scheduler.intervalMinutes}m` : "Disabled"}</strong>
-            </article>
-            <article class="context-item">
-              <span>Next scheduled run</span>
-              <strong>${runtime.scheduler.nextRunAt ? formatGeneratedAt(runtime.scheduler.nextRunAt) : "Pending"}</strong>
-            </article>
-            <article class="context-item">
-              <span>Notifications</span>
-              <strong>${notificationConfig.activeProvider || "disabled"}</strong>
-            </article>
-            <article class="context-item">
-              <span>Live X status</span>
-              <strong>${status.mode === "x-api" ? "Connected" : "Not active"}</strong>
-            </article>
-          </div>
-          <div class="operator-list">
-            ${
-              ingestionWatermarks.length
-                ? ingestionWatermarks
-                    .slice(0, 4)
-                    .map(
-                      (watermark) => `
-                      <article class="context-item">
-                        <span>${getSource(watermark.sourceId)?.handle || watermark.sourceId}</span>
-                        <strong>${formatGeneratedAt(watermark.newestPostAt)}</strong>
-                      </article>
-                    `
-                    )
-                    .join("")
-                : '<article class="context-item"><span>No source watermarks yet</span><strong>Waiting for ingestion output</strong></article>'
-            }
-          </div>
-        </div>
-        <div>
-          <div class="section-header">
-            <div>
-              <span class="eyebrow">Distribution</span>
-              <h3>How the current run is shaped across sources and narratives</h3>
-            </div>
-          </div>
-          <div class="context-grid admin-context-grid">
-            ${bySource || '<article class="context-item"><span>No source activity</span><strong>Waiting for the feed</strong></article>'}
-          </div>
-          <div class="context-grid admin-context-grid">
-            ${byCluster || '<article class="context-item"><span>No narrative output</span><strong>Waiting for clustering</strong></article>'}
-          </div>
-          <div class="operator-list">
-            ${
-              marketLeaders.length
-                ? marketLeaders
-                    .map(
-                      (asset) => `
-                      <article class="context-item">
-                        <span>${asset.ticker}</span>
-                        <strong>${asset.display.returns5d}</strong>
-                      </article>
-                    `
-                    )
-                    .join("")
-                : '<article class="context-item"><span>No market leaders yet</span><strong>Waiting for market enrichment</strong></article>'
-            }
-          </div>
-        </div>
-      </section>
-  `;
-
-  const manualInboxSection = `
-          <form class="operator-form" data-manual-feed-form>
-            <div class="section-header compact">
-              <div>
-                <span class="eyebrow">Manual inbox</span>
-                <h3>Paste real posts, links, or notes and rerun the pipeline</h3>
-              </div>
-            </div>
-            <label class="form-field">
-              <span>Use an existing source</span>
-              <select name="manualSourceId">
-                <option value="">Create or reuse the handle below</option>
-                ${manualSourceOptions}
-              </select>
-            </label>
-            <div class="field-grid">
-              <label class="form-field">
-                <span>Source handle</span>
-                <input name="manualSourceHandle" value="@personaldesk" />
-              </label>
-              <label class="form-field">
-                <span>Source name</span>
-                <input name="manualSourceName" value="Personal Desk" />
-              </label>
-              <label class="form-field">
-                <span>Source category</span>
-                <input name="manualSourceCategory" value="Manual / Single User" />
-              </label>
-              <label class="form-field">
-                <span>Allowed assets (comma separated)</span>
-                <input name="manualAllowedAssets" placeholder="NVDA, BTC, QQQ" />
-              </label>
-            </div>
-            <label class="form-field">
-              <span>Relevant sectors (comma separated)</span>
-              <input name="manualRelevantSectors" placeholder="AI infrastructure, crypto, software" />
-            </label>
-            <label class="form-field">
-              <span>Paste one post per blank line</span>
-              <textarea
-                name="manualRawText"
-                rows="8"
-                placeholder="2026-03-22T08:15:00Z | Hyperscaler checks still say AI server pull-ins are holding. Cooling remains the pinch point.&#10;&#10;Export chatter is loud again, but no new language has actually landed. Treat this as noise until a draft appears."
-              ></textarea>
-              <small>Optional format: start a post with an ISO timestamp, then a pipe character (|), then the post body. Otherwise the app timestamps it when imported.</small>
-            </label>
-            <label class="checkbox-field">
-              <input name="manualReplaceExisting" type="checkbox" checked />
-              <span>Replace the current feed instead of appending to it</span>
-            </label>
-            <div class="operator-actions">
-              <button class="refresh-button" type="submit">${state.isMutating ? "Importing..." : "Import manual feed & run pipeline"}</button>
-              <button class="mini-chip" type="button" data-reseed-fake-tweets>Reset back to fake feed</button>
-            </div>
-          </form>
-  `;
-
-  const sourceCrudSection = `
-          <div class="section-header">
-            <div>
-              <span class="eyebrow">Source CRUD</span>
-              <h3>Create and maintain monitored sources</h3>
-            </div>
-            <button class="refresh-button" data-new-source>New source</button>
-          </div>
-          <div class="operator-list">
-            ${sources
-              .map(
-                (source) => `
-                <article class="operator-card ${editingSource?.id === source.id ? "is-selected" : ""}">
-                  <div class="operator-card-head">
-                    <div>
-                      <strong>${source.handle}</strong>
-                      <span>${source.category}</span>
-                    </div>
-                    <span class="pill">${formatPercent(source.baselineReliability)}</span>
-                  </div>
-                  <p>${source.policyTemplate}</p>
-                  <div class="operator-actions">
-                    <button class="mini-chip" data-edit-source="${source.id}">Edit</button>
-                    <button class="mini-chip danger-chip" data-delete-source="${source.id}">Delete</button>
-                  </div>
-                </article>
-              `
-              )
-              .join("")}
-          </div>
-          <form class="operator-form" data-source-form>
-            <div class="section-header compact">
-              <div>
-                <span class="eyebrow">${editingSource ? "Edit source" : "Create source"}</span>
-                <h3>${editingSource ? editingSource.name : "New monitored source"}</h3>
-              </div>
-            </div>
-            <div class="field-grid">
-              <label class="form-field">
-                <span>Name</span>
-                <input name="name" required value="${editingSource?.name || ""}" />
-              </label>
-              <label class="form-field">
-                <span>Handle</span>
-                <input name="handle" required value="${editingSource?.handle || ""}" />
-              </label>
-              <label class="form-field">
-                <span>Category</span>
-                <input name="category" value="${editingSource?.category || "Operator / Custom"}" />
-              </label>
-              <label class="form-field">
-                <span>Reliability (0-1)</span>
-                <input name="baselineReliability" type="number" min="0" max="0.99" step="0.01" value="${editingSource?.baselineReliability ?? 0.6}" />
-              </label>
-              <label class="form-field">
-                <span>Preferred horizon</span>
-                <input name="preferredHorizon" value="${editingSource?.preferredHorizon || "2-7 days"}" />
-              </label>
-              <label class="form-field">
-                <span>Tone</span>
-                <input name="tone" value="${editingSource?.tone || "Custom"}" />
-              </label>
-            </div>
-            <label class="form-field">
-              <span>Policy template</span>
-              <input name="policyTemplate" value="${editingSource?.policyTemplate || "Custom operator source"}" />
-            </label>
-            <label class="form-field">
-              <span>Relevant sectors (comma separated)</span>
-              <input name="relevantSectors" value="${formatListValue(editingSource?.relevantSectors)}" />
-            </label>
-            <label class="form-field">
-              <span>Allowed assets (comma separated)</span>
-              <input name="allowedAssets" value="${formatListValue(editingSource?.allowedAssets)}" />
-            </label>
-            <label class="form-field">
-              <span>Special handling</span>
-              <textarea name="specialHandling" rows="4">${editingSource?.specialHandling || "No special handling rules yet."}</textarea>
-            </label>
-            <div class="operator-actions">
-              <button class="refresh-button" type="submit">${state.isMutating ? "Saving..." : editingSource ? "Update source" : "Create source"}</button>
-              ${editingSource ? '<button class="mini-chip" type="button" data-new-source>Clear form</button>' : ""}
-            </div>
-          </form>
-  `;
-
-  const operatorLeftColumn = `
-        <div class="operator-column">
-          ${manualInboxSection}
-          ${sourceCrudSection}
-        </div>
-  `;
-
-  const operatorRightColumn = `
-        <div class="operator-column">
-          <div class="section-header">
-            <div>
-              <span class="eyebrow">Agent engine</span>
-              <h3>Persisted runtime replacing request-time recomputation</h3>
-            </div>
-          </div>
-          <div class="docs-checks">
-            ${engine.stages
-              .map(
-                (stage, index) => `
-                <article class="pipeline-card">
-                  <span class="pipeline-index">0${index + 1}</span>
-                  <strong>${stage.name}</strong>
-                  <p>${stage.description}</p>
-                  <span class="subtle">${stage.metric}</span>
-                </article>
-              `
-              )
-              .join("")}
-          </div>
-          <article class="operator-form">
-            <div class="section-header compact">
-              <div>
-                <span class="eyebrow">Runtime summary</span>
-                <h3>Read-only engine and eval status</h3>
-              </div>
-            </div>
-            <div class="context-grid">
-              <article class="context-item">
-                <span>Claims extracted</span>
-                <strong>${engine.summary.claimCount || 0}</strong>
-              </article>
-              <article class="context-item">
-                <span>Actionable claims</span>
-                <strong>${engine.summary.actionableCount || 0}</strong>
-              </article>
-              <article class="context-item">
-                <span>Latest run</span>
-                <strong>${formatGeneratedAt(engine.generatedAt || status.seededAt)}</strong>
-              </article>
-              <article class="context-item">
-                <span>Source coverage</span>
-                <strong>${engine.summary.sourceCount || 0}</strong>
-              </article>
-              <article class="context-item">
-                <span>Extractor mode</span>
-                <strong>${extractor.activeMode || "heuristic"}</strong>
-              </article>
-              <article class="context-item">
-                <span>Cache / live</span>
-                <strong>${extractor.cacheHits || 0} / ${extractor.liveExtractions || 0}</strong>
-              </article>
-              <article class="context-item">
-                <span>Fallback count</span>
-                <strong>${extractor.fallbackCount || 0}</strong>
-              </article>
-              <article class="context-item">
-                <span>Model</span>
-                <strong>${extractor.model || "Not configured"}</strong>
-              </article>
-              <article class="context-item">
-                <span>Latest eval score</span>
-                <strong>${latestEval ? formatScorePercent(latestEval.summary.averageScore) : "Pending"}</strong>
-              </article>
-              <article class="context-item">
-                <span>Latest eval exact</span>
-                <strong>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount}` : "0/0"}</strong>
-              </article>
-              <article class="context-item">
-                <span>Eval gate</span>
-                <strong>${latestEval?.gate?.passed === false ? "Failed" : latestEval ? "Passed" : "Pending"}</strong>
-              </article>
-              <article class="context-item">
-                <span>Scheduler last run</span>
-                <strong>${runtime.scheduler.lastRunAt ? formatGeneratedAt(runtime.scheduler.lastRunAt) : "Waiting"}</strong>
-              </article>
-            </div>
-            <div class="operator-list">
-              ${engine.notes
-                .map(
-                  (note) => `
-                  <article class="context-item">
-                    <span>Engine note</span>
-                    <strong>${note}</strong>
-                  </article>
-                `
-                )
-                .join("")}
-              ${
-                latestEval
-                  ? `
-                    <article class="context-item">
-                      <span>Eval delta</span>
-                      <strong>${latestEval.summary.deltaVsPreviousAverageScore == null ? "Baseline run" : `${latestEval.summary.deltaVsPreviousAverageScore > 0 ? "+" : ""}${Math.round(latestEval.summary.deltaVsPreviousAverageScore * 100)} pts`}</strong>
-                    </article>
-                  `
-                  : ""
-              }
-              ${
-                runtime.scheduler.lastError
-                  ? `
-                    <article class="context-item">
-                      <span>Scheduler error</span>
-                      <strong>${runtime.scheduler.lastError}</strong>
-                    </article>
-                  `
-                  : ""
-              }
-              ${
-                Array.isArray(market?.warnings) && market.warnings.length
-                  ? market.warnings
-                      .slice(0, 2)
-                      .map(
-                        (warning) => `
-                        <article class="context-item">
-                          <span>Market warning</span>
-                          <strong>${warning}</strong>
-                        </article>
-                      `
-                      )
-                      .join("")
-                  : ""
-              }
-            </div>
-          </article>
-          <div class="section-header compact">
-            <div>
-              <span class="eyebrow">Current outputs</span>
-              <h3>Read-only narrative and decision state</h3>
-            </div>
-          </div>
-          <div class="operator-list operator-list-scroll">
-            ${clusters
-              .slice(0, 4)
-              .map(
-                (cluster) => `
-                <article class="operator-card">
-                  <div class="operator-card-head">
-                    <div>
-                      <strong>${cluster.title}</strong>
-                      <span>${cluster.sourceAgreement}</span>
-                    </div>
-                    <span class="pill">${cluster.policyOutcome}</span>
-                  </div>
-                  <p>${cluster.summary}</p>
-                  <div class="tag-row">
-                    <span class="tag">${cluster.dominantDirection}</span>
-                    <span class="tag">${cluster.timeWindow}</span>
-                    <span class="tag">${formatPercent(cluster.agreementScore)}</span>
-                  </div>
-                </article>
-              `
-              )
-              .join("")}
-            ${decisions
-              .slice(0, 4)
-              .map(
-                (decision) => `
-                <article class="operator-card">
-                  <div class="operator-card-head">
-                    <div>
-                      <strong>${decision.asset}</strong>
-                      <span>${decision.horizon}</span>
-                    </div>
-                    <span class="decision-badge decision-${decision.action.toLowerCase()}">${decision.action}</span>
-                  </div>
-                  <p>${decision.rationale[0]}</p>
-                  <div class="tag-row">
-                    <span class="tag">${formatPercent(decision.confidence)}</span>
-                    <span class="tag">${decision.vetoed ? "Policy-adjusted" : "Direct output"}</span>
-                  </div>
-                </article>
-              `
-              )
-              .join("")}
-            ${
-              vetoedSignals.length
-                ? vetoedSignals
-                    .slice(0, 3)
-                    .map(
-                      (item) => `
-                      <article class="operator-card">
-                        <div class="operator-card-head">
-                          <div>
-                            <strong>${item.asset}</strong>
-                            <span>${item.status}</span>
-                          </div>
-                          <span class="pill pill-muted">${item.candidateAction} -> ${item.finalAction}</span>
-                        </div>
-                        <p>${item.reason}</p>
-                      </article>
-                    `
-                    )
-                    .join("")
-                : ""
-            }
-          </div>
-        </div>
-  `;
-
-  const operatorSection = `
-      <section class="section-card operator-shell">
-        ${operatorLeftColumn}
-        ${operatorRightColumn}
-      </section>
-  `;
-
-  const capabilitySection = `
-      <section class="section-card">
-        <div class="section-header">
+  return `
+    <main class="office-content">
+      ${renderStatusBanner()}
+      ${renderOperatorNotice()}
+      <section class="office-panel office-summary-panel">
+        <div class="office-panel-head">
           <div>
-            <span class="eyebrow">Capabilities</span>
-            <h3>What the operator surface now controls and tracks</h3>
+            <span class="eyebrow">Operations</span>
+            <h2>Runtime controls</h2>
           </div>
-          <p class="section-copy">This page now acts as the engine control tower whether you are using the fake seed, a pasted manual inbox, or the live X timeline sync.</p>
         </div>
-        <div class="docs-checks">
-          ${adminRoadmap
-            .map(
-              (item, index) => `
-              <article class="pipeline-card">
-                <span class="pipeline-index">0${index + 1}</span>
-                <p>${item}</p>
-              </article>
-            `
-            )
-            .join("")}
+        <div class="office-summary-grid">
+          <article class="office-metric">
+            <span>Latest pipeline</span>
+            <strong>${latestRun ? formatShortId(latestRun.id) : "None"}</strong>
+            <small>${latestRun ? formatGeneratedAt(latestRun.generatedAt) : "Run the first pipeline"}</small>
+          </article>
+          <article class="office-metric">
+            <span>Latest eval</span>
+            <strong>${latestEval ? formatScorePercent(latestEval.summary.averageScore) : "Pending"}</strong>
+            <small>${latestEval ? latestEval.promptVersion : "No evals yet"}</small>
+          </article>
+          <article class="office-metric">
+            <span>Scheduler</span>
+            <strong>${runtime.scheduler.active ? "Active" : "Off"}</strong>
+            <small>${runtime.scheduler.active ? `${runtime.scheduler.intervalMinutes} min` : "Manual only"}</small>
+          </article>
+          <article class="office-metric">
+            <span>Feed mode</span>
+            <strong>${formatEnumLabel(getFeedMode())}</strong>
+            <small>${getStoreStatus().postCount || 0} posts in store</small>
+          </article>
         </div>
       </section>
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Actions</span>
+              <h3>Run and notify</h3>
+            </div>
+          </div>
+          <div class="office-action-list">
+            <button class="refresh-button" type="button" data-run-pipeline ${state.isRunningPipeline ? "disabled" : ""}>${state.isRunningPipeline ? "Running pipeline..." : "Run pipeline"}</button>
+            <button class="mini-chip" type="button" data-run-evals ${state.isRunningEvals ? "disabled" : ""}>${state.isRunningEvals ? "Running evals..." : "Run evals"}</button>
+            <button class="mini-chip" type="button" data-send-digest ${state.isSendingDigest ? "disabled" : ""}>${state.isSendingDigest ? "Sending digest..." : "Send digest"}</button>
+            <button class="mini-chip" type="button" data-test-notification ${state.isTestingNotification ? "disabled" : ""}>${state.isTestingNotification ? "Testing..." : "Test notification"}</button>
+            <button class="mini-chip" type="button" data-reseed-fake-tweets ${state.isReseeding ? "disabled" : ""}>${state.isReseeding ? "Reseeding..." : "Reseed fake feed"}</button>
+          </div>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Deep links</span>
+              <h3>Advanced pages</h3>
+            </div>
+          </div>
+          <div class="office-link-list">
+            ${quickLinks
+              .map(
+                ([view, label]) => `
+                  <button class="office-link-row" data-view="${view}">
+                    <span>${label}</span>
+                  </button>
+                `
+              )
+              .join("")}
+          </div>
+        </section>
+      </section>
+    </main>
   `;
-
-  return [
-    '<main class="content-shell">',
-    renderStatusBanner(),
-    renderOperatorNotice(),
-    heroSection,
-    statSection,
-    pipelineSection,
-    operatorSection,
-    renderReplayInspector(),
-    capabilitySection,
-    '</main>'
-  ].join("");
 }
 
 function renderPipeline() {
@@ -2368,31 +1946,136 @@ function buildOnboardingSummary(profile) {
   };
 }
 
+function getFeedMode() {
+  return getStoreStatus().mode || getData().metadata.tweetFeedMode || "fake";
+}
+
+function buildSingleUserSetupState(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
+  const summary = buildOnboardingSummary(profile);
+  const recentPosts = getRecentAnalysedPosts();
+  const feedMode = getFeedMode();
+  const hasDecisionFrame = Boolean(
+    profile.investorName ||
+      profile.investmentHorizon ||
+      profile.goals?.length ||
+      profile.watchlist?.length ||
+      profile.riskTolerance
+  );
+  const hasCashContext = Boolean(
+    Number(profile.monthlyNetIncome || 0) ||
+      Number(profile.monthlyExpenses || 0) ||
+      Number(profile.emergencyFund || 0) ||
+      (profile.liabilities || []).length ||
+      profile.liquidityNeeds
+  );
+  const hasPortfolioContext = Boolean(
+    summary.trackedAssetCount ||
+      (profile.retirementProducts || []).length ||
+      summary.documentCount
+  );
+  const hasRealSignalInput = feedMode !== "fake" && recentPosts.length > 0;
+  const steps = [
+    {
+      key: "frame",
+      title: "Decision frame",
+      body: hasDecisionFrame
+        ? "Goals, watchlist, and investing context are saved."
+        : "Add the few goals and tickers you actually want this app to watch.",
+      complete: hasDecisionFrame,
+      actionView: "setup"
+    },
+    {
+      key: "cash",
+      title: "Cash and obligations",
+      body: hasCashContext
+        ? "Liquidity, burn, and liabilities are available for portfolio-aware answers."
+        : "Add income, expenses, emergency fund, or liabilities to ground the advice.",
+      complete: hasCashContext,
+      actionView: "setup"
+    },
+    {
+      key: "portfolio",
+      title: "Portfolio context",
+      body: hasPortfolioContext
+        ? `${summary.trackedAssetCount} tracked assets and ${formatCurrency(
+            summary.holdingsTotal + summary.retirementTotal
+          )} of invested assets are in scope.`
+        : "Add holdings, pensions, or insurance wrappers so the brief can prioritize real positions.",
+      complete: hasPortfolioContext,
+      actionView: "setup"
+    },
+    {
+      key: "signals",
+      title: "Real signal feed",
+      body: hasRealSignalInput
+        ? `${recentPosts.length} recent posts are flowing through ${formatEnumLabel(feedMode)} mode.`
+        : feedMode === "fake"
+          ? "You are still on the seeded demo feed. Manual import or X sync is the last step before this becomes personal."
+          : "Switch from demo data to manual or live X input, then the brief becomes useful day to day.",
+      complete: hasRealSignalInput,
+      actionView: "setup"
+    }
+  ];
+
+  return {
+    steps,
+    completedCount: steps.filter((step) => step.complete).length,
+    nextStep: steps.find((step) => !step.complete) || steps[steps.length - 1],
+    hasDecisionFrame,
+    hasCashContext,
+    hasPortfolioContext,
+    hasRealSignalInput
+  };
+}
+
+function buildSingleUserImpactCards(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
+  const setupState = buildSingleUserSetupState(profile);
+  const trackedTickers = getTrackedAssetTickers(profile);
+  const latestAnswer = getLatestAdvisorAnswer();
+
+  return [
+    {
+      title: "Daily loop",
+      label: "Most important",
+      body: trackedTickers.length
+        ? "The brief and advisor are the only surfaces most local users should need every day."
+        : "The brief only becomes personal after you save a watchlist or a few real holdings."
+    },
+    {
+      title: "Setup chores",
+      label: "Occasional",
+      body: "Holdings import, cash context, and manual signal paste are setup tasks. They should feel sequential, not like separate products."
+    },
+    {
+      title: "Optional automation",
+      label: "Later",
+      body: setupState.hasRealSignalInput
+        ? "Live X sync, digests, and scheduler runs are convenience layers once the manual flow already feels right."
+        : "Live X sync and notifications matter later, but they should not block the first useful session."
+    },
+    {
+      title: "Advanced tooling",
+      label: "Background",
+      body: latestAnswer
+        ? "Replay, evals, sources, and run history still matter for tuning, but they belong in Workspace."
+        : "Replay, evals, docs, and source tuning are valuable for maintenance, but they should stay off the critical path."
+    }
+  ];
+}
+
 function renderOnboardingStepCards(currentStep) {
   const steps = [
     {
-      title: "Personal setup",
-      body: "Name, goals, risk tolerance, and decision horizon so later advice is framed correctly."
+      title: "Profile",
+      body: "Goals, risk language, horizon, and the assets you care about."
     },
     {
-      title: "Cash flow & safety net",
-      body: "Income, expenses, liquidity needs, and emergency reserves to anchor risk capacity."
+      title: "Cash & Cover",
+      body: "Income, reserves, liabilities, pensions, and insurance products."
     },
     {
-      title: "Investments & accounts",
-      body: "Funds, ETFs, stocks, crypto, and account wrappers with rough values and cost basis."
-    },
-    {
-      title: "Pension / insurance",
-      body: "Rentenversicherung, bAV, pension wrappers, and recurring retirement contributions."
-    },
-    {
-      title: "Liabilities & contracts",
-      body: "Mortgage, loans, leases, and contract uploads so advice can reflect obligations."
-    },
-    {
-      title: "Review & save",
-      body: "Confirm what is missing, save the profile, then start asking asset-specific questions."
+      title: "Assets",
+      body: "Add the holdings you actually own and save the portfolio."
     }
   ];
 
@@ -2912,148 +2595,206 @@ function renderAnalysedTweetsWindow() {
 
 function renderDashboard() {
   const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
-  const cashSummary = buildProfileCashSummary(profile);
+  const setupState = buildSingleUserSetupState(profile);
+  const latestAnswer = getLatestAdvisorAnswer();
+  const feedMode = getFeedMode();
   const trackedTickers = getTrackedAssetTickers(profile);
+  const cashSummary = buildProfileCashSummary(profile);
   const { trackedAssets, actionableAssets, urgentAssets, priorityAssets } = buildTrackedPortfolioAnalytics(profile);
-  const recentTrackedPosts = sortPostsByCreatedAt(
+  const recentSignals = sortPostsByCreatedAt(
     getData().posts.filter((post) =>
       (post.mappedAssets || []).some((asset) => trackedTickers.includes(asset))
     )
-  ).slice(0, 6);
-  const setupPanel = trackedAssets.length
-    ? ""
-    : `
-      <section class="section-card today-empty-card">
-        <div>
-          <span class="eyebrow">Personal setup</span>
-          <h3>Tell the app what you actually care about</h3>
-          <p>Add holdings or a watchlist in the Advisor tab, or paste real posts into the manual inbox on the Operator tab. That is the shortest path from demo to daily utility.</p>
-        </div>
-        <div class="operator-actions">
-          <button class="refresh-button" data-view="advisor">Open advisor setup</button>
-          <button class="mini-chip" data-view="admin">Open manual inbox</button>
-        </div>
-      </section>
-    `;
-  const priorityCards = priorityAssets.length
-    ? priorityAssets
-        .slice(0, 4)
-        .map((item) => `
-          <article class="today-card">
-            <div class="operator-card-head">
-              <div>
-                <strong>${item.ticker}</strong>
-                <span>${item.holding ? `Holding · ${formatCurrency(item.holding.currentValue)}` : "Watchlist"}</span>
-              </div>
-              <span class="decision-badge decision-${(item.decision?.action || "hold").toLowerCase()}">${item.decision?.action || "WATCH"}</span>
-            </div>
-            <p>${item.decision?.rationale?.[0] || item.asset?.thesis || "No active recommendation yet."}</p>
-            <div class="tag-row">
-              ${item.asset ? `<span class="tag">${item.asset.bucket}</span>` : ""}
-              ${item.decision ? `<span class="tag">${formatPercent(item.decision.confidence || 0)}</span>` : '<span class="tag">Waiting for signal</span>'}
-              <span class="tag">${item.relatedPosts.length} relevant posts</span>
-            </div>
-            <div class="operator-actions">
-              <button class="mini-chip" data-asset="${item.ticker}">Asset view</button>
-              <button class="mini-chip" data-view="advisor">Advisor</button>
-            </div>
-          </article>
-        `)
-        .join("")
-    : '<article class="today-card today-card-empty"><strong>No tracked assets yet</strong><p>Use the advisor profile to add holdings or a watchlist and the app will prioritize them here.</p></article>';
-  const trackedPostCards = recentTrackedPosts.length
-    ? recentTrackedPosts
-        .map((post) => {
-          const source = getSource(post.sourceId);
+  ).slice(0, 3);
+  const globalFocusItems = getData().decisions.slice(0, 4).map((decision) => ({
+    ticker: decision.asset,
+    asset: getData().monitoredUniverse.find((item) => item.ticker === decision.asset) || null,
+    holding: null,
+    decision,
+    relatedPosts: sortPostsByCreatedAt(
+      getData().posts.filter((post) => (post.mappedAssets || []).includes(decision.asset))
+    ).slice(0, 2)
+  }));
+  const focusItems = (priorityAssets.length ? priorityAssets : globalFocusItems).slice(0, 4);
+  const focusRows = focusItems.length
+    ? focusItems
+        .map((item) => {
+          const decision = item.decision;
+          const description =
+            decision?.rationale?.[0] ||
+            item.asset?.thesis ||
+            "No active recommendation yet.";
+
           return `
-            <article class="operator-card">
-              <div class="operator-card-head">
-                <div>
-                  <strong>${source?.handle || post.sourceId}</strong>
-                  <span>${formatGeneratedAt(post.createdAt)}</span>
-                </div>
-                <span class="pill pill-muted">${(post.mappedAssets || []).join(", ") || "Unmapped"}</span>
-              </div>
-              <p>${post.body}</p>
-            </article>
+            <tr>
+              <td><button class="inline-link" data-asset="${item.ticker}">${item.ticker}</button></td>
+              <td>${decision?.action || "WATCH"}</td>
+              <td>${decision ? formatPercent(decision.confidence || 0) : "Pending"}</td>
+              <td>${item.relatedPosts.length}</td>
+              <td>${description}</td>
+            </tr>
           `;
         })
         .join("")
-    : '<article class="operator-card"><strong>No portfolio-linked posts yet</strong><p>Import manual posts or enable the X feed to start getting a personal daily brief.</p></article>';
+    : `
+      <tr>
+        <td colspan="5">No focus list yet. Save a watchlist or holdings first.</td>
+      </tr>
+    `;
+  const signalRows = (recentSignals.length ? recentSignals : getRecentAnalysedPosts().slice(0, 3)).length
+    ? (recentSignals.length ? recentSignals : getRecentAnalysedPosts().slice(0, 3))
+        .map((post) => {
+          const source = getSource(post.sourceId);
+
+          return `
+            <tr>
+              <td>${source?.handle || post.sourceId}</td>
+              <td>${formatGeneratedAt(post.createdAt)}</td>
+              <td>${(post.mappedAssets || []).join(", ") || "Unmapped"}</td>
+              <td>${post.body}</td>
+            </tr>
+          `;
+        })
+        .join("")
+    : `
+      <tr>
+        <td colspan="4">No recent signals yet. Import manual posts in the Signals tab to move beyond the demo feed.</td>
+      </tr>
+    `;
+  const nextAction =
+    !setupState.hasDecisionFrame || !setupState.hasPortfolioContext
+      ? "Complete the Portfolio tab so the brief can focus on your real positions."
+      : !setupState.hasRealSignalInput
+        ? "Use the Signals tab to import a few real posts before trusting the queue."
+        : urgentAssets.length
+          ? `Review ${urgentAssets[0]?.ticker || "the first urgent asset"} first.`
+          : "The setup is usable. Check the queue and ask targeted questions in Advisor.";
 
   return `
-    <main class="content-shell">
+    <main class="office-content">
       ${renderStatusBanner()}
-      <section class="hero-panel today-hero">
-        <div>
-          <span class="eyebrow">Today</span>
-          <h2>${trackedAssets.length ? "Your portfolio-first signal brief" : "Set up your personal signal brief"}</h2>
-          <p>
-            ${trackedAssets.length
-              ? `Tracking ${trackedAssets.length} assets across holdings and watchlist. ${actionableAssets.length} have active calls and ${urgentAssets.length} look immediate enough to review first.`
-              : "The engine is ready, but it becomes useful once it knows your holdings/watchlist and has real posts to ingest."}
-          </p>
+      <section class="office-panel office-summary-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Overview</span>
+            <h2>${trackedAssets.length ? "Daily review queue" : "Setup still needs input"}</h2>
+          </div>
         </div>
-        <div class="hero-decision">
-          <span class="pill pill-muted">Single-user mode</span>
-          <strong>${trackedAssets.length ? `${urgentAssets.length} urgent / ${actionableAssets.length} active` : "Waiting for profile"}</strong>
-          <span>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths} months emergency cover` : "No liquidity baseline saved yet"}</span>
-          <p>${cashSummary.monthlyBurn > 0 ? `Monthly burn exceeds income by ${formatCurrency(cashSummary.monthlyBurn)}.` : "Monthly cash flow is currently neutral or positive."}</p>
+        <div class="office-summary-grid">
+          <article class="office-metric">
+            <span>Portfolio coverage</span>
+            <strong>${trackedAssets.length}</strong>
+            <small>${profile.holdings.length} holdings and ${(profile.watchlist || []).length} watchlist names</small>
+          </article>
+          <article class="office-metric">
+            <span>Feed status</span>
+            <strong>${formatEnumLabel(feedMode)}</strong>
+            <small>${getRecentAnalysedPosts().length} recent posts in scope</small>
+          </article>
+          <article class="office-metric">
+            <span>Active calls</span>
+            <strong>${actionableAssets.length}</strong>
+            <small>${urgentAssets.length} urgent and ${getData().decisions.length} total decisions</small>
+          </article>
+          <article class="office-metric">
+            <span>Safety buffer</span>
+            <strong>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths}m` : "Pending"}</strong>
+            <small>${cashSummary.monthlyBurn > 0 ? `${formatCurrency(cashSummary.monthlyBurn)} monthly burn gap` : "Cash flow neutral or positive"}</small>
+          </article>
+        </div>
+        <div class="office-next-step">
+          <span>Next action</span>
+          <strong>${nextAction}</strong>
         </div>
       </section>
-      ${setupPanel}
-      <section class="stat-grid">
-        <article class="stat-card">
-          <span class="eyebrow">Tracked assets</span>
-          <strong>${trackedAssets.length}</strong>
-          <p>${trackedAssets.length ? `${profile.holdings.length} holdings and ${(profile.watchlist || []).length} watchlist names are driving the brief.` : "Add holdings or watchlist tickers in the advisor setup."}</p>
-        </article>
-        <article class="stat-card">
-          <span class="eyebrow">Active calls</span>
-          <strong>${actionableAssets.length}</strong>
-          <p>${urgentAssets.length ? `${urgentAssets.length} assets currently sit in BUY or SELL territory.` : "No tracked assets are currently flashing urgent action."}</p>
-        </article>
-        <article class="stat-card">
-          <span class="eyebrow">Relevant posts</span>
-          <strong>${recentTrackedPosts.length}</strong>
-          <p>${recentTrackedPosts.length ? "Recent posts linked to your tracked assets." : "Import real posts or enable X sync to populate this section."}</p>
-        </article>
-        <article class="stat-card">
-          <span class="eyebrow">Safety net</span>
-          <strong>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths}m` : "Pending"}</strong>
-          <p>${profile.targetEmergencyFundMonths ? `Target: ${profile.targetEmergencyFundMonths} months.` : "Set your emergency fund target in the advisor profile."}</p>
-        </article>
-      </section>
-      <section class="section-card split-card">
-        <div>
-          <div class="section-header">
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Priority assets</span>
-              <h3>What to look at first</h3>
+              <span class="eyebrow">Priority queue</span>
+              <h3>What to review first</h3>
             </div>
+            <button class="mini-chip" data-view="advisor">Open advisor</button>
           </div>
-          <div class="today-grid">
-            ${priorityCards}
-          </div>
-        </div>
-        <div>
-          <div class="section-header">
+          <table class="office-table">
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th>Action</th>
+                <th>Confidence</th>
+                <th>Posts</th>
+                <th>Reason</th>
+              </tr>
+            </thead>
+            <tbody>${focusRows}</tbody>
+          </table>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Recent portfolio-linked posts</span>
-              <h3>Signals touching your names</h3>
+              <span class="eyebrow">Recent signals</span>
+              <h3>Latest posts touching the queue</h3>
             </div>
+            <button class="mini-chip" data-view="signals">Open signals</button>
           </div>
-          <div class="operator-list">
-            ${trackedPostCards}
-          </div>
-        </div>
+          <table class="office-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Time</th>
+                <th>Mapped assets</th>
+                <th>Post</th>
+              </tr>
+            </thead>
+            <tbody>${signalRows}</tbody>
+          </table>
+        </section>
       </section>
-      ${renderHero()}
-      ${renderStatCards()}
-      ${renderAnalysedTweetsWindow()}
-      ${renderDecisionCards()}
-      ${renderClusterBoard()}
-      ${renderSignalFeed()}
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Setup status</span>
+              <h3>Essentials checklist</h3>
+            </div>
+            <button class="mini-chip" data-view="setup">Open portfolio</button>
+          </div>
+          <div class="office-checklist">
+            ${setupState.steps
+              .map(
+                (step) => `
+                  <div class="office-checklist-row ${step.complete ? "is-complete" : ""}">
+                    <strong>${step.title}</strong>
+                    <span>${step.complete ? "Done" : "Pending"}</span>
+                    <p>${step.body}</p>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Latest advisor output</span>
+              <h3>${latestAnswer ? latestAnswer.answer.headline : "No advisor answer yet"}</h3>
+            </div>
+            <button class="mini-chip" data-view="advisor">Open advisor</button>
+          </div>
+          ${
+            latestAnswer
+              ? `
+                <p>${latestAnswer.answer.answer}</p>
+                <div class="office-inline-meta">
+                  <span>${latestAnswer.assetTicker}</span>
+                  <span>${latestAnswer.answer.stance}</span>
+                  <span>${formatPercent(latestAnswer.answer.confidence || 0)}</span>
+                </div>
+              `
+              : `<p>Use the Advisor tab for focused questions once the portfolio and signal input are in place.</p>`
+          }
+        </section>
+      </section>
     </main>
   `;
 }
@@ -3218,23 +2959,20 @@ function renderAssetsView() {
   `;
 }
 
-function renderAdvisorView() {
-  const { monitoredUniverse } = getData();
-  const advisor = getAdvisor();
+function renderSetupPage() {
   const profile = getProfileDraft();
-  const latestAnswer = getLatestAdvisorAnswer();
   const onboardingSummary = buildOnboardingSummary(profile);
-  const currentStep = state.profileOnboardingStep || 0;
-  const documentDraft = getProfileDocumentDraft();
+  const setupState = buildSingleUserSetupState(profile);
+  const currentStep = Math.min(state.profileOnboardingStep || 0, 2);
   const onboardingPanels = [
     `
-      <section class="onboarding-panel">
-        <div class="section-header">
+      <section class="office-form-section">
+        <div class="office-panel-head">
           <div>
-            <span class="eyebrow">Step 1</span>
-            <h3>Set the profile owner and your decision frame</h3>
+            <span class="eyebrow">Profile basics</span>
+            <h3>Investor profile and watchlist</h3>
+            <p class="section-copy">Keep this short. The app only needs enough context to interpret your signals and holdings correctly.</p>
           </div>
-          <p class="section-copy">This gives the advisor the context it needs before it looks at specific products or positions.</p>
         </div>
         <div class="field-grid">
           <label class="form-field">
@@ -3247,11 +2985,11 @@ function renderAdvisorView() {
           </label>
           <label class="form-field">
             <span>Investment horizon</span>
-            <input name="investmentHorizon" value="${escapeHtml(profile.investmentHorizon || "")}" placeholder="e.g. 10+ years for retirement, 3 years for house deposit" />
+            <input name="investmentHorizon" value="${escapeHtml(profile.investmentHorizon || "")}" placeholder="e.g. 10+ years, 3 years, liquidity reserve" />
           </label>
           <label class="form-field">
             <span>Liquidity needs</span>
-            <input name="liquidityNeeds" value="${escapeHtml(profile.liquidityNeeds || "")}" placeholder="Low, Medium, High" />
+            <input name="liquidityNeeds" value="${escapeHtml(profile.liquidityNeeds || "")}" placeholder="Low, medium, high" />
           </label>
         </div>
         <label class="form-field">
@@ -3259,7 +2997,7 @@ function renderAdvisorView() {
           <input
             name="goals"
             value="${escapeHtml((profile.goals || []).join(", "))}"
-            placeholder="Retirement, preserve liquidity, home purchase, education, passive income"
+            placeholder="Retirement, preserve liquidity, home purchase, education"
           />
         </label>
         <label class="form-field">
@@ -3267,23 +3005,33 @@ function renderAdvisorView() {
           <input
             name="watchlist"
             value="${escapeHtml((profile.watchlist || []).join(", "))}"
-            placeholder="NVDA, BTC, VWCE, cash proxy, mortgage-linked watch item"
+            placeholder="NVDA, BTC, VWCE, MSFT"
           />
         </label>
-        <article class="status-inline">
-          <strong>What to gather for this step</strong>
-          <p>Think in real planning goals, then add the few tickers or instruments you actually want this app to watch for you every day.</p>
-        </article>
+        <label class="form-field">
+          <span>Notes</span>
+          <textarea name="notes" rows="4" placeholder="Anything the advisor should keep in mind about concentration, liquidity, or personal constraints.">${escapeHtml(profile.notes || "")}</textarea>
+        </label>
+        <div class="office-inline-stats">
+          <article class="context-item">
+            <span>Watchlist names</span>
+            <strong>${(profile.watchlist || []).length}</strong>
+          </article>
+          <article class="context-item">
+            <span>Tracked assets</span>
+            <strong>${onboardingSummary.trackedAssetCount}</strong>
+          </article>
+        </div>
       </section>
     `,
     `
-      <section class="onboarding-panel">
-        <div class="section-header">
+      <section class="office-form-section">
+        <div class="office-panel-head">
           <div>
-            <span class="eyebrow">Step 2</span>
-            <h3>Map income, expenses, and your safety buffer</h3>
+            <span class="eyebrow">Cash and cover</span>
+            <h3>Safety buffer, liabilities, and long-term products</h3>
+            <p class="section-copy">Add the fixed things that shape your real risk capacity: monthly cash flow, debt, private pensions, and insurance wrappers.</p>
           </div>
-          <p class="section-copy">This is what turns a generic portfolio view into something allocation-aware.</p>
         </div>
         <div class="field-grid">
           <label class="form-field">
@@ -3299,11 +3047,11 @@ function renderAdvisorView() {
             <input type="number" step="0.01" name="emergencyFund" value="${profile.emergencyFund ?? 0}" />
           </label>
           <label class="form-field">
-            <span>Target emergency-fund months</span>
+            <span>Target emergency months</span>
             <input type="number" step="0.1" name="targetEmergencyFundMonths" value="${profile.targetEmergencyFundMonths ?? 6}" />
           </label>
         </div>
-        <div class="context-grid compact-grid">
+        <div class="office-inline-stats">
           <article class="context-item">
             <span>Monthly free cash flow</span>
             <strong>${formatCurrency((profile.monthlyNetIncome || 0) - (profile.monthlyExpenses || 0))}</strong>
@@ -3313,200 +3061,479 @@ function renderAdvisorView() {
             <strong>${formatCurrency(profile.emergencyFund || 0)}</strong>
           </article>
         </div>
+        ${renderProfileCollectionSection({
+          collection: "retirementProducts",
+          title: "Insurance and pensions",
+          copy: "Private Rentenversicherung, bAV, insurance wrappers, and other long-term products",
+          addLabel: "Add product",
+          emptyCopy: "Add anything that should count as part of your long-term financial picture, even if it is not a tradable holding.",
+          fields: [
+            {
+              key: "label",
+              label: "Product name",
+              placeholder: "Private pension, BU policy, life insurance"
+            },
+            {
+              key: "type",
+              label: "Type",
+              type: "select",
+              options: [
+                "Private Rentenversicherung",
+                "bAV",
+                "Life insurance",
+                "Disability insurance",
+                "Health insurance",
+                "Other"
+              ]
+            },
+            {
+              key: "provider",
+              label: "Provider",
+              placeholder: "Allianz, Alte Leipziger, employer plan"
+            },
+            {
+              key: "currentValue",
+              label: "Current value",
+              type: "number",
+              placeholder: "0"
+            },
+            {
+              key: "monthlyContribution",
+              label: "Monthly contribution",
+              type: "number",
+              placeholder: "0"
+            },
+            {
+              key: "notes",
+              label: "Notes",
+              type: "textarea",
+              rows: 2,
+              placeholder: "Optional details like guarantees, surrender limits, or tax treatment"
+            }
+          ]
+        })}
+        ${renderProfileCollectionSection({
+          collection: "liabilities",
+          title: "Liabilities",
+          copy: "Loans, mortgages, recurring premiums, and other obligations",
+          addLabel: "Add liability",
+          emptyCopy: "Add mortgages, personal loans, or other liabilities that materially affect your monthly flexibility.",
+          fields: [
+            {
+              key: "label",
+              label: "Name",
+              placeholder: "Apartment mortgage, KfW loan, premium finance"
+            },
+            {
+              key: "category",
+              label: "Category",
+              type: "select",
+              options: [
+                "Mortgage",
+                "Personal loan",
+                "Credit line",
+                "Insurance premium",
+                "Tax due",
+                "Other"
+              ]
+            },
+            {
+              key: "balance",
+              label: "Outstanding balance",
+              type: "number",
+              placeholder: "0"
+            },
+            {
+              key: "interestRate",
+              label: "Interest rate %",
+              type: "number",
+              placeholder: "0"
+            },
+            {
+              key: "monthlyPayment",
+              label: "Monthly payment",
+              type: "number",
+              placeholder: "0"
+            },
+            {
+              key: "notes",
+              label: "Notes",
+              type: "textarea",
+              rows: 2,
+              placeholder: "Optional details like fixed-rate end date, lender, or policy schedule"
+            }
+          ]
+        })}
       </section>
     `,
     `
-      <section class="onboarding-panel">
-        <div class="section-header">
+      <section class="office-form-section">
+        <div class="office-panel-head">
           <div>
-            <span class="eyebrow">Step 3</span>
-            <h3>Add your investments, funds, ETFs, and brokerage accounts</h3>
+            <span class="eyebrow">Assets</span>
+            <h3>Holdings you actually own</h3>
+            <p class="section-copy">Add positions one by one. Include ETFs, stocks, crypto, or even a cash sleeve if you want the brief to reflect it.</p>
           </div>
-          <p class="section-copy">Paste a broker export if you have one, or fall back to the simple one-line format below. Either path updates the same holdings list.</p>
         </div>
-        <label class="form-field">
-          <span>Quick import from CSV / TSV / semicolon export</span>
-          <textarea
-            name="holdingsImport"
-            rows="6"
-            placeholder="ticker,current_value,cost_basis,account,notes&#10;NVDA,14800,9200,Brokerage,Core AI position&#10;BTC,5200,3400,Cold Wallet,Long-term sleeve"
-          ></textarea>
-          <small>Supported headers include ticker/symbol, current_value/value, cost_basis, account, and notes. Click import to replace the holdings draft with the pasted table.</small>
-        </label>
-        <div class="operator-actions">
-          <button class="mini-chip" type="button" data-import-holdings>Import pasted holdings</button>
-        </div>
-        <label class="form-field">
-          <span>Holdings — one per line: TICKER|Category|CurrentValue|CostBasis|AccountType|Notes</span>
-          <textarea
-            name="holdings"
-            rows="9"
-            placeholder="VWCE|ETF|18500|14200|Brokerage|Global equity core&#10;IE00B4L5Y983|ETF|7600|7020|Brokerage|MSCI World ETF&#10;Cash reserve|Cash|12000|12000|Savings|Broker cash buffer&#10;BTC|Crypto|5200|3400|Cold Wallet|Long-term speculative sleeve"
-          >${escapeHtml(serializeHoldings(profile.holdings))}</textarea>
-        </label>
-        <div class="context-grid compact-grid">
+        <div class="office-inline-stats">
           <article class="context-item">
-            <span>Tracked investment holdings</span>
+            <span>Holdings count</span>
             <strong>${profile.holdings.length}</strong>
           </article>
           <article class="context-item">
-            <span>Approximate current value</span>
+            <span>Holdings value</span>
             <strong>${formatCurrency(onboardingSummary.holdingsTotal)}</strong>
           </article>
-          <article class="context-item">
-            <span>Tracked assets total</span>
-            <strong>${onboardingSummary.trackedAssetCount}</strong>
-          </article>
         </div>
-      </section>
-    `,
-    `
-      <section class="onboarding-panel">
-        <div class="section-header">
-          <div>
-            <span class="eyebrow">Step 4</span>
-            <h3>Capture retirement and insurance wrappers</h3>
-          </div>
-          <p class="section-copy">This is the place for Rentenversicherung, private pension, bAV, Riester/Rürup-style products, or any policy wrapper with cash value or recurring contribution.</p>
-        </div>
-        <label class="form-field">
-          <span>Retirement / insurance products — one per line: Name|Type|Provider|CurrentValue|MonthlyContribution|Notes</span>
-          <textarea
-            name="retirementProducts"
-            rows="8"
-            placeholder="Allianz BasisRente|Rentenversicherung|Allianz|24000|350|Tax-advantaged retirement contract&#10;Company pension|bAV|Employer plan|11800|220|Salary sacrifice plan"
-          >${escapeHtml(serializeRetirementProducts(profile.retirementProducts || []))}</textarea>
-        </label>
-        <div class="context-grid compact-grid">
-          <article class="context-item">
-            <span>Tracked pension / insurance wrappers</span>
-            <strong>${(profile.retirementProducts || []).length}</strong>
-          </article>
-          <article class="context-item">
-            <span>Approximate current value</span>
-            <strong>${formatCurrency(onboardingSummary.retirementTotal)}</strong>
-          </article>
-        </div>
-      </section>
-    `,
-    `
-      <section class="onboarding-panel">
-        <div class="section-header">
-          <div>
-            <span class="eyebrow">Step 5</span>
-            <h3>List liabilities and upload supporting contracts</h3>
-          </div>
-          <p class="section-copy">Add loans, mortgage obligations, financing, and any contracts you want to remember during future advice sessions.</p>
-        </div>
-        <label class="form-field">
-          <span>Liabilities — one per line: Name|Category|Balance|InterestRate|MonthlyPayment|Notes</span>
-          <textarea
-            name="liabilities"
-            rows="8"
-            placeholder="Primary mortgage|Mortgage|240000|3.7|1580|Apartment financing&#10;KfW loan|Loan|18500|1.2|220|Energy retrofit program"
-          >${escapeHtml(serializeLiabilities(profile.liabilities))}</textarea>
-        </label>
-        <label class="form-field">
-          <span>Upload contracts or account statements</span>
-          <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.csv,.txt" data-profile-documents />
-          <small>Files stay in the browser for now; the app stores the document index and metadata in your profile so you have a checklist for onboarding.</small>
-        </label>
-        <input type="hidden" name="documentsJson" value="${escapeHtml(JSON.stringify(documentDraft))}" />
-        <div class="document-list">
-          ${
-            documentDraft.length
-              ? documentDraft
-                  .map(
-                    (document) => `
-                    <article class="document-card">
-                      <div>
-                        <strong>${escapeHtml(document.name)}</strong>
-                        <p>${escapeHtml(document.category)} · ${document.sizeBytes ? `${Math.round(document.sizeBytes / 1024)} KB` : "Size unavailable"}</p>
-                      </div>
-                      <button type="button" class="mini-chip" data-remove-document="${document.id}">Remove</button>
-                    </article>
-                  `
-                  )
-                  .join("")
-              : '<article class="status-inline"><strong>No documents indexed yet</strong><p>Add insurance contracts, ETF/fund statements, pension summaries, or loan paperwork when you have them handy.</p></article>'
-          }
-        </div>
-      </section>
-    `,
-    `
-      <section class="onboarding-panel">
-        <div class="section-header">
-          <div>
-            <span class="eyebrow">Step 6</span>
-            <h3>Review the profile and save it</h3>
-          </div>
-          <p class="section-copy">You do not need perfect data. Approximate balances plus the right account labels are enough to start getting useful answers.</p>
-        </div>
-        <div class="onboarding-review-grid">
-          <article class="context-item">
-            <span>Goals captured</span>
-            <strong>${profile.goals.length}</strong>
-            <p>${escapeHtml((profile.goals || []).join(", ") || "No explicit goals yet")}</p>
-          </article>
-          <article class="context-item">
-            <span>Investment holdings</span>
-            <strong>${profile.holdings.length}</strong>
-            <p>${formatCurrency(onboardingSummary.holdingsTotal)} tracked</p>
-          </article>
-          <article class="context-item">
-            <span>Watchlist assets</span>
-            <strong>${(profile.watchlist || []).length}</strong>
-            <p>${escapeHtml((profile.watchlist || []).join(", ") || "No watchlist names yet")}</p>
-          </article>
-          <article class="context-item">
-            <span>Retirement / insurance</span>
-            <strong>${(profile.retirementProducts || []).length}</strong>
-            <p>${formatCurrency(onboardingSummary.retirementTotal)} tracked</p>
-          </article>
-          <article class="context-item">
-            <span>Liabilities</span>
-            <strong>${profile.liabilities.length}</strong>
-            <p>${formatCurrency(onboardingSummary.liabilitiesTotal)} tracked</p>
-          </article>
-          <article class="context-item">
-            <span>Documents indexed</span>
-            <strong>${onboardingSummary.documentCount}</strong>
-            <p>${onboardingSummary.documentCount ? "Contracts and statements are listed for later review." : "Add documents later if you want a fuller profile."}</p>
-          </article>
-        </div>
-        <label class="form-field">
-          <span>Additional notes for the advisor</span>
-          <textarea name="notes" rows="5" placeholder="Anything the advisor should remember: concentrated stock risk, planned property purchase, pension constraints, family cash needs...">${escapeHtml(profile.notes || "")}</textarea>
-        </label>
-        <article class="status-inline">
-          <strong>Suggested first uploads / entries</strong>
-          <p>Broker statements, pension overview, Rentenversicherung contract, ETF/fund account summary, mortgage statement, and current emergency-cash balance are the highest-value first inputs.</p>
-        </article>
+        ${renderProfileCollectionSection({
+          collection: "holdings",
+          title: "Holdings",
+          copy: "Securities, ETFs, crypto, and cash sleeves",
+          addLabel: "Add holding",
+          emptyCopy: "Start with a few real positions. You do not need a perfect export for the app to become useful.",
+          fields: [
+            {
+              key: "ticker",
+              label: "Ticker or label",
+              placeholder: "VWCE, MSFT, BTC, Cash"
+            },
+            {
+              key: "category",
+              label: "Category",
+              type: "select",
+              options: ["Stock", "ETF", "Fund", "Crypto", "Cash", "Bond", "Other"]
+            },
+            {
+              key: "accountType",
+              label: "Account / wrapper",
+              type: "select",
+              options: [
+                "Brokerage",
+                "Retirement account",
+                "Pension wrapper",
+                "Savings account",
+                "Cold wallet",
+                "Other"
+              ]
+            },
+            {
+              key: "currentValue",
+              label: "Current value",
+              type: "number",
+              placeholder: "0"
+            },
+            {
+              key: "costBasis",
+              label: "Cost basis",
+              type: "number",
+              placeholder: "0"
+            },
+            {
+              key: "notes",
+              label: "Notes",
+              type: "textarea",
+              rows: 2,
+              placeholder: "Optional context like core position, long-term sleeve, or concentration note"
+            }
+          ]
+        })}
       </section>
     `
   ];
 
   return `
-    <main class="content-shell">
+    <main class="office-content">
       ${renderStatusBanner()}
-      <section class="hero-panel">
-        <div>
-          <span class="eyebrow">Portfolio-aware advisor</span>
-          <h2>Complete a guided onboarding flow, then ask explicit asset questions against the latest internal signals.</h2>
-          <p>
-            This assistant now walks you step by step through building your initial financial profile, including funds, ETFs, pension wrappers, Rentenversicherung-style products, liabilities, and supporting contracts.
-          </p>
-        </div>
-        <div class="hero-decision">
-          <span class="pill pill-muted">Onboarding + advisor</span>
-          <strong>Step ${currentStep + 1} of 6</strong>
-          <p>${latestAnswer ? `Latest answer: ${latestAnswer.assetTicker} at ${formatGeneratedAt(latestAnswer.createdAt)}.` : "Finish onboarding, save the profile, and ask the first asset question."}</p>
-        </div>
-      </section>
       ${
         state.advisorError
           ? `
-            <article class="section-card status-inline status-inline-error">
+            <article class="office-panel status-inline status-inline-error">
+              <strong>Portfolio issue</strong>
+              <p>${state.advisorError}</p>
+            </article>
+          `
+          : ""
+      }
+      ${
+        state.advisorNotice
+          ? `
+            <article class="office-panel status-inline status-success">
+              <strong>Portfolio updated</strong>
+              <p>${state.advisorNotice}</p>
+            </article>
+          `
+          : ""
+      }
+      <section class="office-grid office-grid-sidebar">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Portfolio</span>
+              <h2>Portfolio setup</h2>
+            </div>
+          </div>
+          <form class="operator-form office-form" data-profile-form>
+            ${renderOnboardingStepCards(currentStep)}
+            ${onboardingPanels[currentStep] || onboardingPanels[0]}
+            <div class="office-form-actions">
+              <button class="mini-chip" type="button" data-onboarding-prev ${currentStep === 0 ? "disabled" : ""}>Previous</button>
+              <button class="mini-chip" type="button" data-onboarding-next ${currentStep === onboardingPanels.length - 1 ? "disabled" : ""}>Next</button>
+              <button class="refresh-button" type="submit" ${state.isSavingProfile ? "disabled" : ""}>
+                ${state.isSavingProfile ? "Saving..." : "Save portfolio"}
+              </button>
+            </div>
+          </form>
+        </section>
+        <aside class="office-sidebar">
+          <section class="office-panel">
+            <div class="office-panel-head">
+              <div>
+                <span class="eyebrow">Status</span>
+                <h3>Current state</h3>
+              </div>
+            </div>
+            <div class="office-checklist">
+              ${setupState.steps
+                .map(
+                  (step) => `
+                    <div class="office-checklist-row ${step.complete ? "is-complete" : ""}">
+                      <strong>${step.title}</strong>
+                      <span>${step.complete ? "Done" : "Pending"}</span>
+                      <p>${step.body}</p>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          </section>
+          <section class="office-panel">
+            <div class="office-panel-head">
+              <div>
+                <span class="eyebrow">Saved totals</span>
+                <h3>Portfolio snapshot</h3>
+              </div>
+            </div>
+            <div class="office-summary-list">
+              <div><span>Holdings</span><strong>${profile.holdings.length}</strong></div>
+              <div><span>Insurance & pensions</span><strong>${formatCurrency(onboardingSummary.retirementTotal)}</strong></div>
+              <div><span>Watchlist</span><strong>${(profile.watchlist || []).length}</strong></div>
+              <div><span>Tracked assets</span><strong>${onboardingSummary.trackedAssetCount}</strong></div>
+              <div><span>Invested assets</span><strong>${formatCurrency(onboardingSummary.holdingsTotal + onboardingSummary.retirementTotal)}</strong></div>
+              <div><span>Liabilities</span><strong>${formatCurrency(onboardingSummary.liabilitiesTotal)}</strong></div>
+            </div>
+          </section>
+          <section class="office-panel">
+            <div class="office-panel-head">
+              <div>
+                <span class="eyebrow">Next</span>
+                <h3>After saving</h3>
+              </div>
+            </div>
+            <p>Go to the Signals tab, import a few real posts, run the pipeline, then return to Overview for the review queue.</p>
+            <div class="office-form-actions">
+              <button class="mini-chip" data-view="signals">Open signals</button>
+              <button class="mini-chip" data-view="dashboard">Back to overview</button>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  `;
+}
+
+function renderSignalsPage() {
+  const recentPosts = getRecentAnalysedPosts().slice(0, 12);
+  const status = getStoreStatus();
+  const bySourceRows = (status.bySource || [])
+    .slice(0, 6)
+    .map((entry) => {
+      const source = getSource(entry.sourceId);
+
+      return `
+        <tr>
+          <td>${source?.handle || entry.sourceId}</td>
+          <td>${entry.count}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <main class="office-content">
+      ${renderStatusBanner()}
+      ${renderOperatorNotice()}
+      <section class="office-panel office-summary-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Signals</span>
+            <h2>Feed input and latest imports</h2>
+          </div>
+          <div class="office-form-actions">
+            <button class="mini-chip" type="button" data-run-pipeline ${state.isRunningPipeline ? "disabled" : ""}>
+              ${state.isRunningPipeline ? "Running..." : "Run pipeline"}
+            </button>
+            <button class="mini-chip" data-view="dashboard">Back to overview</button>
+          </div>
+        </div>
+        <div class="office-summary-grid">
+          <article class="office-metric">
+            <span>Feed mode</span>
+            <strong>${formatEnumLabel(status.mode || "fake")}</strong>
+            <small>${status.postCount || 0} posts in store</small>
+          </article>
+          <article class="office-metric">
+            <span>Recent posts</span>
+            <strong>${recentPosts.length}</strong>
+            <small>Last 3-day analysis window</small>
+          </article>
+          <article class="office-metric">
+            <span>Sources covered</span>
+            <strong>${status.sourcesCovered || 0}</strong>
+            <small>Unique monitored handles</small>
+          </article>
+          <article class="office-metric">
+            <span>Actionable</span>
+            <strong>${status.actionableCount || 0}</strong>
+            <small>${status.decisionCount || 0} decisions in latest snapshot</small>
+          </article>
+        </div>
+      </section>
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Manual import</span>
+              <h3>Paste posts, links, or notes</h3>
+            </div>
+          </div>
+          <form class="operator-form office-form" data-manual-feed-form>
+            <input type="hidden" name="manualSourceId" value="" />
+            <div class="field-grid">
+              <label class="form-field">
+                <span>Source handle</span>
+                <input name="manualSourceHandle" value="@personaldesk" />
+              </label>
+              <label class="form-field">
+                <span>Source name</span>
+                <input name="manualSourceName" value="Personal desk" />
+              </label>
+              <label class="form-field">
+                <span>Category</span>
+                <input name="manualSourceCategory" value="Operator" />
+              </label>
+              <label class="form-field">
+                <span>Allowed assets</span>
+                <input name="manualAllowedAssets" placeholder="NVDA, BTC, MSFT" />
+              </label>
+            </div>
+            <label class="form-field">
+              <span>Relevant sectors</span>
+              <input name="manualRelevantSectors" placeholder="AI, semis, macro, crypto" />
+            </label>
+            <label class="form-field">
+              <span>Raw input</span>
+              <textarea
+                name="manualRawText"
+                rows="10"
+                placeholder="@semiflow: Broadening risk appetite keeps semis bid; still constructive on NVDA.&#10;https://x.com/example/status/123&#10;Manual note: BTC positioning looks louder than spot demand."
+              ></textarea>
+            </label>
+            <label class="checkbox-field">
+              <input type="checkbox" name="manualReplaceExisting" />
+              <span>Replace the current manual feed instead of appending</span>
+            </label>
+            <div class="office-form-actions">
+              <button class="refresh-button" type="submit" ${state.isMutating ? "disabled" : ""}>
+                ${state.isMutating ? "Importing..." : "Import signals"}
+              </button>
+            </div>
+          </form>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Store breakdown</span>
+              <h3>Posts by source</h3>
+            </div>
+          </div>
+          <table class="office-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Posts</th>
+              </tr>
+            </thead>
+            <tbody>${bySourceRows || '<tr><td colspan="2">No source data yet.</td></tr>'}</tbody>
+          </table>
+        </section>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Latest analysed posts</span>
+            <h3>Current feed window</h3>
+          </div>
+        </div>
+        <table class="office-table">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Time</th>
+              <th>Claim</th>
+              <th>Mapped assets</th>
+              <th>Post</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              recentPosts.length
+                ? recentPosts
+                    .map((post) => {
+                      const source = getSource(post.sourceId);
+
+                      return `
+                        <tr>
+                          <td>${source?.handle || post.sourceId}</td>
+                          <td>${formatGeneratedAt(post.createdAt)}</td>
+                          <td>${post.claimType || "Unknown"}</td>
+                          <td>${(post.mappedAssets || []).join(", ") || "Unmapped"}</td>
+                          <td>${post.body}</td>
+                        </tr>
+                      `;
+                    })
+                    .join("")
+                : '<tr><td colspan="5">No analysed posts yet.</td></tr>'
+            }
+          </tbody>
+        </table>
+      </section>
+    </main>
+  `;
+}
+
+function renderAdvisorView() {
+  const { monitoredUniverse } = getData();
+  const advisor = getAdvisor();
+  const profile = advisor.financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const latestAnswer = getLatestAdvisorAnswer();
+  const setupState = buildSingleUserSetupState(profile);
+  const trackedTickers = getTrackedAssetTickers(profile);
+  const suggestedTickers = trackedTickers.length
+    ? trackedTickers
+    : monitoredUniverse.slice(0, 6).map((asset) => asset.ticker);
+  const relatedSignals = sortPostsByCreatedAt(
+    getData().posts.filter((post) => (post.mappedAssets || []).some((asset) => suggestedTickers.includes(asset)))
+  ).slice(0, 4);
+  const canAsk = Boolean(suggestedTickers.length && setupState.hasDecisionFrame);
+  const cashSummary = buildProfileCashSummary(profile);
+
+  return `
+    <main class="office-content">
+      ${renderStatusBanner()}
+      ${
+        state.advisorError
+          ? `
+            <article class="office-panel status-inline status-inline-error">
               <strong>Advisor issue</strong>
               <p>${state.advisorError}</p>
             </article>
@@ -3516,68 +3543,71 @@ function renderAdvisorView() {
       ${
         state.advisorNotice
           ? `
-            <article class="section-card status-inline status-success">
+            <article class="office-panel status-inline status-success">
               <strong>Advisor update</strong>
               <p>${state.advisorNotice}</p>
             </article>
           `
           : ""
       }
-      <section class="section-card split-card">
-        <div>
-          <div class="section-header">
-            <div>
-              <span class="eyebrow">Financial profile onboarding</span>
-              <h3>Build the first complete version of your household balance sheet</h3>
-            </div>
-            <p class="section-copy">You can move step by step. Save once you are happy with the review screen.</p>
+      <section class="office-panel office-summary-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Advisor</span>
+            <h2>Focused portfolio questions</h2>
           </div>
-          <form class="operator-form" data-profile-form>
-            ${renderOnboardingStepCards(currentStep)}
-            ${onboardingPanels[currentStep] || onboardingPanels[0]}
-            <div class="operator-actions">
-              <button class="mini-chip" type="button" data-onboarding-prev ${currentStep === 0 ? "disabled" : ""}>Previous step</button>
-              ${
-                currentStep < onboardingPanels.length - 1
-                  ? `<button class="refresh-button" type="button" data-onboarding-next>Continue to step ${currentStep + 2}</button>`
-                  : `<button class="refresh-button" type="submit" ${state.isSavingProfile ? "disabled" : ""}>${state.isSavingProfile ? "Saving profile..." : "Save financial profile"}</button>`
-              }
-              ${
-                currentStep === onboardingPanels.length - 1
-                  ? `<button class="mini-chip" type="button" data-onboarding-step="0">Restart from step 1</button>`
-                  : ""
-              }
-            </div>
-            <div class="tag-row">
-              <span class="tag">${profile.holdings.length} holdings</span>
-              <span class="tag">${(profile.watchlist || []).length} watchlist names</span>
-              <span class="tag">${(profile.retirementProducts || []).length} pension / insurance entries</span>
-              <span class="tag">${profile.liabilities.length} liabilities</span>
-              <span class="tag">${onboardingSummary.documentCount} documents indexed</span>
-              <span class="tag">${formatCurrency(onboardingSummary.holdingsTotal + onboardingSummary.retirementTotal)} invested assets tracked</span>
-            </div>
-            <div class="onboarding-note">
-              <strong>Important:</strong> the current app stores the profile and document index, not the raw uploaded contract files themselves.
-              Use uploads here as an onboarding checklist until a full document vault exists.
-            </div>
-            <div class="operator-actions">
-              <button class="refresh-button" type="submit" ${state.isSavingProfile ? "disabled" : ""}>
-                ${state.isSavingProfile ? "Saving progress..." : "Save progress at any time"}
-              </button>
-            </div>
-          </form>
+          <div class="office-inline-meta">
+            ${suggestedTickers.slice(0, 4).map((ticker) => `<span>${ticker}</span>`).join("")}
+          </div>
         </div>
-        <div>
-          <div class="section-header">
+        <div class="office-summary-grid">
+          <article class="office-metric">
+            <span>Suggested assets</span>
+            <strong>${suggestedTickers.length}</strong>
+            <small>From holdings and watchlist</small>
+          </article>
+          <article class="office-metric">
+            <span>Holdings</span>
+            <strong>${profile.holdings.length}</strong>
+            <small>${trackedTickers.length} tracked names</small>
+          </article>
+          <article class="office-metric">
+            <span>Safety buffer</span>
+            <strong>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths}m` : "Pending"}</strong>
+            <small>${formatEnumLabel(getFeedMode())} feed</small>
+          </article>
+          <article class="office-metric">
+            <span>Latest answer</span>
+            <strong>${latestAnswer ? latestAnswer.assetTicker : "None"}</strong>
+            <small>${latestAnswer ? formatGeneratedAt(latestAnswer.createdAt) : "Ask the first question"}</small>
+          </article>
+        </div>
+      </section>
+      ${
+        !canAsk
+          ? `
+            <section class="office-panel status-inline">
+              <strong>Setup is incomplete</strong>
+              <p>Save a few goals and at least one watchlist or holding in Portfolio before relying on the advisor.</p>
+              <div class="office-form-actions">
+                <button class="mini-chip" data-view="setup">Open portfolio</button>
+              </div>
+            </section>
+          `
+          : ""
+      }
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Ask the advisor</span>
-              <h3>Request asset-specific guidance</h3>
+              <span class="eyebrow">Ask a question</span>
+              <h3>Request a focused opinion</h3>
             </div>
           </div>
-          <form class="operator-form" data-advisor-form>
+          <form class="operator-form office-form" data-advisor-form>
             <label class="form-field">
               <span>Asset</span>
-              <input name="assetTicker" list="advisor-asset-list" value="${escapeHtml(latestAnswer?.assetTicker || "")}" placeholder="BTC, NVDA, VTI, cash, mortgage-linked question..." />
+              <input name="assetTicker" list="advisor-asset-list" value="${escapeHtml(latestAnswer?.assetTicker || suggestedTickers[0] || "")}" placeholder="BTC, NVDA, VTI..." />
               <datalist id="advisor-asset-list">
                 ${monitoredUniverse
                   .map(
@@ -3590,80 +3620,128 @@ function renderAdvisorView() {
             </label>
             <label class="form-field">
               <span>Question</span>
-              <textarea name="question" rows="5" placeholder="Example: Should I add to BTC over the next month given my current cash buffer and loan load?"></textarea>
+              <textarea name="question" rows="6" placeholder="Should I add over the next month given my cash buffer, holdings concentration, and the latest signals?"></textarea>
             </label>
-            <div class="operator-actions">
+            <div class="office-form-actions">
               <button class="refresh-button" type="submit" ${state.isAskingAdvisor ? "disabled" : ""}>
                 ${state.isAskingAdvisor ? "Generating answer..." : "Ask advisor"}
               </button>
+              <button class="mini-chip" type="button" data-view="setup">Open portfolio</button>
             </div>
           </form>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Latest answer</span>
+              <h3>${latestAnswer ? latestAnswer.answer.headline : "No answer generated yet"}</h3>
+            </div>
+          </div>
           ${
             latestAnswer
               ? `
-                <article class="section-card nested-card">
-                  <span class="eyebrow">Latest answer</span>
-                  <h3>${latestAnswer.answer.headline}</h3>
-                  <p>${latestAnswer.answer.answer}</p>
-                  <div class="tag-row">
-                    <span class="tag">${latestAnswer.assetTicker}</span>
-                    <span class="tag">${latestAnswer.answer.stance}</span>
-                    <span class="tag">${latestAnswer.answer.suitability}</span>
-                    <span class="tag">${formatPercent(latestAnswer.answer.confidence || 0)}</span>
-                    <span class="tag">${formatEnumLabel(latestAnswer.provider)}</span>
+                <p>${latestAnswer.answer.answer}</p>
+                <div class="office-inline-meta">
+                  <span>${latestAnswer.assetTicker}</span>
+                  <span>${latestAnswer.answer.stance}</span>
+                  <span>${latestAnswer.answer.suitability}</span>
+                  <span>${formatPercent(latestAnswer.answer.confidence || 0)}</span>
+                </div>
+                <div class="details-stack office-details">
+                  <div>
+                    <strong>Rationale</strong>
+                    <ul>${latestAnswer.answer.rationale.map((item) => `<li>${item}</li>`).join("")}</ul>
                   </div>
-                  <div class="details-stack">
-                    <div>
-                      <strong>Rationale</strong>
-                      <ul>${latestAnswer.answer.rationale.map((item) => `<li>${item}</li>`).join("")}</ul>
-                    </div>
-                    <div>
-                      <strong>Portfolio fit</strong>
-                      <ul>${latestAnswer.answer.portfolioFit.map((item) => `<li>${item}</li>`).join("")}</ul>
-                    </div>
-                    <div>
-                      <strong>Latest signals</strong>
-                      <ul>${latestAnswer.answer.latestSignals.map((item) => `<li>${item}</li>`).join("")}</ul>
-                    </div>
-                    <div>
-                      <strong>Risk flags</strong>
-                      <ul>${latestAnswer.answer.riskFlags.map((item) => `<li>${item}</li>`).join("")}</ul>
-                    </div>
-                    <div>
-                      <strong>Next steps</strong>
-                      <ul>${latestAnswer.answer.nextSteps.map((item) => `<li>${item}</li>`).join("")}</ul>
-                    </div>
+                  <div>
+                    <strong>Portfolio fit</strong>
+                    <ul>${latestAnswer.answer.portfolioFit.map((item) => `<li>${item}</li>`).join("")}</ul>
                   </div>
-                  <p class="subtle">${latestAnswer.answer.disclaimer}</p>
-                </article>
+                  <div>
+                    <strong>Risk flags</strong>
+                    <ul>${latestAnswer.answer.riskFlags.map((item) => `<li>${item}</li>`).join("")}</ul>
+                  </div>
+                  <div>
+                    <strong>Next steps</strong>
+                    <ul>${latestAnswer.answer.nextSteps.map((item) => `<li>${item}</li>`).join("")}</ul>
+                  </div>
+                </div>
+                <p class="subtle">${latestAnswer.answer.disclaimer}</p>
               `
               : `
                 <article class="status-inline">
                   <strong>No advice generated yet</strong>
-                  <p>Save your profile, then ask a ticker-specific question to generate an answer grounded in the latest pipeline snapshot.</p>
+                  <p>Ask a ticker-specific question and the response will be grounded in your saved profile plus the latest snapshot.</p>
                 </article>
               `
           }
-          <div class="operator-list">
-            ${advisor.history
-              .map(
-                (entry) => `
-                <article class="operator-card">
-                  <div class="operator-card-head">
-                    <div>
-                      <strong>${entry.assetTicker}</strong>
-                      <span>${formatGeneratedAt(entry.createdAt)}</span>
-                    </div>
-                    <span class="pill pill-muted">${formatEnumLabel(entry.provider)}</span>
-                  </div>
-                  <p>${entry.question}</p>
-                  <small>${entry.answer.headline}</small>
-                </article>
-              `
-              )
-              .join("")}
+        </section>
+      </section>
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Recent advisor history</span>
+              <h3>Previous questions</h3>
+            </div>
           </div>
-        </div>
+          <div class="operator-list">
+            ${advisor.history.length
+              ? advisor.history
+                  .map(
+                    (entry) => `
+                    <article class="operator-card">
+                      <div class="operator-card-head">
+                        <div>
+                          <strong>${entry.assetTicker}</strong>
+                          <span>${formatGeneratedAt(entry.createdAt)}</span>
+                        </div>
+                        <span class="pill pill-muted">${formatEnumLabel(entry.provider)}</span>
+                      </div>
+                      <p>${entry.question}</p>
+                      <small>${entry.answer.headline}</small>
+                    </article>
+                  `
+                  )
+                  .join("")
+              : '<article class="status-inline"><strong>No advisor history yet</strong><p>Your recent answers will appear here once you start asking focused questions.</p></article>'}
+          </div>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Related signals</span>
+              <h3>Recent posts touching your suggested names</h3>
+            </div>
+          </div>
+          <table class="office-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Time</th>
+                <th>Mapped assets</th>
+                <th>Post</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${relatedSignals.length
+                ? relatedSignals
+                    .map((post) => {
+                      const source = getSource(post.sourceId);
+
+                      return `
+                        <tr>
+                          <td>${source?.handle || post.sourceId}</td>
+                          <td>${formatGeneratedAt(post.createdAt)}</td>
+                          <td>${(post.mappedAssets || []).join(", ") || "Unmapped"}</td>
+                          <td>${post.body}</td>
+                        </tr>
+                      `;
+                    })
+                    .join("")
+                : '<tr><td colspan="4">No recent related signals. Import more posts in the Signals tab when you want fresher context.</td></tr>'}
+            </tbody>
+          </table>
+        </section>
       </section>
     </main>
   `;
@@ -4225,6 +4303,14 @@ function renderContent() {
 
   if (state.view === "assets") {
     return renderAssetsView();
+  }
+
+  if (state.view === "setup") {
+    return renderSetupPage();
+  }
+
+  if (state.view === "signals") {
+    return renderSignalsPage();
   }
 
   if (state.view === "advisor") {
