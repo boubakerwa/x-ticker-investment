@@ -129,11 +129,12 @@ export async function runPipeline({
   reason = ""
 } = {}) {
   const generatedAt = new Date().toISOString();
+  const sourceStore = readSourceStore();
   const feedSyncResult = await syncFeedProvider({
-    generatedAt
+    generatedAt,
+    sources: sourceStore.sources
   });
   const tweetStore = readTweetStore();
-  const sourceStore = readSourceStore();
   const extractorConfig = getClaimExtractorConfig();
   const marketConfig = getMarketProviderConfig();
   const dependencyKey = buildDependencyKey({
@@ -203,11 +204,12 @@ export async function runPipeline({
 
 export async function ensureLatestPipelineRun({ trigger = "startup", force = false } = {}) {
   const generatedAt = new Date().toISOString();
+  const sourceStore = readSourceStore();
   const feedSyncResult = await syncFeedProvider({
-    generatedAt
+    generatedAt,
+    sources: sourceStore.sources
   });
   const tweetStore = readTweetStore();
-  const sourceStore = readSourceStore();
   const extractorConfig = getClaimExtractorConfig();
   const marketConfig = getMarketProviderConfig();
   const dependencyKey = buildDependencyKey({

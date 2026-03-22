@@ -1,5 +1,6 @@
 import { getLatestPipelineSnapshot, getPipelineRun } from "./pipelineStore.js";
 import { runPipeline } from "./pipelineRunner.js";
+import { readFinancialProfile } from "./financialProfileStore.js";
 import { buildDailyDigest, buildFailureAlert, buildPipelineAlert } from "./reportBuilder.js";
 import { getNotificationStatus, sendNotification } from "./notificationProvider.js";
 import {
@@ -63,10 +64,13 @@ export async function executePipelineJob({ trigger = "manual", reason = "", meta
       trigger,
       reason
     });
+    const financialProfile = readFinancialProfile();
 
     await sendNotification({
       eventType: "pipeline.completed",
-      message: buildPipelineAlert(run),
+      message: buildPipelineAlert(run, {
+        financialProfile
+      }),
       payload: {
         runId: run.id,
         trigger
@@ -128,11 +132,13 @@ export async function sendDailyDigest({ trigger = "manual", reason = "" } = {}) 
     const latestRun = latestSnapshot?.runId ? getPipelineRun(latestSnapshot.runId) : null;
     const runtimeJobs = listRuntimeJobs(12);
     const notificationStatus = getNotificationStatus();
+    const financialProfile = readFinancialProfile();
     const digest = buildDailyDigest({
       latestSnapshot,
       latestRun,
       runtimeJobs,
-      notificationStatus
+      notificationStatus,
+      financialProfile
     });
     const notificationEvent = await sendNotification({
       eventType: "report.daily",

@@ -1,6 +1,63 @@
 import { getBackgroundPipelineStatus } from "./backgroundPipelineRunner.js";
 import { listDecisionHistory, listPipelineRuns } from "./pipelineStore.js";
 
+function normalizeTicker(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9.-]/g, "");
+}
+
+function getTrackedTickers(financialProfile = {}) {
+  return [
+    ...new Set(
+      [
+        ...(financialProfile.holdings || []).map((holding) => normalizeTicker(holding.ticker)),
+        ...(financialProfile.watchlist || []).map((ticker) => normalizeTicker(ticker))
+      ].filter(Boolean)
+    )
+  ];
+}
+
+function sortDecisionsByPriority(decisions) {
+  const actionPriority = {
+    SELL: 3,
+    BUY: 2,
+    HOLD: 1
+  };
+
+  return [...decisions].sort((left, right) => {
+    const leftPriority = actionPriority[left.action] || 0;
+    const rightPriority = actionPriority[right.action] || 0;
+
+    if (leftPriority !== rightPriority) {
+      return rightPriority - leftPriority;
+    }
+
+    return (right.confidence || 0) - (left.confidence || 0);
+  });
+}
+
+function getTrackedDecisionsFromSnapshot(snapshot, financialProfile) {
+  const trackedTickers = getTrackedTickers(financialProfile);
+  const decisions = snapshot?.appData?.decisions || [];
+
+  return sortDecisionsByPriority(decisions.filter((decision) => trackedTickers.includes(decision.asset)));
+}
+
+function getTrackedDecisionsFromRun(run, financialProfile) {
+  const trackedTickers = getTrackedTickers(financialProfile);
+  return sortDecisionsByPriority((run?.decisions || []).filter((decision) => trackedTickers.includes(decision.asset)));
+}
+
+function buildDecisionHighlights(decisions) {
+  return decisions.slice(0, 3).map((decision) => {
+    const confidence = Math.round((decision.confidence || 0) * 100);
+    const headline = decision.rationale?.[0] || "No rationale captured.";
+    return `${decision.asset} ${decision.action} · ${confidence}% · ${headline}`;
+  });
+}
+
 function formatDecisionSummary(decisionHistory) {
   if (!decisionHistory.length) {
     return "No decisions recorded yet.";
@@ -19,22 +76,46 @@ function formatDecisionSummary(decisionHistory) {
     .join(", ");
 }
 
-export function buildDailyDigest({ latestSnapshot, latestRun, runtimeJobs = [], notificationStatus }) {
+export function buildDailyDigest({
+  latestSnapshot,
+  latestRun,
+  runtimeJobs = [],
+  notificationStatus,
+  financialProfile = {}
+}) {
   const scheduler = getBackgroundPipelineStatus();
   const recentRuns = listPipelineRuns(3);
   const decisionHistory = listDecisionHistory(12);
   const topDecision = decisionHistory[0];
+  const trackedTickers = getTrackedTickers(financialProfile);
+  const trackedDecisions = getTrackedDecisionsFromSnapshot(latestSnapshot, financialProfile);
+  const topTrackedDecision = trackedDecisions[0] || null;
+  const highlights = trackedDecisions.length
+    ? buildDecisionHighlights(trackedDecisions)
+    : trackedTickers.length
+      ? ["No active decisions yet for your tracked assets."]
+      : ["Add holdings or a watchlist to personalize the daily digest."];
 
   return {
     title: "Daily operator digest",
     summary:
-      latestRun?.summary?.decisionCount > 0
-        ? `Latest run produced ${latestRun.summary.decisionCount} decisions and ${latestRun.summary.vetoCount} vetoes.`
-        : "Latest run completed without fresh decisions.",
+      topTrackedDecision
+        ? `Portfolio focus: ${topTrackedDecision.asset} is currently ${topTrackedDecision.action} at ${Math.round(topTrackedDecision.confidence * 100)}% confidence.`
+        : latestRun?.summary?.decisionCount > 0
+          ? `Latest run produced ${latestRun.summary.decisionCount} decisions and ${latestRun.summary.vetoCount} vetoes.`
+          : "Latest run completed without fresh decisions.",
     facts: [
       {
         label: "Latest run",
         value: latestRun?.id || latestSnapshot?.runId || "No pipeline run yet"
+      },
+      {
+        label: "Tracked assets",
+        value: trackedTickers.length ? trackedTickers.join(", ") : "Not configured"
+      },
+      {
+        label: "Tracked calls",
+        value: trackedDecisions.length ? String(trackedDecisions.length) : "0"
       },
       {
         label: "Scheduler",
@@ -49,8 +130,12 @@ export function buildDailyDigest({ latestSnapshot, latestRun, runtimeJobs = [], 
         value: formatDecisionSummary(decisionHistory.slice(0, 8))
       },
       {
-        label: "Top decision",
-        value: topDecision ? `${topDecision.asset} ${topDecision.action} · ${Math.round(topDecision.confidence * 100)}%` : "None"
+        label: "Top tracked call",
+        value: topTrackedDecision
+          ? `${topTrackedDecision.asset} ${topTrackedDecision.action} · ${Math.round(topTrackedDecision.confidence * 100)}%`
+          : topDecision
+            ? `${topDecision.asset} ${topDecision.action} · ${Math.round(topDecision.confidence * 100)}%`
+            : "None"
       },
       {
         label: "Jobs tracked",
@@ -61,23 +146,33 @@ export function buildDailyDigest({ latestSnapshot, latestRun, runtimeJobs = [], 
         value: notificationStatus.config.activeProvider
       }
     ],
+    highlights,
     footer: latestSnapshot?.generatedAt
       ? `Snapshot timestamp: ${latestSnapshot.generatedAt}`
       : "Snapshot pending"
   };
 }
 
-export function buildPipelineAlert(run) {
+export function buildPipelineAlert(run, { financialProfile = {} } = {}) {
+  const trackedDecisions = getTrackedDecisionsFromRun(run, financialProfile);
+  const topTrackedDecision = trackedDecisions[0] || null;
+
   return {
     title: "Pipeline run completed",
     summary:
-      run.summary.decisionCount > 0
-        ? `Run ${run.id} finished with ${run.summary.decisionCount} decisions.`
-        : `Run ${run.id} finished without new decisions.`,
+      topTrackedDecision
+        ? `Run ${run.id} surfaced a tracked call: ${topTrackedDecision.asset} ${topTrackedDecision.action}.`
+        : run.summary.decisionCount > 0
+          ? `Run ${run.id} finished with ${run.summary.decisionCount} decisions.`
+          : `Run ${run.id} finished without new decisions.`,
     facts: [
       {
         label: "Trigger",
         value: run.trigger
+      },
+      {
+        label: "Tracked calls",
+        value: trackedDecisions.length ? String(trackedDecisions.length) : "0"
       },
       {
         label: "Extractor",
@@ -96,6 +191,7 @@ export function buildPipelineAlert(run) {
         value: String(run.summary.vetoCount)
       }
     ],
+    highlights: trackedDecisions.length ? buildDecisionHighlights(trackedDecisions) : [],
     footer: run.generatedAt
   };
 }

@@ -68,6 +68,7 @@ const EMPTY_DATA = {
       riskTolerance: "Moderate",
       investmentHorizon: "",
       liquidityNeeds: "",
+      watchlist: [],
       monthlyNetIncome: 0,
       monthlyExpenses: 0,
       emergencyFund: 0,
@@ -122,6 +123,8 @@ const state = {
   isReseeding: false,
   isRunningPipeline: false,
   isRunningEvals: false,
+  isSendingDigest: false,
+  isTestingNotification: false,
   isSavingProfile: false,
   isAskingAdvisor: false,
   isMutating: false,
@@ -199,6 +202,172 @@ const formatEnumLabel = (value) =>
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
 const formatShortId = (value) => String(value || "").slice(0, 18) || "Pending";
+
+function normalizeTicker(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9.-]/g, "");
+}
+
+function normalizeTickerList(items) {
+  return [...new Set((items || []).map((item) => normalizeTicker(item)).filter(Boolean))];
+}
+
+function buildProfileCashSummary(profile) {
+  const monthlyExpenses = Number(profile.monthlyExpenses || 0);
+  const emergencyFund = Number(profile.emergencyFund || 0);
+  const emergencyCoverageMonths =
+    monthlyExpenses > 0 ? Number((emergencyFund / monthlyExpenses).toFixed(1)) : 0;
+
+  return {
+    emergencyCoverageMonths,
+    monthlyBurn: Math.max(0, Number(profile.monthlyExpenses || 0) - Number(profile.monthlyNetIncome || 0))
+  };
+}
+
+function getTrackedAssetTickers(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
+  return normalizeTickerList([
+    ...(profile.holdings || []).map((holding) => holding.ticker),
+    ...(profile.watchlist || [])
+  ]);
+}
+
+function getTrackedAssets(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
+  const trackedTickers = getTrackedAssetTickers(profile);
+
+  return trackedTickers.map((ticker) => {
+    const universeAsset = getData().monitoredUniverse.find((asset) => asset.ticker === ticker) || null;
+    const holding = (profile.holdings || []).find((item) => normalizeTicker(item.ticker) === ticker) || null;
+    const decision = getDecisionByAsset(ticker) || null;
+    const relatedPosts = sortPostsByCreatedAt(
+      getData().posts.filter((post) => (post.mappedAssets || []).includes(ticker))
+    ).slice(0, 3);
+
+    return {
+      ticker,
+      asset: universeAsset,
+      holding,
+      decision,
+      relatedPosts
+    };
+  });
+}
+
+function buildTrackedPortfolioAnalytics(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
+  const trackedAssets = getTrackedAssets(profile);
+  const actionableAssets = trackedAssets.filter((item) => item.decision);
+  const urgentAssets = actionableAssets.filter(
+    (item) => item.decision.action === "SELL" || item.decision.action === "BUY"
+  );
+  const priorityAssets = [...trackedAssets].sort((left, right) => {
+    const actionPriority = {
+      SELL: 3,
+      BUY: 2,
+      HOLD: 1
+    };
+    const leftPriority = actionPriority[left.decision?.action] || 0;
+    const rightPriority = actionPriority[right.decision?.action] || 0;
+
+    if (leftPriority !== rightPriority) {
+      return rightPriority - leftPriority;
+    }
+
+    return (right.decision?.confidence || 0) - (left.decision?.confidence || 0);
+  });
+
+  return {
+    trackedAssets,
+    actionableAssets,
+    urgentAssets,
+    priorityAssets
+  };
+}
+
+function parseDelimitedGrid(rawValue, delimiter) {
+  return String(rawValue || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.split(delimiter).map((item) => item.trim()));
+}
+
+function parseLooseNumber(value) {
+  const normalizedValue = String(value || "")
+    .replace(/[€$£,\s]/g, "")
+    .trim();
+  const numericValue = Number(normalizedValue);
+
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function detectTabularDelimiter(sampleLine) {
+  if ((sampleLine.match(/\t/g) || []).length > 0) {
+    return "\t";
+  }
+
+  if ((sampleLine.match(/;/g) || []).length > 0) {
+    return ";";
+  }
+
+  return ",";
+}
+
+function parseHoldingsImport(rawValue) {
+  const trimmedValue = String(rawValue || "").trim();
+
+  if (!trimmedValue) {
+    return [];
+  }
+
+  const lines = trimmedValue.split("\n").map((line) => line.trim()).filter(Boolean);
+
+  if (!lines.length) {
+    return [];
+  }
+
+  const delimiter = detectTabularDelimiter(lines[0]);
+  const rows = parseDelimitedGrid(trimmedValue, delimiter);
+  const header = rows[0].map((value) => value.toLowerCase().replace(/[^a-z]+/g, ""));
+  const hasHeader = header.some((value) =>
+    ["ticker", "symbol", "value", "currentvalue", "account", "costbasis", "notes"].includes(value)
+  );
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+
+  return dataRows
+    .map((parts) => {
+      if (!parts.length) {
+        return null;
+      }
+
+      if (!hasHeader) {
+        return {
+          ticker: normalizeTicker(parts[0]),
+          category: parts[1] || "Imported holding",
+          currentValue: parseLooseNumber(parts[2]),
+          costBasis: parseLooseNumber(parts[3]),
+          accountType: parts[4] || "Brokerage",
+          notes: parts[5] || ""
+        };
+      }
+
+      const row = {};
+
+      header.forEach((key, index) => {
+        row[key] = parts[index] || "";
+      });
+
+      return {
+        ticker: normalizeTicker(row.ticker || row.symbol || row.asset || row.security),
+        category: row.category || row.assettype || row.type || "Imported holding",
+        currentValue: parseLooseNumber(row.currentvalue || row.value || row.marketvalue),
+        costBasis: parseLooseNumber(row.costbasis || row.avgcost || row.bookvalue),
+        accountType: row.account || row.accounttype || row.wrapper || "Brokerage",
+        notes: row.notes || row.comment || row.name || ""
+      };
+    })
+    .filter((item) => item && item.ticker);
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -342,6 +511,12 @@ function hydrateProfileDraftFromForm(form) {
   if (formData.has("liquidityNeeds")) {
     profileDraft.liquidityNeeds = String(formData.get("liquidityNeeds") || "").trim();
   }
+  if (formData.has("watchlist")) {
+    profileDraft.watchlist = String(formData.get("watchlist") || "")
+      .split(",")
+      .map((item) => normalizeTicker(item))
+      .filter(Boolean);
+  }
   if (formData.has("monthlyNetIncome")) {
     profileDraft.monthlyNetIncome = Number(formData.get("monthlyNetIncome") || 0);
   }
@@ -431,8 +606,8 @@ function formatGeneratedAt(value) {
 }
 
 function hasRenderableData() {
-  const { monitoredUniverse, sources, decisions } = getData();
-  return monitoredUniverse.length > 0 && sources.length > 0 && decisions.length > 0;
+  const { monitoredUniverse, sources } = getData();
+  return monitoredUniverse.length > 0 && sources.length > 0;
 }
 
 function getDecisionByAsset(ticker) {
@@ -792,6 +967,100 @@ async function runEvalsFromOperator() {
   }
 }
 
+async function sendDigestFromOperator() {
+  state.isSendingDigest = true;
+  state.error = "";
+  state.operatorNotice = "";
+  render();
+
+  try {
+    const response = await fetch("/api/admin/runtime/send-digest", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        reason: "Manual operator digest"
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, `Digest send failed with ${response.status}`));
+    }
+
+    const result = await response.json();
+    state.operatorNotice = `Digest job ${formatShortId(result.jobId)} recorded.`;
+    await loadData({ refresh: true });
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : "Failed to send the digest.";
+  } finally {
+    state.isSendingDigest = false;
+    render();
+  }
+}
+
+async function sendTestNotificationFromOperator() {
+  state.isTestingNotification = true;
+  state.error = "";
+  state.operatorNotice = "";
+  render();
+
+  try {
+    const response = await fetch("/api/admin/runtime/test-notification", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        summary: "Single-user setup test notification from the operator console."
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, `Notification test failed with ${response.status}`));
+    }
+
+    state.operatorNotice = "Notification test recorded.";
+    await loadData({ refresh: true });
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : "Failed to send the notification test.";
+  } finally {
+    state.isTestingNotification = false;
+    render();
+  }
+}
+
+async function importManualFeed(form) {
+  const formData = new FormData(form);
+  const payload = {
+    sourceId: String(formData.get("manualSourceId") || "").trim(),
+    sourceHandle: String(formData.get("manualSourceHandle") || "").trim(),
+    sourceName: String(formData.get("manualSourceName") || "").trim(),
+    sourceCategory: String(formData.get("manualSourceCategory") || "").trim(),
+    allowedAssets: String(formData.get("manualAllowedAssets") || "").trim(),
+    relevantSectors: String(formData.get("manualRelevantSectors") || "").trim(),
+    rawText: String(formData.get("manualRawText") || ""),
+    replaceExisting: formData.get("manualReplaceExisting") === "on"
+  };
+
+  await runMutation(async () => {
+    const response = await fetch("/api/operator/manual-feed/import", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to import the manual feed."));
+    }
+
+    const result = await response.json();
+    state.selectedSource = result.source?.id || state.selectedSource;
+  }, payload.replaceExisting ? "Manual feed imported and replaced the current store." : "Manual feed appended.");
+}
+
 async function saveFinancialProfile(form) {
   state.isSavingProfile = true;
   state.advisorError = "";
@@ -1117,6 +1386,14 @@ function attachListeners() {
     button.addEventListener("click", () => runEvalsFromOperator());
   });
 
+  document.querySelectorAll("[data-send-digest]").forEach((button) => {
+    button.addEventListener("click", () => sendDigestFromOperator());
+  });
+
+  document.querySelectorAll("[data-test-notification]").forEach((button) => {
+    button.addEventListener("click", () => sendTestNotificationFromOperator());
+  });
+
   document.querySelectorAll("[data-new-source]").forEach((button) => {
     button.addEventListener("click", () => setEditingSource(""));
   });
@@ -1133,6 +1410,13 @@ function attachListeners() {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       submitSourceForm(form);
+    });
+  });
+
+  document.querySelectorAll("[data-manual-feed-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      importManualFeed(form);
     });
   });
 
@@ -1233,6 +1517,28 @@ function attachListeners() {
     button.addEventListener("click", () => {
       state.profileDocumentDraft = getProfileDocumentDraft().filter((item) => item.id !== button.dataset.removeDocument);
       getProfileDraft().documents = state.profileDocumentDraft;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-import-holdings]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const form = button.closest("form");
+      const importField = form?.querySelector("[name='holdingsImport']");
+      const importedHoldings = parseHoldingsImport(importField?.value || "");
+
+      hydrateProfileDraftFromForm(form);
+
+      if (!importedHoldings.length) {
+        state.advisorError = "Paste at least one holding row before importing.";
+        state.advisorNotice = "";
+        render();
+        return;
+      }
+
+      getProfileDraft().holdings = importedHoldings;
+      state.advisorNotice = `Imported ${importedHoldings.length} holdings from the pasted table.`;
+      state.advisorError = "";
       render();
     });
   });
@@ -1351,7 +1657,7 @@ function renderNav() {
   const { monitoredUniverse, sources } = getData();
   const history = getHistory();
   const items = [
-    ["dashboard", "Signal Deck"],
+    ["dashboard", "Today"],
     ["advisor", "Advisor"],
     ["admin", "Operator"],
     ["docs", "Docs"],
@@ -1458,6 +1764,14 @@ function renderAdminPage() {
     .join("");
   const ingestionWatermarks = ingestion?.watermarks || [];
   const marketLeaders = market?.assets?.slice(0, 4) || [];
+  const notificationConfig = runtime.orchestrator?.notifications?.config || {};
+  const manualSourceOptions = sources
+    .map(
+      (source) => `
+        <option value="${escapeHtml(source.id)}">${escapeHtml(source.handle)} · ${escapeHtml(source.name)}</option>
+      `
+    )
+    .join("");
 
   return `
     <main class="content-shell">
@@ -1475,10 +1789,12 @@ function renderAdminPage() {
           <span class="pill pill-muted">${engine.mode || "engine offline"}</span>
           <strong>${engine.summary.claimCount || 0} analysed posts</strong>
           <span>Run at ${formatGeneratedAt(engine.generatedAt || status.seededAt)}</span>
-          <p>Extractor: ${extractor.activeMode || status.extractorMode || "heuristic"}${extractor.model ? ` via ${extractor.model}` : ""}. Use the controls below to rerun the pipeline, rerun the eval harness, or reseed the fake feed while the X integration stays mocked.</p>
+          <p>Extractor: ${extractor.activeMode || status.extractorMode || "heuristic"}${extractor.model ? ` via ${extractor.model}` : ""}. Use the controls below to rerun the pipeline, test notifications, send a daily digest, import a manual feed, or reset back to the fake seed.</p>
           <div class="action-stack">
             <button class="refresh-button" data-run-pipeline>${state.isRunningPipeline ? "Running pipeline..." : "Run pipeline"}</button>
             <button class="refresh-button" data-run-evals>${state.isRunningEvals ? "Running evals..." : "Run eval harness"}</button>
+            <button class="refresh-button" data-send-digest>${state.isSendingDigest ? "Sending digest..." : "Send digest"}</button>
+            <button class="mini-chip" data-test-notification>${state.isTestingNotification ? "Testing..." : "Test notification"}</button>
             <button class="refresh-button" data-reseed-fake-tweets>${state.isReseeding ? "Reseeding..." : "Reseed 140 fake tweets"}</button>
           </div>
         </div>
@@ -1546,6 +1862,14 @@ function renderAdminPage() {
               <span>Next scheduled run</span>
               <strong>${runtime.scheduler.nextRunAt ? formatGeneratedAt(runtime.scheduler.nextRunAt) : "Pending"}</strong>
             </article>
+            <article class="context-item">
+              <span>Notifications</span>
+              <strong>${notificationConfig.activeProvider || "disabled"}</strong>
+            </article>
+            <article class="context-item">
+              <span>Live X status</span>
+              <strong>${status.mode === "x-api" ? "Connected" : "Not active"}</strong>
+            </article>
           </div>
           <div class="operator-list">
             ${
@@ -1598,6 +1922,60 @@ function renderAdminPage() {
       </section>
       <section class="section-card operator-shell">
         <div class="operator-column">
+          <form class="operator-form" data-manual-feed-form>
+            <div class="section-header compact">
+              <div>
+                <span class="eyebrow">Manual inbox</span>
+                <h3>Paste real posts, links, or notes and rerun the pipeline</h3>
+              </div>
+            </div>
+            <label class="form-field">
+              <span>Use an existing source</span>
+              <select name="manualSourceId">
+                <option value="">Create or reuse the handle below</option>
+                ${manualSourceOptions}
+              </select>
+            </label>
+            <div class="field-grid">
+              <label class="form-field">
+                <span>Source handle</span>
+                <input name="manualSourceHandle" value="@personaldesk" />
+              </label>
+              <label class="form-field">
+                <span>Source name</span>
+                <input name="manualSourceName" value="Personal Desk" />
+              </label>
+              <label class="form-field">
+                <span>Source category</span>
+                <input name="manualSourceCategory" value="Manual / Single User" />
+              </label>
+              <label class="form-field">
+                <span>Allowed assets (comma separated)</span>
+                <input name="manualAllowedAssets" placeholder="NVDA, BTC, QQQ" />
+              </label>
+            </div>
+            <label class="form-field">
+              <span>Relevant sectors (comma separated)</span>
+              <input name="manualRelevantSectors" placeholder="AI infrastructure, crypto, software" />
+            </label>
+            <label class="form-field">
+              <span>Paste one post per blank line</span>
+              <textarea
+                name="manualRawText"
+                rows="8"
+                placeholder="2026-03-22T08:15:00Z | Hyperscaler checks still say AI server pull-ins are holding. Cooling remains the pinch point.&#10;&#10;Export chatter is loud again, but no new language has actually landed. Treat this as noise until a draft appears."
+              ></textarea>
+              <small>Optional format: start a post with an ISO timestamp, then `|`, then the post body. Otherwise the app timestamps it when imported.</small>
+            </label>
+            <label class="checkbox-field">
+              <input name="manualReplaceExisting" type="checkbox" checked />
+              <span>Replace the current feed instead of appending to it</span>
+            </label>
+            <div class="operator-actions">
+              <button class="refresh-button" type="submit">${state.isMutating ? "Importing..." : "Import manual feed & run pipeline"}</button>
+              <button class="mini-chip" type="button" data-reseed-fake-tweets>Reset back to fake feed</button>
+            </div>
+          </form>
           <div class="section-header">
             <div>
               <span class="eyebrow">Source CRUD</span>
@@ -1889,7 +2267,7 @@ function renderAdminPage() {
             <span class="eyebrow">Capabilities</span>
             <h3>What the operator surface now controls and tracks</h3>
           </div>
-          <p class="section-copy">This page now acts as the engine control tower while the app stays on fake-feed mode and waits for real API credentials.</p>
+          <p class="section-copy">This page now acts as the engine control tower whether you are using the fake seed, a pasted manual inbox, or the live X timeline sync.</p>
         </div>
         <div class="docs-checks">
           ${adminRoadmap
@@ -1949,7 +2327,8 @@ function buildOnboardingSummary(profile) {
     holdingsTotal,
     retirementTotal,
     liabilitiesTotal,
-    documentCount: (getProfileDocumentDraft() || []).length
+    documentCount: (getProfileDocumentDraft() || []).length,
+    trackedAssetCount: getTrackedAssetTickers(profile).length
   };
 }
 
@@ -2496,9 +2875,143 @@ function renderAnalysedTweetsWindow() {
 }
 
 function renderDashboard() {
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const cashSummary = buildProfileCashSummary(profile);
+  const trackedTickers = getTrackedAssetTickers(profile);
+  const { trackedAssets, actionableAssets, urgentAssets, priorityAssets } = buildTrackedPortfolioAnalytics(profile);
+  const recentTrackedPosts = sortPostsByCreatedAt(
+    getData().posts.filter((post) =>
+      (post.mappedAssets || []).some((asset) => trackedTickers.includes(asset))
+    )
+  ).slice(0, 6);
+  const setupPanel = trackedAssets.length
+    ? ""
+    : `
+      <section class="section-card today-empty-card">
+        <div>
+          <span class="eyebrow">Personal setup</span>
+          <h3>Tell the app what you actually care about</h3>
+          <p>Add holdings or a watchlist in the Advisor tab, or paste real posts into the manual inbox on the Operator tab. That is the shortest path from demo to daily utility.</p>
+        </div>
+        <div class="operator-actions">
+          <button class="refresh-button" data-view="advisor">Open advisor setup</button>
+          <button class="mini-chip" data-view="admin">Open manual inbox</button>
+        </div>
+      </section>
+    `;
+  const priorityCards = priorityAssets.length
+    ? priorityAssets
+        .slice(0, 4)
+        .map((item) => `
+          <article class="today-card">
+            <div class="operator-card-head">
+              <div>
+                <strong>${item.ticker}</strong>
+                <span>${item.holding ? `Holding · ${formatCurrency(item.holding.currentValue)}` : "Watchlist"}</span>
+              </div>
+              <span class="decision-badge decision-${(item.decision?.action || "hold").toLowerCase()}">${item.decision?.action || "WATCH"}</span>
+            </div>
+            <p>${item.decision?.rationale?.[0] || item.asset?.thesis || "No active recommendation yet."}</p>
+            <div class="tag-row">
+              ${item.asset ? `<span class="tag">${item.asset.bucket}</span>` : ""}
+              ${item.decision ? `<span class="tag">${formatPercent(item.decision.confidence || 0)}</span>` : '<span class="tag">Waiting for signal</span>'}
+              <span class="tag">${item.relatedPosts.length} relevant posts</span>
+            </div>
+            <div class="operator-actions">
+              <button class="mini-chip" data-asset="${item.ticker}">Asset view</button>
+              <button class="mini-chip" data-view="advisor">Advisor</button>
+            </div>
+          </article>
+        `)
+        .join("")
+    : '<article class="today-card today-card-empty"><strong>No tracked assets yet</strong><p>Use the advisor profile to add holdings or a watchlist and the app will prioritize them here.</p></article>';
+  const trackedPostCards = recentTrackedPosts.length
+    ? recentTrackedPosts
+        .map((post) => {
+          const source = getSource(post.sourceId);
+          return `
+            <article class="operator-card">
+              <div class="operator-card-head">
+                <div>
+                  <strong>${source?.handle || post.sourceId}</strong>
+                  <span>${formatGeneratedAt(post.createdAt)}</span>
+                </div>
+                <span class="pill pill-muted">${(post.mappedAssets || []).join(", ") || "Unmapped"}</span>
+              </div>
+              <p>${post.body}</p>
+            </article>
+          `;
+        })
+        .join("")
+    : '<article class="operator-card"><strong>No portfolio-linked posts yet</strong><p>Import manual posts or enable the X feed to start getting a personal daily brief.</p></article>';
+
   return `
     <main class="content-shell">
       ${renderStatusBanner()}
+      <section class="hero-panel today-hero">
+        <div>
+          <span class="eyebrow">Today</span>
+          <h2>${trackedAssets.length ? "Your portfolio-first signal brief" : "Set up your personal signal brief"}</h2>
+          <p>
+            ${trackedAssets.length
+              ? `Tracking ${trackedAssets.length} assets across holdings and watchlist. ${actionableAssets.length} have active calls and ${urgentAssets.length} look immediate enough to review first.`
+              : "The engine is ready, but it becomes useful once it knows your holdings/watchlist and has real posts to ingest."}
+          </p>
+        </div>
+        <div class="hero-decision">
+          <span class="pill pill-muted">Single-user mode</span>
+          <strong>${trackedAssets.length ? `${urgentAssets.length} urgent / ${actionableAssets.length} active` : "Waiting for profile"}</strong>
+          <span>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths} months emergency cover` : "No liquidity baseline saved yet"}</span>
+          <p>${cashSummary.monthlyBurn > 0 ? `Monthly burn exceeds income by ${formatCurrency(cashSummary.monthlyBurn)}.` : "Monthly cash flow is currently neutral or positive."}</p>
+        </div>
+      </section>
+      ${setupPanel}
+      <section class="stat-grid">
+        <article class="stat-card">
+          <span class="eyebrow">Tracked assets</span>
+          <strong>${trackedAssets.length}</strong>
+          <p>${trackedAssets.length ? `${profile.holdings.length} holdings and ${(profile.watchlist || []).length} watchlist names are driving the brief.` : "Add holdings or watchlist tickers in the advisor setup."}</p>
+        </article>
+        <article class="stat-card">
+          <span class="eyebrow">Active calls</span>
+          <strong>${actionableAssets.length}</strong>
+          <p>${urgentAssets.length ? `${urgentAssets.length} assets currently sit in BUY or SELL territory.` : "No tracked assets are currently flashing urgent action."}</p>
+        </article>
+        <article class="stat-card">
+          <span class="eyebrow">Relevant posts</span>
+          <strong>${recentTrackedPosts.length}</strong>
+          <p>${recentTrackedPosts.length ? "Recent posts linked to your tracked assets." : "Import real posts or enable X sync to populate this section."}</p>
+        </article>
+        <article class="stat-card">
+          <span class="eyebrow">Safety net</span>
+          <strong>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths}m` : "Pending"}</strong>
+          <p>${profile.targetEmergencyFundMonths ? `Target: ${profile.targetEmergencyFundMonths} months.` : "Set your emergency fund target in the advisor profile."}</p>
+        </article>
+      </section>
+      <section class="section-card split-card">
+        <div>
+          <div class="section-header">
+            <div>
+              <span class="eyebrow">Priority assets</span>
+              <h3>What to look at first</h3>
+            </div>
+          </div>
+          <div class="today-grid">
+            ${priorityCards}
+          </div>
+        </div>
+        <div>
+          <div class="section-header">
+            <div>
+              <span class="eyebrow">Recent portfolio-linked posts</span>
+              <h3>Signals touching your names</h3>
+            </div>
+          </div>
+          <div class="operator-list">
+            ${trackedPostCards}
+          </div>
+        </div>
+      </section>
       ${renderHero()}
       ${renderStatCards()}
       ${renderAnalysedTweetsWindow()}
@@ -2713,9 +3226,17 @@ function renderAdvisorView() {
             placeholder="Retirement, preserve liquidity, home purchase, education, passive income"
           />
         </label>
+        <label class="form-field">
+          <span>Watchlist tickers (comma separated)</span>
+          <input
+            name="watchlist"
+            value="${escapeHtml((profile.watchlist || []).join(", "))}"
+            placeholder="NVDA, BTC, VWCE, cash proxy, mortgage-linked watch item"
+          />
+        </label>
         <article class="status-inline">
           <strong>What to gather for this step</strong>
-          <p>Think in real planning goals: early retirement, capital preservation, down payment planning, or funding future living costs.</p>
+          <p>Think in real planning goals, then add the few tickers or instruments you actually want this app to watch for you every day.</p>
         </article>
       </section>
     `,
@@ -2765,7 +3286,19 @@ function renderAdvisorView() {
             <span class="eyebrow">Step 3</span>
             <h3>Add your investments, funds, ETFs, and brokerage accounts</h3>
           </div>
-          <p class="section-copy">Use one line per holding. Include ETFs, mutual funds, stocks, crypto, and any major cash or money-market buckets you want the advisor to consider.</p>
+          <p class="section-copy">Paste a broker export if you have one, or fall back to the simple one-line format below. Either path updates the same holdings list.</p>
+        </div>
+        <label class="form-field">
+          <span>Quick import from CSV / TSV / semicolon export</span>
+          <textarea
+            name="holdingsImport"
+            rows="6"
+            placeholder="ticker,current_value,cost_basis,account,notes&#10;NVDA,14800,9200,Brokerage,Core AI position&#10;BTC,5200,3400,Cold Wallet,Long-term sleeve"
+          ></textarea>
+          <small>Supported headers include ticker/symbol, current_value/value, cost_basis, account, and notes. Click import to replace the holdings draft with the pasted table.</small>
+        </label>
+        <div class="operator-actions">
+          <button class="mini-chip" type="button" data-import-holdings>Import pasted holdings</button>
         </div>
         <label class="form-field">
           <span>Holdings — one per line: TICKER|Category|CurrentValue|CostBasis|AccountType|Notes</span>
@@ -2783,6 +3316,10 @@ function renderAdvisorView() {
           <article class="context-item">
             <span>Approximate current value</span>
             <strong>${formatCurrency(onboardingSummary.holdingsTotal)}</strong>
+          </article>
+          <article class="context-item">
+            <span>Tracked assets total</span>
+            <strong>${onboardingSummary.trackedAssetCount}</strong>
           </article>
         </div>
       </section>
@@ -2881,6 +3418,11 @@ function renderAdvisorView() {
             <p>${formatCurrency(onboardingSummary.holdingsTotal)} tracked</p>
           </article>
           <article class="context-item">
+            <span>Watchlist assets</span>
+            <strong>${(profile.watchlist || []).length}</strong>
+            <p>${escapeHtml((profile.watchlist || []).join(", ") || "No watchlist names yet")}</p>
+          </article>
+          <article class="context-item">
             <span>Retirement / insurance</span>
             <strong>${(profile.retirementProducts || []).length}</strong>
             <p>${formatCurrency(onboardingSummary.retirementTotal)} tracked</p>
@@ -2972,6 +3514,7 @@ function renderAdvisorView() {
             </div>
             <div class="tag-row">
               <span class="tag">${profile.holdings.length} holdings</span>
+              <span class="tag">${(profile.watchlist || []).length} watchlist names</span>
               <span class="tag">${(profile.retirementProducts || []).length} pension / insurance entries</span>
               <span class="tag">${profile.liabilities.length} liabilities</span>
               <span class="tag">${onboardingSummary.documentCount} documents indexed</span>

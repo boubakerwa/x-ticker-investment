@@ -12,7 +12,9 @@ Explainable multi-day investment recommendations built from a curated list of X 
 - Seeded product data for sources, posts, event clusters, vetoes, and decisions
 - A dependency-light local Node server
 - Local JSON API endpoints that power the frontend snapshot
-- A persisted fake tweet store with 140 analysed tweets until the real X API arrives
+- A persisted tweet store that can run in fake, manual-inbox, or live X-sync mode
+- A manual inbox for pasting real posts, links, and notes into the pipeline without waiting for external API setup
+- A live X timeline sync path that can pull recent posts for configured source handles once you add a bearer token
 - A persisted source store and operator CRUD workflow for monitored sources
 - A first server-side agent engine that computes claim extraction, runtime clustering, policy vetoes, and the decision book from the fetched feed
 - A model-backed claim-extraction layer with persistent caching and automatic heuristic fallback when no OpenAI key is configured
@@ -25,7 +27,9 @@ Explainable multi-day investment recommendations built from a curated list of X 
 - Optional Telegram notifications for pipeline alerts, digests, and runtime test messages
 - A persisted financial profile store for holdings, liabilities, liquidity, and investor goals
 - A guided onboarding wizard for building the initial financial profile, including funds, ETFs, pension/insurance products, liabilities, and contract checklists
+- A quick holdings import path from pasted CSV / TSV / semicolon broker exports
 - A portfolio-aware advisor workflow for asking explicit asset questions against the latest snapshot
+- A portfolio-first Today view driven by your saved holdings and watchlist
 - A market-data provider adapter that can use Stooq daily data without keys and fall back to mock data automatically
 - Decision outcome tracking that records reference prices and updates later run outcomes over time
 
@@ -39,6 +43,8 @@ Then open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
 An example environment file is available at `.env.example`.
 If you create a local `.env`, the npm scripts will load it automatically.
+
+For the fastest path to a real single-user setup, see `docs/single-user-setup.md`.
 
 Useful local commands:
 
@@ -122,8 +128,10 @@ Market provider configuration:
 
 Feed provider configuration:
 
-- `FEED_PROVIDER`: `fake` (default) or `x-api`
-- `X_API_BEARER_TOKEN` / `X_API_KEY`: reserved for the future live X adapter
+- `FEED_PROVIDER`: `fake` (default), `manual`, or `x-api`
+- `X_API_BEARER_TOKEN`: required for live X timeline sync
+- `X_API_BASE_URL`: override the X API v2 base URL if needed
+- `X_API_MAX_RESULTS_PER_SOURCE`: how many recent posts to fetch per configured source
 
 ## Local API
 
@@ -138,6 +146,7 @@ Feed provider configuration:
 - `GET /api/runtime/status`
 - `GET /api/operator/profile`
 - `PUT /api/operator/profile`
+- `POST /api/operator/manual-feed/import`
 - `GET /api/advisor/history`
 - `POST /api/advisor/ask`
 - `GET /api/engine/extraction-replay?postId=<id>&live=1`
@@ -174,7 +183,8 @@ Feed provider configuration:
 - `src/sourceStore.js` persists and serves the source registry
 - `src/ingestionPipeline.js` defines the raw-post and normalized-post ingestion contracts
 - `src/database.js` owns the SQLite schema and shared DB helpers
-- `src/feedProvider.js` defines the fake-feed and future X-ingestion adapter contract
+- `src/feedProvider.js` selects between fake, manual, and live X feed sync modes
+- `src/xApiFeedProvider.js` fetches recent posts from the X API for configured source handles
 - `src/marketDataProvider.js` provides the market-data adapter with Stooq + mock fallback
 - `src/pipelineRunner.js` executes and persists the full pipeline
 - `src/backgroundPipelineRunner.js` schedules recurring pipeline refreshes while the server is running
@@ -200,6 +210,15 @@ Feed provider configuration:
 - `data/eval-history.json` is the persisted eval-history store
 - `data/eval-suite.json` is the local regression fixture set for extraction testing
 - `data/x-ticker.sqlite` is the new primary persistence layer; the JSON files are now legacy migration inputs / compatibility artifacts
+
+## Single-User Setup
+
+See `docs/single-user-setup.md` for:
+
+- the minimum local setup flow
+- the manual steps needed to finish X API setup
+- the manual steps needed to finish Telegram notifications
+- the recommended first-use order for a single-user workflow
 
 ## Local Qwen on a Mac Mini
 

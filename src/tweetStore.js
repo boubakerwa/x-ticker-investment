@@ -12,6 +12,7 @@ import { formatBerlinTimestamp, generateFakeTweets } from "./fakeTweetGenerator.
 const LEGACY_STORE_PATH = fileURLToPath(new URL("../data/tweet-store.json", import.meta.url));
 const TARGET_FAKE_TWEET_COUNT = 140;
 const TWEET_STORE_VERSION = 2;
+const MANUAL_FEED_MODE = "manual-inbox";
 
 function isValidStore(store) {
   return Boolean(store && Array.isArray(store.posts));
@@ -189,6 +190,16 @@ function persistTweetStore({ mode, seededAt, posts }) {
   }
 }
 
+function buildImportedCreatedAt(index, seededAt) {
+  const baseTime = new Date(seededAt).getTime();
+
+  if (!Number.isFinite(baseTime)) {
+    return new Date().toISOString();
+  }
+
+  return new Date(baseTime - index * 1000).toISOString();
+}
+
 function readTweetsFromDatabase() {
   seedTweetsIfNeeded();
   const db = getDatabase();
@@ -223,6 +234,76 @@ export function reseedTweetStore(count = TARGET_FAKE_TWEET_COUNT) {
     mode: "fake-api",
     seededAt,
     posts
+  };
+}
+
+export function replaceTweetStore({ mode = "manual-sync", seededAt = new Date().toISOString(), posts = [] }) {
+  const normalizedPosts = sortPostsDescending(posts.map((post) => normalizePost(post)));
+
+  persistTweetStore({
+    mode,
+    seededAt,
+    posts: normalizedPosts
+  });
+
+  return {
+    version: TWEET_STORE_VERSION,
+    mode,
+    seededAt,
+    posts: normalizedPosts
+  };
+}
+
+export function importManualPosts({
+  sourceId,
+  posts,
+  replaceExisting = true,
+  seededAt = new Date().toISOString()
+}) {
+  if (!sourceId) {
+    throw new Error("A sourceId is required for manual imports.");
+  }
+
+  const parsedPosts = Array.isArray(posts) ? posts : [];
+
+  if (!parsedPosts.length) {
+    throw new Error("At least one manual post is required.");
+  }
+
+  const currentStore = readTweetStore();
+  const basePosts = replaceExisting ? [] : currentStore.posts;
+  const existingIds = new Set(basePosts.map((post) => post.id));
+  const importedPosts = parsedPosts.map((post, index) => {
+    const createdAt = normalizeCreatedAt(post.createdAt, buildImportedCreatedAt(index, seededAt));
+    const id = String(post.id || "").trim() || buildPostId(existingIds);
+
+    existingIds.add(id);
+
+    return normalizePost({
+      id,
+      sourceId,
+      createdAt,
+      body: String(post.body || "").trim(),
+      actionable: Boolean(post.actionable),
+      claimType: String(post.claimType || "Operator commentary").trim(),
+      direction: String(post.direction || "Mixed").trim(),
+      explicitness: String(post.explicitness || "Explicit").trim(),
+      themes: normalizeStringArray(post.themes),
+      confidence: clampConfidence(post.confidence ?? 0.62),
+      mappedAssets: normalizeStringArray(post.mappedAssets),
+      clusterId: String(post.clusterId || "cluster-enterprise-ai").trim()
+    });
+  });
+
+  const nextStore = replaceTweetStore({
+    mode: replaceExisting ? MANUAL_FEED_MODE : "manual-hybrid",
+    seededAt,
+    posts: [...importedPosts, ...basePosts]
+  });
+
+  return {
+    ...nextStore,
+    importedCount: importedPosts.length
   };
 }
 

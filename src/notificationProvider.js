@@ -58,6 +58,14 @@ function formatTelegramMessage(message) {
     lines.push(`• *${escapeTelegram(item.label)}*: ${escapeTelegram(item.value)}`);
   }
 
+  if (Array.isArray(message.highlights) && message.highlights.length) {
+    lines.push("");
+
+    for (const item of message.highlights) {
+      lines.push(`• ${escapeTelegram(item)}`);
+    }
+  }
+
   if (message.footer) {
     lines.push("");
     lines.push(escapeTelegram(message.footer));

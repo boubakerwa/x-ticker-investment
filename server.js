@@ -26,7 +26,8 @@ import {
   listPipelineRuns
 } from "./src/pipelineStore.js";
 import { executePipelineJob, getOrchestratorStatus, sendDailyDigest } from "./src/orchestrator.js";
-import { hasTweetsForSource, readTweetStore, reseedTweetStore } from "./src/tweetStore.js";
+import { monitoredUniverse } from "./src/data.js";
+import { hasTweetsForSource, importManualPosts, readTweetStore, reseedTweetStore } from "./src/tweetStore.js";
 import {
   createSource,
   deleteSource,
@@ -117,6 +118,92 @@ function filterAnalysedPosts(posts, generatedAt, { days = 3, limit = 100 } = {})
       return Number.isFinite(postTime) && postTime >= cutoffTime && postTime <= snapshotTime;
     })
     .slice(0, limit);
+}
+
+function parseCommaSeparatedList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseManualImportText(value) {
+  const rawText = String(value || "").trim();
+
+  if (!rawText) {
+    return [];
+  }
+
+  return rawText
+    .split(/\n\s*\n+/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const lines = block
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const firstLine = lines[0] || "";
+      const separatorIndex = firstLine.indexOf("|");
+
+      if (separatorIndex > 0) {
+        const timestampCandidate = firstLine.slice(0, separatorIndex).trim();
+        const parsedDate = new Date(timestampCandidate);
+
+        if (!Number.isNaN(parsedDate.getTime())) {
+          return {
+            createdAt: parsedDate.toISOString(),
+            body: [firstLine.slice(separatorIndex + 1).trim(), ...lines.slice(1)]
+              .filter(Boolean)
+              .join("\n")
+          };
+        }
+      }
+
+      return {
+        body: lines.join("\n")
+      };
+    })
+    .filter((item) => item.body);
+}
+
+function resolveManualImportSource(payload) {
+  const sources = listSources();
+  const sourceId = String(payload.sourceId || "").trim();
+
+  if (sourceId) {
+    const existingSource = sources.find((source) => source.id === sourceId);
+
+    if (!existingSource) {
+      throw new Error("The selected manual-import source does not exist.");
+    }
+
+    return existingSource;
+  }
+
+  const handle = String(payload.sourceHandle || "@personaldesk").trim();
+  const existingByHandle = sources.find(
+    (source) => source.handle.toLowerCase() === handle.toLowerCase()
+  );
+
+  if (existingByHandle) {
+    return existingByHandle;
+  }
+
+  return createSource({
+    handle,
+    name: String(payload.sourceName || "Personal Desk").trim() || handle,
+    category: String(payload.sourceCategory || "Manual / Single User").trim(),
+    baselineReliability: Number(payload.baselineReliability || 0.64),
+    preferredHorizon: "0-3 days",
+    policyTemplate: "Manual inbox source used for pasted posts and links.",
+    relevantSectors: parseCommaSeparatedList(payload.relevantSectors),
+    allowedAssets: parseCommaSeparatedList(payload.allowedAssets).length
+      ? parseCommaSeparatedList(payload.allowedAssets)
+      : monitoredUniverse.map((asset) => asset.ticker),
+    specialHandling: "Treat as user-curated manual input. Require corroboration before high-conviction upgrades.",
+    tone: "Direct"
+  });
 }
 
 function summarizeRun(run) {
@@ -472,6 +559,46 @@ createServer(async (request, response) => {
         });
         return;
       }
+    }
+
+    if (requestUrl.pathname === "/api/operator/manual-feed/import" && request.method === "POST") {
+      const payload = await readJsonBody(request);
+      const importedPosts = parseManualImportText(payload.rawText);
+
+      if (!importedPosts.length) {
+        sendError(
+          response,
+          400,
+          "Paste at least one post. Use a blank line between posts, or prefix a post with an ISO timestamp followed by |."
+        );
+        return;
+      }
+
+      const source = resolveManualImportSource(payload);
+      const store = importManualPosts({
+        sourceId: source.id,
+        posts: importedPosts,
+        replaceExisting: payload.replaceExisting !== false
+      });
+      const pipelineResult = await executePipelineJob({
+        trigger: "manual-ingest",
+        reason: source.id,
+        meta: {
+          importedCount: importedPosts.length,
+          replaceExisting: payload.replaceExisting !== false
+        }
+      });
+
+      sendJson(response, 200, {
+        ok: true,
+        source,
+        importedCount: importedPosts.length,
+        feedMode: store.mode,
+        seededAt: store.seededAt,
+        pipelineJobId: pipelineResult.jobId,
+        pipelineRunId: pipelineResult.run.id
+      });
+      return;
     }
 
     if (requestUrl.pathname === "/api/advisor/history" && request.method === "GET") {
