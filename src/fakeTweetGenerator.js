@@ -412,7 +412,7 @@ function remapSeedPost(post, index, count, snapshotDate) {
   };
 }
 
-export function generateFakeTweets({ count = 100, snapshotTime = new Date().toISOString() } = {}) {
+export function generateFakeTweets({ count = 140, snapshotTime = new Date().toISOString() } = {}) {
   const snapshotDate = new Date(snapshotTime);
   const remappedSeedPosts = seedPosts.slice(0, Math.min(seedPosts.length, count)).map((post, index) => remapSeedPost(post, index, count, snapshotDate));
   const generatedPosts = [];

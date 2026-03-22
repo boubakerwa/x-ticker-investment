@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "pipeline": "node scripts/run-pipeline.js",
-    "evals": "node scripts/run-evals.js",
-    "evals:strict": "node scripts/run-evals.js --strict"
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --env-file-if-exists=.env server.js",
+    "pipeline": "node --env-file-if-exists=.env scripts/run-pipeline.js",
+    "evals": "node --env-file-if-exists=.env scripts/run-evals.js",
+    "evals:strict": "node --env-file-if-exists=.env scripts/run-evals.js --strict"
   }
 }

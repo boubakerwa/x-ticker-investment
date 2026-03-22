@@ -62,6 +62,25 @@ const EMPTY_DATA = {
     latestRun: null,
     history: []
   },
+  advisor: {
+    financialProfile: {
+      investorName: "",
+      riskTolerance: "Moderate",
+      investmentHorizon: "",
+      liquidityNeeds: "",
+      monthlyNetIncome: 0,
+      monthlyExpenses: 0,
+      emergencyFund: 0,
+      targetEmergencyFundMonths: 6,
+      goals: [],
+      notes: "",
+      holdings: [],
+      retirementProducts: [],
+      liabilities: [],
+      documents: []
+    },
+    history: []
+  },
   ingestion: null,
   market: null,
   placeholders: {
@@ -103,6 +122,8 @@ const state = {
   isReseeding: false,
   isRunningPipeline: false,
   isRunningEvals: false,
+  isSavingProfile: false,
+  isAskingAdvisor: false,
   isMutating: false,
   isReplayLoading: false,
   isRunDetailLoading: false,
@@ -112,11 +133,17 @@ const state = {
   runDetailError: "",
   evalDetailError: "",
   operatorNotice: "",
+  advisorNotice: "",
+  advisorError: "",
+  profileOnboardingStep: 0,
+  profileDocumentDraft: [],
+  profileDraft: null,
   data: EMPTY_DATA,
   recentTweets: [],
   replayData: null,
   selectedRunDetail: null,
   selectedEvalDetail: null,
+  advisorAnswer: null,
   storeStatus: EMPTY_STORE_STATUS
 };
 
@@ -156,6 +183,7 @@ const getStoreStatus = () => state.storeStatus || EMPTY_STORE_STATUS;
 const getEngine = () => getData().engine || EMPTY_DATA.engine;
 const getHistory = () => getData().history || EMPTY_DATA.history;
 const getEvaluation = () => getData().evaluation || EMPTY_DATA.evaluation;
+const getAdvisor = () => getData().advisor || EMPTY_DATA.advisor;
 const getRuntime = () => getData().runtime || EMPTY_DATA.runtime;
 const formatPercent = (value) => `${Math.round(value * 100)}%`;
 const formatScorePercent = (value) => `${Math.round((value || 0) * 100)}%`;
@@ -187,6 +215,200 @@ function renderJsonBlock(value) {
 
 function getSourceBeingEdited() {
   return getData().sources.find((source) => source.id === state.editingSourceId) || null;
+}
+
+function getLatestAdvisorAnswer() {
+  return state.advisorAnswer || getAdvisor().history[0] || null;
+}
+
+function serializeHoldings(holdings) {
+  return (holdings || [])
+    .map(
+      (holding) =>
+        [
+          holding.ticker || "",
+          holding.category || "",
+          holding.currentValue ?? "",
+          holding.costBasis ?? "",
+          holding.accountType || "",
+          holding.notes || ""
+        ].join("|")
+    )
+    .join("\n");
+}
+
+function serializeLiabilities(liabilities) {
+  return (liabilities || [])
+    .map(
+      (liability) =>
+        [
+          liability.label || "",
+          liability.category || "",
+          liability.balance ?? "",
+          liability.interestRate ?? "",
+          liability.monthlyPayment ?? "",
+          liability.notes || ""
+        ].join("|")
+    )
+    .join("\n");
+}
+
+function serializeRetirementProducts(retirementProducts) {
+  return (retirementProducts || [])
+    .map(
+      (product) =>
+        [
+          product.label || "",
+          product.type || "",
+          product.provider || "",
+          product.currentValue ?? "",
+          product.monthlyContribution ?? "",
+          product.notes || ""
+        ].join("|")
+    )
+    .join("\n");
+}
+
+function formatCurrency(value) {
+  const numericValue = Number(value || 0);
+  return Number.isFinite(numericValue)
+    ? numericValue.toLocaleString(undefined, {
+        style: "currency",
+        currency: "EUR",
+        maximumFractionDigits: 0
+      })
+    : "€0";
+}
+
+function buildProfileDocumentDraft(profile = EMPTY_DATA.advisor.financialProfile) {
+  return (profile.documents || []).map((document, index) => ({
+    id: document.id || `document-${index + 1}`,
+    name: document.name || `Document ${index + 1}`,
+    category: document.category || "General",
+    sizeBytes: Number(document.sizeBytes || 0),
+    lastModified: document.lastModified || "",
+    notes: document.notes || ""
+  }));
+}
+
+function syncProfileDocumentDraft(profile = EMPTY_DATA.advisor.financialProfile) {
+  state.profileDocumentDraft = buildProfileDocumentDraft(profile);
+}
+
+function syncProfileDraft(profile = EMPTY_DATA.advisor.financialProfile) {
+  state.profileDraft = JSON.parse(JSON.stringify(profile));
+  syncProfileDocumentDraft(profile);
+}
+
+function getProfileDraft() {
+  if (!state.profileDraft) {
+    syncProfileDraft(getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile);
+  }
+
+  return state.profileDraft;
+}
+
+function getProfileDocumentDraft() {
+  if (!Array.isArray(state.profileDocumentDraft) || !state.profileDraft) {
+    syncProfileDocumentDraft(getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile);
+  }
+
+  return state.profileDocumentDraft;
+}
+
+function setProfileOnboardingStep(nextStep) {
+  state.profileOnboardingStep = Math.max(0, Math.min(5, Number(nextStep) || 0));
+}
+
+function hydrateProfileDraftFromForm(form) {
+  if (!form) {
+    return getProfileDraft();
+  }
+
+  const profileDraft = {
+    ...getProfileDraft()
+  };
+  const formData = new FormData(form);
+
+  if (formData.has("investorName")) {
+    profileDraft.investorName = String(formData.get("investorName") || "").trim();
+  }
+  if (formData.has("riskTolerance")) {
+    profileDraft.riskTolerance = String(formData.get("riskTolerance") || "Moderate").trim();
+  }
+  if (formData.has("investmentHorizon")) {
+    profileDraft.investmentHorizon = String(formData.get("investmentHorizon") || "").trim();
+  }
+  if (formData.has("liquidityNeeds")) {
+    profileDraft.liquidityNeeds = String(formData.get("liquidityNeeds") || "").trim();
+  }
+  if (formData.has("monthlyNetIncome")) {
+    profileDraft.monthlyNetIncome = Number(formData.get("monthlyNetIncome") || 0);
+  }
+  if (formData.has("monthlyExpenses")) {
+    profileDraft.monthlyExpenses = Number(formData.get("monthlyExpenses") || 0);
+  }
+  if (formData.has("emergencyFund")) {
+    profileDraft.emergencyFund = Number(formData.get("emergencyFund") || 0);
+  }
+  if (formData.has("targetEmergencyFundMonths")) {
+    profileDraft.targetEmergencyFundMonths = Number(formData.get("targetEmergencyFundMonths") || 6);
+  }
+  if (formData.has("goals")) {
+    profileDraft.goals = String(formData.get("goals") || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (formData.has("notes")) {
+    profileDraft.notes = String(formData.get("notes") || "").trim();
+  }
+  if (formData.has("holdings")) {
+    profileDraft.holdings = parseDelimitedRows(formData.get("holdings"), (parts) => ({
+      ticker: parts[0] || "",
+      category: parts[1] || "Other",
+      currentValue: Number(parts[2] || 0),
+      costBasis: Number(parts[3] || 0),
+      accountType: parts[4] || "Brokerage",
+      notes: parts[5] || "",
+      label: parts[0] || "Holding"
+    }));
+  }
+  if (formData.has("retirementProducts")) {
+    profileDraft.retirementProducts = parseDelimitedRows(formData.get("retirementProducts"), (parts) => ({
+      label: parts[0] || "Retirement product",
+      type: parts[1] || "Pension / Insurance",
+      provider: parts[2] || "",
+      currentValue: Number(parts[3] || 0),
+      monthlyContribution: Number(parts[4] || 0),
+      notes: parts[5] || ""
+    }));
+  }
+  if (formData.has("liabilities")) {
+    profileDraft.liabilities = parseDelimitedRows(formData.get("liabilities"), (parts) => ({
+      label: parts[0] || "Liability",
+      category: parts[1] || "Loan",
+      balance: Number(parts[2] || 0),
+      interestRate: Number(parts[3] || 0),
+      monthlyPayment: Number(parts[4] || 0),
+      notes: parts[5] || ""
+    }));
+  }
+
+  profileDraft.documents = getProfileDocumentDraft();
+  state.profileDraft = profileDraft;
+  return profileDraft;
+}
+
+function parseDelimitedRows(rawValue, mapping) {
+  return String(rawValue || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split("|").map((item) => item.trim());
+      return mapping(parts);
+    });
 }
 
 function formatGeneratedAt(value) {
@@ -259,6 +481,71 @@ function getRecentAnalysedPosts() {
     });
 }
 
+function countBy(items, getKey) {
+  return items.reduce((accumulator, item) => {
+    const key = getKey(item);
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+}
+
+function average(values) {
+  if (!values.length) {
+    return null;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function buildDecisionHistoryAnalytics(entries) {
+  const directionalReturns = entries
+    .map((entry) => entry.directionalReturn)
+    .filter((value) => typeof value === "number");
+  const assetRows = Object.entries(countBy(entries, (entry) => entry.asset))
+    .map(([asset, count]) => {
+      const assetEntries = entries.filter((entry) => entry.asset === asset);
+      const assetDirectionalReturns = assetEntries
+        .map((entry) => entry.directionalReturn)
+        .filter((value) => typeof value === "number");
+      const winRateBase = assetEntries.filter(
+        (entry) => entry.outcomeState === "favorable" || entry.outcomeState === "stable"
+      ).length;
+
+      return {
+        asset,
+        count,
+        averageDirectionalReturn: average(assetDirectionalReturns),
+        averageConfidence: average(assetEntries.map((entry) => entry.confidence).filter(Boolean)),
+        winRate: count ? winRateBase / count : null
+      };
+    })
+    .sort((left, right) => (right.averageDirectionalReturn ?? -Infinity) - (left.averageDirectionalReturn ?? -Infinity));
+
+  return {
+    actionBreakdown: countBy(entries, (entry) => entry.action),
+    outcomeBreakdown: countBy(entries, (entry) => entry.outcomeState || "open"),
+    averageDirectionalReturn: average(directionalReturns),
+    averageConfidence: average(entries.map((entry) => entry.confidence).filter(Boolean)),
+    assetRows,
+    bestAsset: assetRows[0] || null,
+    weakestAsset: [...assetRows]
+      .sort((left, right) => (left.averageDirectionalReturn ?? Infinity) - (right.averageDirectionalReturn ?? Infinity))[0] || null
+  };
+}
+
+function buildRunDecisionAnalytics(entries) {
+  return {
+    count: entries.length,
+    favorableCount: entries.filter((entry) => entry.outcomeState === "favorable").length,
+    againstCount: entries.filter((entry) => entry.outcomeState === "against").length,
+    openCount: entries.filter((entry) => entry.outcomeState === "open").length,
+    averageDirectionalReturn: average(
+      entries.map((entry) => entry.directionalReturn).filter((value) => typeof value === "number")
+    ),
+    averageConfidence: average(entries.map((entry) => entry.confidence).filter(Boolean))
+  };
+}
+
 function normalizeSelections() {
   const { monitoredUniverse, sources } = getData();
 
@@ -329,6 +616,7 @@ async function loadData({ refresh = false } = {}) {
     state.data = await snapshotResponse.json();
     state.recentTweets = (await tweetsResponse.json()).posts || [];
     state.storeStatus = await statusResponse.json();
+    syncProfileDraft(getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile);
     normalizeSelections();
     normalizeReplaySelection();
     normalizeHistorySelections();
@@ -500,6 +788,73 @@ async function runEvalsFromOperator() {
     state.error = error instanceof Error ? error.message : "Failed to run the eval harness.";
   } finally {
     state.isRunningEvals = false;
+    render();
+  }
+}
+
+async function saveFinancialProfile(form) {
+  state.isSavingProfile = true;
+  state.advisorError = "";
+  state.advisorNotice = "";
+  render();
+
+  const payload = hydrateProfileDraftFromForm(form);
+
+  try {
+    const response = await fetch("/api/operator/profile", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, `Profile save failed with ${response.status}`));
+    }
+
+    state.advisorNotice = "Financial profile saved.";
+    await loadData({ refresh: true });
+  } catch (error) {
+    state.advisorError = error instanceof Error ? error.message : "Failed to save financial profile.";
+  } finally {
+    state.isSavingProfile = false;
+    render();
+  }
+}
+
+async function askAdvisor(form) {
+  state.isAskingAdvisor = true;
+  state.advisorError = "";
+  state.advisorNotice = "";
+  render();
+
+  const formData = new FormData(form);
+
+  try {
+    const response = await fetch("/api/advisor/ask", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        assetTicker: String(formData.get("assetTicker") || "").trim(),
+        question: String(formData.get("question") || "").trim()
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, `Advisor request failed with ${response.status}`));
+    }
+
+    const payload = await response.json();
+    state.advisorAnswer = payload.answer || null;
+    state.advisorNotice = `Advice generated for ${payload.answer?.assetTicker || "the selected asset"}.`;
+    await loadData({ refresh: true });
+  } catch (error) {
+    state.advisorError = error instanceof Error ? error.message : "Failed to get advisor answer.";
+  } finally {
+    state.isAskingAdvisor = false;
     render();
   }
 }
@@ -821,6 +1176,73 @@ function attachListeners() {
       });
     });
   });
+
+  document.querySelectorAll("[data-profile-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveFinancialProfile(form);
+    });
+  });
+
+  document.querySelectorAll("[data-onboarding-step]").forEach((button) => {
+    button.addEventListener("click", () => {
+      hydrateProfileDraftFromForm(button.closest("form"));
+      setProfileOnboardingStep(button.dataset.onboardingStep);
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-onboarding-next]").forEach((button) => {
+    button.addEventListener("click", () => {
+      hydrateProfileDraftFromForm(button.closest("form"));
+      setProfileOnboardingStep(state.profileOnboardingStep + 1);
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-onboarding-prev]").forEach((button) => {
+    button.addEventListener("click", () => {
+      hydrateProfileDraftFromForm(button.closest("form"));
+      setProfileOnboardingStep(state.profileOnboardingStep - 1);
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-profile-documents]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const existingDraft = getProfileDocumentDraft();
+      const nextDraft = [
+        ...existingDraft,
+        ...Array.from(input.files || []).map((file, index) => ({
+          id: `upload-${Date.now()}-${index}`,
+          name: file.name,
+          category: "Uploaded contract",
+          sizeBytes: Number(file.size || 0),
+          lastModified: file.lastModified ? new Date(file.lastModified).toISOString() : "",
+          notes: ""
+        }))
+      ];
+      state.profileDocumentDraft = nextDraft;
+      getProfileDraft().documents = nextDraft;
+      input.value = "";
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-remove-document]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.profileDocumentDraft = getProfileDocumentDraft().filter((item) => item.id !== button.dataset.removeDocument);
+      getProfileDraft().documents = state.profileDocumentDraft;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-advisor-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      askAdvisor(form);
+    });
+  });
 }
 
 function renderEmptyState(title, copy) {
@@ -930,6 +1352,7 @@ function renderNav() {
   const history = getHistory();
   const items = [
     ["dashboard", "Signal Deck"],
+    ["advisor", "Advisor"],
     ["admin", "Operator"],
     ["docs", "Docs"],
     ["assets", "Asset View"],
@@ -952,7 +1375,7 @@ function renderNav() {
             ([view, label]) => `
             <button class="nav-button ${state.view === view ? "is-active" : ""}" data-view="${view}">
               <span>${label}</span>
-              <small>${view === "dashboard" ? "Live" : view === "admin" ? "Engine" : view === "docs" ? "Guide" : view === "assets" ? monitoredUniverse.length : view === "sources" ? sources.length : history.runs.length || "v1"}</small>
+              <small>${view === "dashboard" ? "Live" : view === "advisor" ? (getAdvisor().history.length || "Ask") : view === "admin" ? "Engine" : view === "docs" ? "Guide" : view === "assets" ? monitoredUniverse.length : view === "sources" ? sources.length : history.runs.length || "v1"}</small>
             </button>
           `
           )
@@ -1056,7 +1479,7 @@ function renderAdminPage() {
           <div class="action-stack">
             <button class="refresh-button" data-run-pipeline>${state.isRunningPipeline ? "Running pipeline..." : "Run pipeline"}</button>
             <button class="refresh-button" data-run-evals>${state.isRunningEvals ? "Running evals..." : "Run eval harness"}</button>
-            <button class="refresh-button" data-reseed-fake-tweets>${state.isReseeding ? "Reseeding..." : "Reseed 100 fake tweets"}</button>
+            <button class="refresh-button" data-reseed-fake-tweets>${state.isReseeding ? "Reseeding..." : "Reseed 140 fake tweets"}</button>
           </div>
         </div>
       </section>
@@ -1514,6 +1937,73 @@ function renderPipeline() {
   `;
 }
 
+function buildOnboardingSummary(profile) {
+  const holdingsTotal = (profile.holdings || []).reduce((sum, item) => sum + Number(item.currentValue || 0), 0);
+  const retirementTotal = (profile.retirementProducts || []).reduce(
+    (sum, item) => sum + Number(item.currentValue || 0),
+    0
+  );
+  const liabilitiesTotal = (profile.liabilities || []).reduce((sum, item) => sum + Number(item.balance || 0), 0);
+
+  return {
+    holdingsTotal,
+    retirementTotal,
+    liabilitiesTotal,
+    documentCount: (getProfileDocumentDraft() || []).length
+  };
+}
+
+function renderOnboardingStepCards(currentStep) {
+  const steps = [
+    {
+      title: "Personal setup",
+      body: "Name, goals, risk tolerance, and decision horizon so later advice is framed correctly."
+    },
+    {
+      title: "Cash flow & safety net",
+      body: "Income, expenses, liquidity needs, and emergency reserves to anchor risk capacity."
+    },
+    {
+      title: "Investments & accounts",
+      body: "Funds, ETFs, stocks, crypto, and account wrappers with rough values and cost basis."
+    },
+    {
+      title: "Pension / insurance",
+      body: "Rentenversicherung, bAV, pension wrappers, and recurring retirement contributions."
+    },
+    {
+      title: "Liabilities & contracts",
+      body: "Mortgage, loans, leases, and contract uploads so advice can reflect obligations."
+    },
+    {
+      title: "Review & save",
+      body: "Confirm what is missing, save the profile, then start asking asset-specific questions."
+    }
+  ];
+
+  return `
+    <div class="onboarding-stepper">
+      ${steps
+        .map(
+          (step, index) => `
+          <button
+            class="onboarding-step ${index === currentStep ? "is-active" : index < currentStep ? "is-complete" : ""}"
+            type="button"
+            data-onboarding-step="${index}"
+          >
+            <span class="onboarding-step-index">0${index + 1}</span>
+            <span class="onboarding-step-copy">
+              <strong>${step.title}</strong>
+              <small>${step.body}</small>
+            </span>
+          </button>
+        `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 function renderOperatorNotice() {
   if (!state.operatorNotice) {
     return "";
@@ -1594,6 +2084,10 @@ function renderReplayInspector() {
                       <strong>${replay.replay.promptVersion}</strong>
                     </article>
                     <article class="context-item">
+                      <span>Prompt label</span>
+                      <strong>${replay.replay.promptGuide?.label || "Prompt bundle"}</strong>
+                    </article>
+                    <article class="context-item">
                       <span>Cache hit</span>
                       <strong>${replay.replay.cache.hit ? "Yes" : "No"}</strong>
                     </article>
@@ -1604,6 +2098,10 @@ function renderReplayInspector() {
                     <article class="context-item">
                       <span>Model</span>
                       <strong>${replay.replay.config.model || "Not configured"}</strong>
+                    </article>
+                    <article class="context-item">
+                      <span>Calibration examples</span>
+                      <strong>${replay.replay.validationReady?.exampleCount || 0}</strong>
                     </article>
                   </div>
                   <article class="operator-card">
@@ -1630,6 +2128,14 @@ function renderReplayInspector() {
                     ${renderJsonBlock(replay.heuristicBaseline)}
                   </details>
                   <details>
+                    <summary>Prompt guide and validation focus</summary>
+                    ${renderJsonBlock(replay.replay.promptGuide)}
+                  </details>
+                  <details>
+                    <summary>Calibration examples</summary>
+                    ${renderJsonBlock(replay.replay.promptGuide?.examples || [])}
+                  </details>
+                  <details>
                     <summary>Cached extraction payload</summary>
                     ${
                       replay.replay.cache.hit
@@ -1646,7 +2152,7 @@ function renderReplayInspector() {
                     ${
                       replay.replay.liveRun
                         ? renderJsonBlock(replay.replay.liveRun)
-                        : '<article class="status-inline"><strong>Live run not executed</strong><p>Once an API key is configured, this panel can run a single live extraction for the selected post.</p></article>'
+                        : `<article class="status-inline"><strong>Live run not executed</strong><p>${replay.replay.validationReady?.liveEligible ? "A live run is available for this post." : "Once an API key is configured, this panel can run a single live extraction for the selected post."}</p></article>`
                     }
                   </details>
                 `
@@ -2163,6 +2669,427 @@ function renderAssetsView() {
   `;
 }
 
+function renderAdvisorView() {
+  const { monitoredUniverse } = getData();
+  const advisor = getAdvisor();
+  const profile = getProfileDraft();
+  const latestAnswer = getLatestAdvisorAnswer();
+  const onboardingSummary = buildOnboardingSummary(profile);
+  const currentStep = state.profileOnboardingStep || 0;
+  const documentDraft = getProfileDocumentDraft();
+  const onboardingPanels = [
+    `
+      <section class="onboarding-panel">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Step 1</span>
+            <h3>Set the profile owner and your decision frame</h3>
+          </div>
+          <p class="section-copy">This gives the advisor the context it needs before it looks at specific products or positions.</p>
+        </div>
+        <div class="field-grid">
+          <label class="form-field">
+            <span>Investor name</span>
+            <input name="investorName" value="${escapeHtml(profile.investorName || "")}" placeholder="Your name or household label" />
+          </label>
+          <label class="form-field">
+            <span>Risk tolerance</span>
+            <input name="riskTolerance" value="${escapeHtml(profile.riskTolerance || "Moderate")}" placeholder="Conservative, Moderate, Growth..." />
+          </label>
+          <label class="form-field">
+            <span>Investment horizon</span>
+            <input name="investmentHorizon" value="${escapeHtml(profile.investmentHorizon || "")}" placeholder="e.g. 10+ years for retirement, 3 years for house deposit" />
+          </label>
+          <label class="form-field">
+            <span>Liquidity needs</span>
+            <input name="liquidityNeeds" value="${escapeHtml(profile.liquidityNeeds || "")}" placeholder="Low, Medium, High" />
+          </label>
+        </div>
+        <label class="form-field">
+          <span>Goals (comma separated)</span>
+          <input
+            name="goals"
+            value="${escapeHtml((profile.goals || []).join(", "))}"
+            placeholder="Retirement, preserve liquidity, home purchase, education, passive income"
+          />
+        </label>
+        <article class="status-inline">
+          <strong>What to gather for this step</strong>
+          <p>Think in real planning goals: early retirement, capital preservation, down payment planning, or funding future living costs.</p>
+        </article>
+      </section>
+    `,
+    `
+      <section class="onboarding-panel">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Step 2</span>
+            <h3>Map income, expenses, and your safety buffer</h3>
+          </div>
+          <p class="section-copy">This is what turns a generic portfolio view into something allocation-aware.</p>
+        </div>
+        <div class="field-grid">
+          <label class="form-field">
+            <span>Monthly net income</span>
+            <input type="number" step="0.01" name="monthlyNetIncome" value="${profile.monthlyNetIncome ?? 0}" />
+          </label>
+          <label class="form-field">
+            <span>Monthly expenses</span>
+            <input type="number" step="0.01" name="monthlyExpenses" value="${profile.monthlyExpenses ?? 0}" />
+          </label>
+          <label class="form-field">
+            <span>Emergency fund</span>
+            <input type="number" step="0.01" name="emergencyFund" value="${profile.emergencyFund ?? 0}" />
+          </label>
+          <label class="form-field">
+            <span>Target emergency-fund months</span>
+            <input type="number" step="0.1" name="targetEmergencyFundMonths" value="${profile.targetEmergencyFundMonths ?? 6}" />
+          </label>
+        </div>
+        <div class="context-grid compact-grid">
+          <article class="context-item">
+            <span>Monthly free cash flow</span>
+            <strong>${formatCurrency((profile.monthlyNetIncome || 0) - (profile.monthlyExpenses || 0))}</strong>
+          </article>
+          <article class="context-item">
+            <span>Current reserve</span>
+            <strong>${formatCurrency(profile.emergencyFund || 0)}</strong>
+          </article>
+        </div>
+      </section>
+    `,
+    `
+      <section class="onboarding-panel">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Step 3</span>
+            <h3>Add your investments, funds, ETFs, and brokerage accounts</h3>
+          </div>
+          <p class="section-copy">Use one line per holding. Include ETFs, mutual funds, stocks, crypto, and any major cash or money-market buckets you want the advisor to consider.</p>
+        </div>
+        <label class="form-field">
+          <span>Holdings — one per line: TICKER|Category|CurrentValue|CostBasis|AccountType|Notes</span>
+          <textarea
+            name="holdings"
+            rows="9"
+            placeholder="VWCE|ETF|18500|14200|Brokerage|Global equity core&#10;IE00B4L5Y983|ETF|7600|7020|Brokerage|MSCI World ETF&#10;Cash reserve|Cash|12000|12000|Savings|Broker cash buffer&#10;BTC|Crypto|5200|3400|Cold Wallet|Long-term speculative sleeve"
+          >${escapeHtml(serializeHoldings(profile.holdings))}</textarea>
+        </label>
+        <div class="context-grid compact-grid">
+          <article class="context-item">
+            <span>Tracked investment holdings</span>
+            <strong>${profile.holdings.length}</strong>
+          </article>
+          <article class="context-item">
+            <span>Approximate current value</span>
+            <strong>${formatCurrency(onboardingSummary.holdingsTotal)}</strong>
+          </article>
+        </div>
+      </section>
+    `,
+    `
+      <section class="onboarding-panel">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Step 4</span>
+            <h3>Capture retirement and insurance wrappers</h3>
+          </div>
+          <p class="section-copy">This is the place for Rentenversicherung, private pension, bAV, Riester/Rürup-style products, or any policy wrapper with cash value or recurring contribution.</p>
+        </div>
+        <label class="form-field">
+          <span>Retirement / insurance products — one per line: Name|Type|Provider|CurrentValue|MonthlyContribution|Notes</span>
+          <textarea
+            name="retirementProducts"
+            rows="8"
+            placeholder="Allianz BasisRente|Rentenversicherung|Allianz|24000|350|Tax-advantaged retirement contract&#10;Company pension|bAV|Employer plan|11800|220|Salary sacrifice plan"
+          >${escapeHtml(serializeRetirementProducts(profile.retirementProducts || []))}</textarea>
+        </label>
+        <div class="context-grid compact-grid">
+          <article class="context-item">
+            <span>Tracked pension / insurance wrappers</span>
+            <strong>${(profile.retirementProducts || []).length}</strong>
+          </article>
+          <article class="context-item">
+            <span>Approximate current value</span>
+            <strong>${formatCurrency(onboardingSummary.retirementTotal)}</strong>
+          </article>
+        </div>
+      </section>
+    `,
+    `
+      <section class="onboarding-panel">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Step 5</span>
+            <h3>List liabilities and upload supporting contracts</h3>
+          </div>
+          <p class="section-copy">Add loans, mortgage obligations, financing, and any contracts you want to remember during future advice sessions.</p>
+        </div>
+        <label class="form-field">
+          <span>Liabilities — one per line: Name|Category|Balance|InterestRate|MonthlyPayment|Notes</span>
+          <textarea
+            name="liabilities"
+            rows="8"
+            placeholder="Primary mortgage|Mortgage|240000|3.7|1580|Apartment financing&#10;KfW loan|Loan|18500|1.2|220|Energy retrofit program"
+          >${escapeHtml(serializeLiabilities(profile.liabilities))}</textarea>
+        </label>
+        <label class="form-field">
+          <span>Upload contracts or account statements</span>
+          <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.csv,.txt" data-profile-documents />
+          <small>Files stay in the browser for now; the app stores the document index and metadata in your profile so you have a checklist for onboarding.</small>
+        </label>
+        <input type="hidden" name="documentsJson" value="${escapeHtml(JSON.stringify(documentDraft))}" />
+        <div class="document-list">
+          ${
+            documentDraft.length
+              ? documentDraft
+                  .map(
+                    (document) => `
+                    <article class="document-card">
+                      <div>
+                        <strong>${escapeHtml(document.name)}</strong>
+                        <p>${escapeHtml(document.category)} · ${document.sizeBytes ? `${Math.round(document.sizeBytes / 1024)} KB` : "Size unavailable"}</p>
+                      </div>
+                      <button type="button" class="mini-chip" data-remove-document="${document.id}">Remove</button>
+                    </article>
+                  `
+                  )
+                  .join("")
+              : '<article class="status-inline"><strong>No documents indexed yet</strong><p>Add insurance contracts, ETF/fund statements, pension summaries, or loan paperwork when you have them handy.</p></article>'
+          }
+        </div>
+      </section>
+    `,
+    `
+      <section class="onboarding-panel">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Step 6</span>
+            <h3>Review the profile and save it</h3>
+          </div>
+          <p class="section-copy">You do not need perfect data. Approximate balances plus the right account labels are enough to start getting useful answers.</p>
+        </div>
+        <div class="onboarding-review-grid">
+          <article class="context-item">
+            <span>Goals captured</span>
+            <strong>${profile.goals.length}</strong>
+            <p>${escapeHtml((profile.goals || []).join(", ") || "No explicit goals yet")}</p>
+          </article>
+          <article class="context-item">
+            <span>Investment holdings</span>
+            <strong>${profile.holdings.length}</strong>
+            <p>${formatCurrency(onboardingSummary.holdingsTotal)} tracked</p>
+          </article>
+          <article class="context-item">
+            <span>Retirement / insurance</span>
+            <strong>${(profile.retirementProducts || []).length}</strong>
+            <p>${formatCurrency(onboardingSummary.retirementTotal)} tracked</p>
+          </article>
+          <article class="context-item">
+            <span>Liabilities</span>
+            <strong>${profile.liabilities.length}</strong>
+            <p>${formatCurrency(onboardingSummary.liabilitiesTotal)} tracked</p>
+          </article>
+          <article class="context-item">
+            <span>Documents indexed</span>
+            <strong>${onboardingSummary.documentCount}</strong>
+            <p>${onboardingSummary.documentCount ? "Contracts and statements are listed for later review." : "Add documents later if you want a fuller profile."}</p>
+          </article>
+        </div>
+        <label class="form-field">
+          <span>Additional notes for the advisor</span>
+          <textarea name="notes" rows="5" placeholder="Anything the advisor should remember: concentrated stock risk, planned property purchase, pension constraints, family cash needs...">${escapeHtml(profile.notes || "")}</textarea>
+        </label>
+        <article class="status-inline">
+          <strong>Suggested first uploads / entries</strong>
+          <p>Broker statements, pension overview, Rentenversicherung contract, ETF/fund account summary, mortgage statement, and current emergency-cash balance are the highest-value first inputs.</p>
+        </article>
+      </section>
+    `
+  ];
+
+  return `
+    <main class="content-shell">
+      ${renderStatusBanner()}
+      <section class="hero-panel">
+        <div>
+          <span class="eyebrow">Portfolio-aware advisor</span>
+          <h2>Complete a guided onboarding flow, then ask explicit asset questions against the latest internal signals.</h2>
+          <p>
+            This assistant now walks you step by step through building your initial financial profile, including funds, ETFs, pension wrappers, Rentenversicherung-style products, liabilities, and supporting contracts.
+          </p>
+        </div>
+        <div class="hero-decision">
+          <span class="pill pill-muted">Onboarding + advisor</span>
+          <strong>Step ${currentStep + 1} of 6</strong>
+          <p>${latestAnswer ? `Latest answer: ${latestAnswer.assetTicker} at ${formatGeneratedAt(latestAnswer.createdAt)}.` : "Finish onboarding, save the profile, and ask the first asset question."}</p>
+        </div>
+      </section>
+      ${
+        state.advisorError
+          ? `
+            <article class="section-card status-inline status-inline-error">
+              <strong>Advisor issue</strong>
+              <p>${state.advisorError}</p>
+            </article>
+          `
+          : ""
+      }
+      ${
+        state.advisorNotice
+          ? `
+            <article class="section-card status-inline status-success">
+              <strong>Advisor update</strong>
+              <p>${state.advisorNotice}</p>
+            </article>
+          `
+          : ""
+      }
+      <section class="section-card split-card">
+        <div>
+          <div class="section-header">
+            <div>
+              <span class="eyebrow">Financial profile onboarding</span>
+              <h3>Build the first complete version of your household balance sheet</h3>
+            </div>
+            <p class="section-copy">You can move step by step. Save once you are happy with the review screen.</p>
+          </div>
+          <form class="operator-form" data-profile-form>
+            ${renderOnboardingStepCards(currentStep)}
+            ${onboardingPanels[currentStep] || onboardingPanels[0]}
+            <div class="operator-actions">
+              <button class="mini-chip" type="button" data-onboarding-prev ${currentStep === 0 ? "disabled" : ""}>Previous step</button>
+              ${
+                currentStep < onboardingPanels.length - 1
+                  ? `<button class="refresh-button" type="button" data-onboarding-next>Continue to step ${currentStep + 2}</button>`
+                  : `<button class="refresh-button" type="submit" ${state.isSavingProfile ? "disabled" : ""}>${state.isSavingProfile ? "Saving profile..." : "Save financial profile"}</button>`
+              }
+              ${
+                currentStep === onboardingPanels.length - 1
+                  ? `<button class="mini-chip" type="button" data-onboarding-step="0">Restart from step 1</button>`
+                  : ""
+              }
+            </div>
+            <div class="tag-row">
+              <span class="tag">${profile.holdings.length} holdings</span>
+              <span class="tag">${(profile.retirementProducts || []).length} pension / insurance entries</span>
+              <span class="tag">${profile.liabilities.length} liabilities</span>
+              <span class="tag">${onboardingSummary.documentCount} documents indexed</span>
+              <span class="tag">${formatCurrency(onboardingSummary.holdingsTotal + onboardingSummary.retirementTotal)} invested assets tracked</span>
+            </div>
+            <div class="onboarding-note">
+              <strong>Important:</strong> the current app stores the profile and document index, not the raw uploaded contract files themselves.
+              Use uploads here as an onboarding checklist until a full document vault exists.
+            </div>
+            <div class="operator-actions">
+              <button class="refresh-button" type="submit" ${state.isSavingProfile ? "disabled" : ""}>
+                ${state.isSavingProfile ? "Saving progress..." : "Save progress at any time"}
+              </button>
+            </div>
+          </form>
+        </div>
+        <div>
+          <div class="section-header">
+            <div>
+              <span class="eyebrow">Ask the advisor</span>
+              <h3>Request asset-specific guidance</h3>
+            </div>
+          </div>
+          <form class="operator-form" data-advisor-form>
+            <label class="form-field">
+              <span>Asset</span>
+              <input name="assetTicker" list="advisor-asset-list" value="${escapeHtml(latestAnswer?.assetTicker || "")}" placeholder="BTC, NVDA, VTI, cash, mortgage-linked question..." />
+              <datalist id="advisor-asset-list">
+                ${monitoredUniverse
+                  .map(
+                    (asset) => `
+                    <option value="${asset.ticker}">${asset.name}</option>
+                  `
+                  )
+                  .join("")}
+              </datalist>
+            </label>
+            <label class="form-field">
+              <span>Question</span>
+              <textarea name="question" rows="5" placeholder="Example: Should I add to BTC over the next month given my current cash buffer and loan load?"></textarea>
+            </label>
+            <div class="operator-actions">
+              <button class="refresh-button" type="submit" ${state.isAskingAdvisor ? "disabled" : ""}>
+                ${state.isAskingAdvisor ? "Generating answer..." : "Ask advisor"}
+              </button>
+            </div>
+          </form>
+          ${
+            latestAnswer
+              ? `
+                <article class="section-card nested-card">
+                  <span class="eyebrow">Latest answer</span>
+                  <h3>${latestAnswer.answer.headline}</h3>
+                  <p>${latestAnswer.answer.answer}</p>
+                  <div class="tag-row">
+                    <span class="tag">${latestAnswer.assetTicker}</span>
+                    <span class="tag">${latestAnswer.answer.stance}</span>
+                    <span class="tag">${latestAnswer.answer.suitability}</span>
+                    <span class="tag">${formatPercent(latestAnswer.answer.confidence || 0)}</span>
+                    <span class="tag">${formatEnumLabel(latestAnswer.provider)}</span>
+                  </div>
+                  <div class="details-stack">
+                    <div>
+                      <strong>Rationale</strong>
+                      <ul>${latestAnswer.answer.rationale.map((item) => `<li>${item}</li>`).join("")}</ul>
+                    </div>
+                    <div>
+                      <strong>Portfolio fit</strong>
+                      <ul>${latestAnswer.answer.portfolioFit.map((item) => `<li>${item}</li>`).join("")}</ul>
+                    </div>
+                    <div>
+                      <strong>Latest signals</strong>
+                      <ul>${latestAnswer.answer.latestSignals.map((item) => `<li>${item}</li>`).join("")}</ul>
+                    </div>
+                    <div>
+                      <strong>Risk flags</strong>
+                      <ul>${latestAnswer.answer.riskFlags.map((item) => `<li>${item}</li>`).join("")}</ul>
+                    </div>
+                    <div>
+                      <strong>Next steps</strong>
+                      <ul>${latestAnswer.answer.nextSteps.map((item) => `<li>${item}</li>`).join("")}</ul>
+                    </div>
+                  </div>
+                  <p class="subtle">${latestAnswer.answer.disclaimer}</p>
+                </article>
+              `
+              : `
+                <article class="status-inline">
+                  <strong>No advice generated yet</strong>
+                  <p>Save your profile, then ask a ticker-specific question to generate an answer grounded in the latest pipeline snapshot.</p>
+                </article>
+              `
+          }
+          <div class="operator-list">
+            ${advisor.history
+              .map(
+                (entry) => `
+                <article class="operator-card">
+                  <div class="operator-card-head">
+                    <div>
+                      <strong>${entry.assetTicker}</strong>
+                      <span>${formatGeneratedAt(entry.createdAt)}</span>
+                    </div>
+                    <span class="pill pill-muted">${formatEnumLabel(entry.provider)}</span>
+                  </div>
+                  <p>${entry.question}</p>
+                  <small>${entry.answer.headline}</small>
+                </article>
+              `
+              )
+              .join("")}
+          </div>
+        </div>
+      </section>
+    </main>
+  `;
+}
+
 function renderSourceCards() {
   const { sources } = getData();
   const source = getSource(state.selectedSource);
@@ -2275,6 +3202,16 @@ function renderLogs() {
   const selectedEval = state.selectedEvalDetail;
   const selectedRunDecisions = selectedRun?.decisions || [];
   const perFieldAccuracy = Object.entries(selectedEval?.summary?.perFieldAccuracy || {});
+  const historyAnalytics = buildDecisionHistoryAnalytics(history.decisionLog);
+  const selectedRunHistory = history.decisionLog.filter((entry) => entry.runId === state.selectedRunId);
+  const selectedRunAnalytics = buildRunDecisionAnalytics(selectedRunHistory);
+  const actionBreakdown = Object.entries(historyAnalytics.actionBreakdown || {}).sort(
+    ([left], [right]) => left.localeCompare(right)
+  );
+  const outcomeBreakdown = Object.entries(historyAnalytics.outcomeBreakdown || {}).sort(
+    ([left], [right]) => left.localeCompare(right)
+  );
+  const selectedScenarioCases = selectedEval?.scenarioCases || [];
 
   return `
     <main class="content-shell">
@@ -2307,12 +3244,17 @@ function renderLogs() {
         <article class="stat-card">
           <span class="eyebrow">Latest eval</span>
           <strong>${latestEval ? formatScorePercent(latestEval.summary.averageScore) : "Pending"}</strong>
-          <p>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount} exact matches using ${latestEval.extractor.activeMode}.` : "Run the eval harness from Operator to populate regression history."}</p>
+          <p>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount} exact matches using ${latestEval.extractor.activeMode}, plus ${latestEval.summary.scenarioExactMatchCount || 0}/${latestEval.summary.scenarioCaseCount || 0} scenario passes.` : "Run the eval harness from Operator to populate regression history."}</p>
         </article>
         <article class="stat-card">
           <span class="eyebrow">Prompt version</span>
           <strong>${selectedEval?.promptVersion || latestEval?.promptVersion || "Pending"}</strong>
           <p>${selectedEval?.gate?.passed === false ? "The latest selected eval is currently below at least one regression gate." : "The eval suite records prompt/schema revisions so later model runs can be compared cleanly."}</p>
+        </article>
+        <article class="stat-card">
+          <span class="eyebrow">Avg directional return</span>
+          <strong>${formatSignedReturn(historyAnalytics.averageDirectionalReturn)}</strong>
+          <p>${historyAnalytics.bestAsset ? `${historyAnalytics.bestAsset.asset} currently leads the stored outcome leaderboard.` : "Directional-return analytics will populate as the decision log grows."}</p>
         </article>
       </section>
       <section class="section-card split-card">
@@ -2388,6 +3330,14 @@ function renderLogs() {
                     <article class="context-item">
                       <span>Market regime</span>
                       <strong>${selectedRun.market.summary.marketRegime}</strong>
+                    </article>
+                    <article class="context-item">
+                      <span>Run avg return</span>
+                      <strong>${formatSignedReturn(selectedRunAnalytics.averageDirectionalReturn)}</strong>
+                    </article>
+                    <article class="context-item">
+                      <span>Favorable / against</span>
+                      <strong>${selectedRunAnalytics.favorableCount} / ${selectedRunAnalytics.againstCount}</strong>
                     </article>
                   </div>
                   <div class="operator-list">
@@ -2517,8 +3467,16 @@ function renderLogs() {
                       <strong>${formatScorePercent(selectedEval.summary.exactMatchRate)}</strong>
                     </article>
                     <article class="context-item">
+                      <span>Scenario pass rate</span>
+                      <strong>${formatScorePercent(selectedEval.summary.scenarioExactMatchRate || 0)}</strong>
+                    </article>
+                    <article class="context-item">
                       <span>Extractor mode</span>
                       <strong>${selectedEval.extractor.activeMode}</strong>
+                    </article>
+                    <article class="context-item">
+                      <span>Validation mode</span>
+                      <strong>${formatEnumLabel(selectedEval.validationMode || "heuristic-baseline")}</strong>
                     </article>
                     <article class="context-item">
                       <span>Delta vs previous</span>
@@ -2541,6 +3499,30 @@ function renderLogs() {
                       )
                       .join("")}
                   </div>
+                  ${
+                    selectedScenarioCases.length
+                      ? `
+                        <div class="operator-list">
+                          ${selectedScenarioCases
+                            .map(
+                              (testCase) => `
+                              <article class="operator-card">
+                                <div class="operator-card-head">
+                                  <div>
+                                    <strong>${testCase.label}</strong>
+                                    <span>${formatScorePercent(testCase.score)}</span>
+                                  </div>
+                                  <span class="pill pill-muted">${testCase.matched ? "Scenario pass" : "Scenario miss"}</span>
+                                </div>
+                                <p>Misses: ${testCase.fields.filter((field) => !field.matched).map((field) => field.field).join(", ") || "None"}</p>
+                              </article>
+                            `
+                            )
+                            .join("")}
+                        </div>
+                      `
+                      : ""
+                  }
                   ${
                     selectedEval.failedCases.length
                       ? `
@@ -2584,6 +3566,68 @@ function renderLogs() {
           }
         </div>
       </section>
+      <section class="section-card split-card">
+        <div>
+          <div class="section-header">
+            <div>
+              <span class="eyebrow">Outcome analytics</span>
+              <h3>Asset leaderboard across stored decisions</h3>
+            </div>
+          </div>
+          <div class="feed-list">
+            ${historyAnalytics.assetRows
+              .slice(0, 6)
+              .map(
+                (row) => `
+                <article class="feed-item">
+                  <div class="feed-head">
+                    <strong>${row.asset}</strong>
+                    <span>${formatSignedReturn(row.averageDirectionalReturn)}</span>
+                  </div>
+                  <p>${row.count} stored decisions · ${formatScorePercent(row.averageConfidence || 0)} avg confidence · ${formatScorePercent(row.winRate || 0)} stable/favorable rate.</p>
+                </article>
+              `
+              )
+              .join("")}
+          </div>
+        </div>
+        <div>
+          <div class="section-header">
+            <div>
+              <span class="eyebrow">Mix</span>
+              <h3>Action and outcome distribution</h3>
+            </div>
+          </div>
+          <div class="timeline-list">
+            ${actionBreakdown
+              .map(
+                ([action, count]) => `
+                <article class="timeline-item">
+                  <span class="timeline-step">${action}</span>
+                  <div>
+                    <strong>${count} decisions</strong>
+                    <p>${action} appears ${count} times in the current decision history.</p>
+                  </div>
+                </article>
+              `
+              )
+              .join("")}
+            ${outcomeBreakdown
+              .map(
+                ([outcome, count]) => `
+                <article class="timeline-item">
+                  <span class="timeline-step">${String(count).padStart(2, "0")}</span>
+                  <div>
+                    <strong>${formatEnumLabel(outcome)}</strong>
+                    <p>${count} stored decisions currently sit in this outcome state.</p>
+                  </div>
+                </article>
+              `
+              )
+              .join("")}
+          </div>
+        </div>
+      </section>
     </main>
   `;
 }
@@ -2602,6 +3646,10 @@ function renderContent() {
 
   if (state.view === "assets") {
     return renderAssetsView();
+  }
+
+  if (state.view === "advisor") {
+    return renderAdvisorView();
   }
 
   if (state.view === "admin") {

@@ -995,6 +995,96 @@ li + li {
   align-items: start;
 }
 
+.onboarding-stepper {
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 1.2rem;
+}
+
+.onboarding-step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  align-items: start;
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(12, 80, 109, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.onboarding-step:hover,
+.onboarding-step.is-active {
+  transform: translateY(-1px);
+  border-color: rgba(12, 80, 109, 0.32);
+  background: rgba(12, 80, 109, 0.08);
+}
+
+.onboarding-step.is-complete .onboarding-step-index {
+  background: rgba(15, 139, 111, 0.14);
+  color: var(--success);
+}
+
+.onboarding-step-index {
+  display: inline-grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 999px;
+  background: rgba(12, 80, 109, 0.12);
+  font-family: var(--font-display);
+}
+
+.onboarding-step-copy {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.onboarding-step-copy small {
+  color: var(--muted);
+}
+
+.onboarding-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.document-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.document-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-md);
+  background: rgba(12, 80, 109, 0.05);
+  border: 1px solid rgba(12, 80, 109, 0.08);
+}
+
+.document-card p {
+  color: var(--muted);
+}
+
+.onboarding-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.onboarding-note {
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-md);
+  background: rgba(255, 211, 105, 0.18);
+  color: var(--text);
+}
+
 @media (max-width: 1200px) {
   .page-shell {
     grid-template-columns: 1fr;
@@ -1045,6 +1135,10 @@ li + li {
   }
 
   .context-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-review-grid {
     grid-template-columns: 1fr;
   }
 

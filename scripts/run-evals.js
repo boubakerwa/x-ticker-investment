@@ -14,6 +14,8 @@ console.log(
       runId: run.id,
       generatedAt: run.generatedAt,
       suiteName: run.suiteName,
+      validationMode: run.validationMode,
+      promptVersion: run.promptVersion,
       extractor: run.extractor,
       summary: run.summary,
       gate: run.gate,

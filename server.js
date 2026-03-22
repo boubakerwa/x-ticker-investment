@@ -6,17 +6,26 @@ import {
   buildHeuristicPostAnalysis,
   buildNormalizedPostAnalysis
 } from "./src/agenticEngine.js";
-import { getBackgroundPipelineStatus, startBackgroundPipelineRunner } from "./src/backgroundPipelineRunner.js";
+import {
+  getBackgroundPipelineStatus,
+  startBackgroundPipelineRunner,
+  stopBackgroundPipelineRunner
+} from "./src/backgroundPipelineRunner.js";
+import { answerFinancialQuestion } from "./src/financialAdvisor.js";
+import { listAdvisorAnswers } from "./src/advisorStore.js";
 import { runExtractionEval } from "./src/evalHarness.js";
 import { getEvalRun, getLatestEvalRun, listEvalRuns } from "./src/evalStore.js";
+import { readFinancialProfile, updateFinancialProfile } from "./src/financialProfileStore.js";
 import { buildClaimExtractionReplay } from "./src/modelClaimExtractor.js";
-import { ensureLatestPipelineRun, runPipeline } from "./src/pipelineRunner.js";
+import { getNotificationStatus, sendNotification } from "./src/notificationProvider.js";
+import { ensureLatestPipelineRun } from "./src/pipelineRunner.js";
 import {
   getLatestPipelineSnapshot,
   getPipelineRun,
   listDecisionHistory,
   listPipelineRuns
 } from "./src/pipelineStore.js";
+import { executePipelineJob, getOrchestratorStatus, sendDailyDigest } from "./src/orchestrator.js";
 import { hasTweetsForSource, readTweetStore, reseedTweetStore } from "./src/tweetStore.js";
 import {
   createSource,
@@ -29,6 +38,7 @@ import {
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "127.0.0.1";
+const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 1024 * 1024);
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -58,8 +68,19 @@ function sendError(response, statusCode, message) {
 function readJsonBody(request) {
   return new Promise((resolve, reject) => {
     let rawBody = "";
+    let totalBytes = 0;
 
     request.on("data", (chunk) => {
+      totalBytes += chunk.length;
+
+      if (totalBytes > MAX_JSON_BODY_BYTES) {
+        request.destroy();
+        const error = new Error(`JSON body exceeds ${MAX_JSON_BODY_BYTES} bytes.`);
+        error.statusCode = 413;
+        reject(error);
+        return;
+      }
+
       rawBody += chunk;
     });
 
@@ -121,8 +142,10 @@ function summarizeEvalRun(run) {
         trigger: run.trigger,
         suiteName: run.suiteName,
         promptVersion: run.promptVersion,
+        validationMode: run.validationMode,
         extractor: run.extractor,
         summary: run.summary,
+        gate: run.gate,
         failedCases: run.failedCases
       }
     : null;
@@ -188,13 +211,16 @@ async function getPersistedAppState() {
   const decisionHistory = listDecisionHistory(160);
   const evalRuns = listEvalRuns(12);
   const latestEvalRun = getLatestEvalRun();
+  const financialProfile = readFinancialProfile();
+  const advisorHistory = listAdvisorAnswers(10);
 
   return {
     snapshot: latestSnapshot,
     appData: {
       ...latestSnapshot.appData,
       runtime: {
-        scheduler: getBackgroundPipelineStatus()
+        scheduler: getBackgroundPipelineStatus(),
+        orchestrator: getOrchestratorStatus()
       },
       history: {
         latestRunId: latestSnapshot.runId,
@@ -204,6 +230,10 @@ async function getPersistedAppState() {
       evaluation: {
         latestRun: summarizeEvalRun(latestEvalRun),
         history: evalRuns.map((run) => summarizeEvalRun(run))
+      },
+      advisor: {
+        financialProfile,
+        history: advisorHistory
       },
       placeholders: buildPlaceholders(decisionHistory, evalRuns)
     },
@@ -228,7 +258,8 @@ createServer(async (request, response) => {
         service: "x-ticker-investment",
         timestamp: new Date().toISOString(),
         latestRunId: latestSnapshot?.runId || "",
-        scheduler: getBackgroundPipelineStatus()
+        scheduler: getBackgroundPipelineStatus(),
+        notifications: getNotificationStatus().config
       });
       return;
     }
@@ -307,7 +338,8 @@ createServer(async (request, response) => {
     if (requestUrl.pathname === "/api/runtime/status") {
       sendJson(response, 200, {
         ok: true,
-        scheduler: getBackgroundPipelineStatus()
+        scheduler: getBackgroundPipelineStatus(),
+        orchestrator: getOrchestratorStatus()
       });
       return;
     }
@@ -408,17 +440,59 @@ createServer(async (request, response) => {
       if (request.method === "POST") {
         const payload = await readJsonBody(request);
         const source = createSource(payload);
-        const pipelineResult = await runPipeline({
+        const pipelineResult = await executePipelineJob({
           trigger: "source-create",
           reason: source.id
         });
         sendJson(response, 201, {
           ok: true,
           source,
-          pipelineRunId: pipelineResult.id
+          pipelineJobId: pipelineResult.jobId,
+          pipelineRunId: pipelineResult.run.id
         });
         return;
       }
+    }
+
+    if (requestUrl.pathname === "/api/operator/profile") {
+      if (request.method === "GET") {
+        sendJson(response, 200, {
+          ok: true,
+          profile: readFinancialProfile()
+        });
+        return;
+      }
+
+      if (request.method === "PUT") {
+        const payload = await readJsonBody(request);
+        const profile = updateFinancialProfile(payload);
+        sendJson(response, 200, {
+          ok: true,
+          profile
+        });
+        return;
+      }
+    }
+
+    if (requestUrl.pathname === "/api/advisor/history" && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        answers: listAdvisorAnswers(20)
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/advisor/ask" && request.method === "POST") {
+      const payload = await readJsonBody(request);
+      const answer = await answerFinancialQuestion({
+        assetTicker: payload.assetTicker,
+        question: payload.question
+      });
+      sendJson(response, 200, {
+        ok: true,
+        answer
+      });
+      return;
     }
 
     if (requestUrl.pathname.startsWith("/api/operator/sources/")) {
@@ -432,14 +506,15 @@ createServer(async (request, response) => {
       if (request.method === "PUT") {
         const payload = await readJsonBody(request);
         const source = updateSource(sourceId, payload);
-        const pipelineResult = await runPipeline({
+        const pipelineResult = await executePipelineJob({
           trigger: "source-update",
           reason: source.id
         });
         sendJson(response, 200, {
           ok: true,
           source,
-          pipelineRunId: pipelineResult.id
+          pipelineJobId: pipelineResult.jobId,
+          pipelineRunId: pipelineResult.run.id
         });
         return;
       }
@@ -451,13 +526,14 @@ createServer(async (request, response) => {
         }
 
         deleteSource(sourceId);
-        const pipelineResult = await runPipeline({
+        const pipelineResult = await executePipelineJob({
           trigger: "source-delete",
           reason: sourceId
         });
         sendJson(response, 200, {
           ok: true,
-          pipelineRunId: pipelineResult.id
+          pipelineJobId: pipelineResult.jobId,
+          pipelineRunId: pipelineResult.run.id
         });
         return;
       }
@@ -465,14 +541,15 @@ createServer(async (request, response) => {
 
     if (request.method === "POST" && requestUrl.pathname === "/api/admin/run-pipeline") {
       const payload = await readJsonBody(request);
-      const pipelineResult = await runPipeline({
+      const pipelineResult = await executePipelineJob({
         trigger: "manual-admin",
         reason: String(payload.reason || "").trim()
       });
       sendJson(response, 200, {
         ok: true,
-        runId: pipelineResult.id,
-        summary: pipelineResult.summary
+        jobId: pipelineResult.jobId,
+        runId: pipelineResult.run.id,
+        summary: pipelineResult.run.summary
       });
       return;
     }
@@ -494,21 +571,91 @@ createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && requestUrl.pathname === "/api/admin/reseed-fake-tweets") {
-      reseedTweetStore(100);
-      const pipelineResult = await runPipeline({
+      reseedTweetStore(140);
+      const pipelineResult = await executePipelineJob({
         trigger: "reseed-fake-feed"
       });
       sendJson(response, 200, {
         ok: true,
         message: "Fake tweets reseeded and pipeline rerun",
-        runId: pipelineResult.id,
-        status: pipelineResult.snapshot.storeStatus
+        jobId: pipelineResult.jobId,
+        runId: pipelineResult.run.id,
+        status: pipelineResult.run.snapshot.storeStatus
+      });
+      return;
+    }
+
+    if (request.method === "POST" && requestUrl.pathname === "/api/admin/runtime/pause") {
+      stopBackgroundPipelineRunner();
+      sendJson(response, 200, {
+        ok: true,
+        scheduler: getBackgroundPipelineStatus()
+      });
+      return;
+    }
+
+    if (request.method === "POST" && requestUrl.pathname === "/api/admin/runtime/resume") {
+      const payload = await readJsonBody(request);
+      const requestedInterval = Number(payload.intervalMinutes || process.env.PIPELINE_INTERVAL_MINUTES || 15);
+      const scheduler = startBackgroundPipelineRunner({
+        intervalMinutes: Number.isFinite(requestedInterval) && requestedInterval > 0 ? requestedInterval : 15
+      });
+      sendJson(response, 200, {
+        ok: true,
+        scheduler
+      });
+      return;
+    }
+
+    if (request.method === "POST" && requestUrl.pathname === "/api/admin/runtime/send-digest") {
+      const payload = await readJsonBody(request);
+      const digestResult = await sendDailyDigest({
+        trigger: "manual-admin",
+        reason: String(payload.reason || "").trim()
+      });
+      sendJson(response, 200, {
+        ok: true,
+        jobId: digestResult.jobId,
+        notificationId: digestResult.notificationEvent?.id || "",
+        digest: digestResult.digest
+      });
+      return;
+    }
+
+    if (request.method === "POST" && requestUrl.pathname === "/api/admin/runtime/test-notification") {
+      const payload = await readJsonBody(request);
+      const notificationStatus = getNotificationStatus();
+      const notificationEvent = await sendNotification({
+        eventType: "operator.test",
+        message: {
+          title: "Operator test notification",
+          summary: String(payload.summary || "Telegram notifications are connected to the runtime."),
+          facts: [
+            {
+              label: "Provider",
+              value: notificationStatus.config.activeProvider
+            },
+            {
+              label: "Timestamp",
+              value: new Date().toISOString()
+            }
+          ],
+          footer: "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to deliver this over Telegram."
+        },
+        payload: {
+          source: "manual-test"
+        }
+      });
+      sendJson(response, 200, {
+        ok: true,
+        notificationEvent
       });
       return;
     }
   } catch (error) {
+    const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 400;
     const message = error instanceof Error ? error.message : "Unexpected server error.";
-    sendError(response, 400, message);
+    sendError(response, statusCode, message);
     return;
   }
 
