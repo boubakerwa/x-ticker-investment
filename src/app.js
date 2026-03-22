@@ -1773,11 +1773,8 @@ function renderAdminPage() {
     )
     .join("");
 
-  return `
-    <main class="content-shell">
-      ${renderStatusBanner()}
-      ${renderOperatorNotice()}
-      <section class="hero-panel admin-hero">
+  const heroSection = `
+    <section class="hero-panel admin-hero">
         <div>
           <span class="eyebrow">Operator</span>
           <h2>The local feed now runs through a persisted server-side pipeline before it reaches the app.</h2>
@@ -1799,6 +1796,9 @@ function renderAdminPage() {
           </div>
         </div>
       </section>
+  `;
+
+  const statSection = `
       <section class="stat-grid">
         <article class="stat-card">
           <span class="eyebrow">Latest run</span>
@@ -1821,6 +1821,9 @@ function renderAdminPage() {
           <p>${ingestion ? `${ingestion.dedupedCount} deduped posts from ${ingestion.sourcesCovered} sources in ${status.mode || "fake-api"} mode.` : "The raw-post and normalized-post contracts appear after the first run."}</p>
         </article>
       </section>
+  `;
+
+  const pipelineSection = `
       <section class="section-card split-card">
         <div>
           <div class="section-header">
@@ -1920,8 +1923,9 @@ function renderAdminPage() {
           </div>
         </div>
       </section>
-      <section class="section-card operator-shell">
-        <div class="operator-column">
+  `;
+
+  const manualInboxSection = `
           <form class="operator-form" data-manual-feed-form>
             <div class="section-header compact">
               <div>
@@ -1965,7 +1969,7 @@ function renderAdminPage() {
                 rows="8"
                 placeholder="2026-03-22T08:15:00Z | Hyperscaler checks still say AI server pull-ins are holding. Cooling remains the pinch point.&#10;&#10;Export chatter is loud again, but no new language has actually landed. Treat this as noise until a draft appears."
               ></textarea>
-              <small>Optional format: start a post with an ISO timestamp, then `|`, then the post body. Otherwise the app timestamps it when imported.</small>
+              <small>Optional format: start a post with an ISO timestamp, then a pipe character (|), then the post body. Otherwise the app timestamps it when imported.</small>
             </label>
             <label class="checkbox-field">
               <input name="manualReplaceExisting" type="checkbox" checked />
@@ -1976,6 +1980,9 @@ function renderAdminPage() {
               <button class="mini-chip" type="button" data-reseed-fake-tweets>Reset back to fake feed</button>
             </div>
           </form>
+  `;
+
+  const sourceCrudSection = `
           <div class="section-header">
             <div>
               <span class="eyebrow">Source CRUD</span>
@@ -2059,7 +2066,16 @@ function renderAdminPage() {
               ${editingSource ? '<button class="mini-chip" type="button" data-new-source>Clear form</button>' : ""}
             </div>
           </form>
+  `;
+
+  const operatorLeftColumn = `
+        <div class="operator-column">
+          ${manualInboxSection}
+          ${sourceCrudSection}
         </div>
+  `;
+
+  const operatorRightColumn = `
         <div class="operator-column">
           <div class="section-header">
             <div>
@@ -2259,8 +2275,16 @@ function renderAdminPage() {
             }
           </div>
         </div>
+  `;
+
+  const operatorSection = `
+      <section class="section-card operator-shell">
+        ${operatorLeftColumn}
+        ${operatorRightColumn}
       </section>
-      ${renderReplayInspector()}
+  `;
+
+  const capabilitySection = `
       <section class="section-card">
         <div class="section-header">
           <div>
@@ -2282,8 +2306,20 @@ function renderAdminPage() {
             .join("")}
         </div>
       </section>
-    </main>
   `;
+
+  return [
+    '<main class="content-shell">',
+    renderStatusBanner(),
+    renderOperatorNotice(),
+    heroSection,
+    statSection,
+    pipelineSection,
+    operatorSection,
+    renderReplayInspector(),
+    capabilitySection,
+    '</main>'
+  ].join("");
 }
 
 function renderPipeline() {
