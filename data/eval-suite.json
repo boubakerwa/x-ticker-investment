@@ -4,12 +4,17 @@
   "gates": {
     "minimumAverageScore": 0.95,
     "minimumExactMatchRate": 0.9,
+    "minimumScenarioExactMatchRate": 0.75,
     "minimumPerFieldAccuracy": {
       "clusterId": 0.95,
       "claimType": 0.95,
       "direction": 0.9,
       "actionable": 0.95,
-      "mappedAssets": 0.9
+      "mappedAssets": 0.9,
+      "clusterCount": 0.75,
+      "clusterIds": 0.75,
+      "decisionActions": 1,
+      "vetoedAssets": 0.75
     }
   },
   "cases": [
@@ -146,6 +151,232 @@
         "direction": "Mixed",
         "actionable": true,
         "mappedAssets": ["SOXX", "QQQ"]
+      }
+    },
+    {
+      "id": "eval-011",
+      "label": "Policy guidance staying narrow should remain bullish",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-16T10:05:00+01:00",
+      "body": "Fresh export-language read: the latest language still looks narrower than feared on AI compute and nothing here looks like a broad stop sign for AI infrastructure spending.",
+      "expected": {
+        "clusterId": "cluster-accelerators",
+        "claimType": "Policy interpretation",
+        "direction": "Bullish",
+        "actionable": true,
+        "mappedAssets": ["NVDA", "TSM", "SOXX", "QQQ"]
+      }
+    },
+    {
+      "id": "eval-012",
+      "label": "Another procurement rumor should stay noise",
+      "sourceId": "src-policywire",
+      "createdAt": "2026-03-16T11:22:00+01:00",
+      "body": "Verification note: there is still no hard language backing the loud procurement rumor, and the apparent catalyst still looks more social than operational.",
+      "expected": {
+        "clusterId": "cluster-policy-noise",
+        "claimType": "Debunk / clarification",
+        "direction": "Neutral",
+        "actionable": false,
+        "mappedAssets": ["AMD", "QQQ"]
+      }
+    },
+    {
+      "id": "eval-013",
+      "label": "Macro software rotation should remain mixed",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T12:08:00+01:00",
+      "body": "Growth rotation note: software is participating, but semis still have the cleaner social-signal setup and QQQ stays supported without a rates scare.",
+      "expected": {
+        "clusterId": "cluster-accelerators",
+        "claimType": "Macro context",
+        "direction": "Mixed",
+        "actionable": true,
+        "mappedAssets": ["SOXX", "QQQ"]
+      }
+    },
+    {
+      "id": "eval-014",
+      "label": "Component tightness should remain supply-chain bullish",
+      "sourceId": "src-semiflow",
+      "createdAt": "2026-03-16T12:40:00+01:00",
+      "body": "Supply chain follow-through: upstream component tightness is inconsistent with a clean capex slowdown call and server assembly cadence still points to firm accelerator demand.",
+      "expected": {
+        "clusterId": "cluster-accelerators",
+        "claimType": "Supply chain read",
+        "direction": "Bullish",
+        "actionable": true,
+        "mappedAssets": ["NVDA", "TSM", "SOXX"]
+      }
+    },
+    {
+      "id": "eval-015",
+      "label": "Macro crypto spillover should stay cautious",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T13:10:00+01:00",
+      "body": "Cross-market note: BTC is still getting help from the same liquidity impulse lifting AI beta, but confirmation still matters more here.",
+      "expected": {
+        "clusterId": "cluster-crypto-risk",
+        "claimType": "Macro context",
+        "direction": "Mixed",
+        "actionable": true,
+        "mappedAssets": ["QQQ", "BTC"]
+      }
+    },
+    {
+      "id": "eval-016",
+      "label": "Enterprise deployment proof should stay mixed-positive",
+      "sourceId": "src-builderalpha",
+      "createdAt": "2026-03-16T13:42:00+01:00",
+      "body": "Customer call note: buyers are moving AI copilots from demo mode into real budget review, but proof-of-ROI is still the gating item for broad seat expansion.",
+      "expected": {
+        "clusterId": "cluster-enterprise-ai",
+        "claimType": "Operator commentary",
+        "direction": "Mixed",
+        "actionable": true,
+        "mappedAssets": ["MSFT", "META", "QQQ"]
+      }
+    },
+    {
+      "id": "eval-017",
+      "label": "Macro reality check should downshift rumor-driven policy noise",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T14:18:00+01:00",
+      "body": "Macro reality check: the move still looks narrative-driven, verification failed to show up, and the catalyst still looks more social than operational.",
+      "expected": {
+        "clusterId": "cluster-policy-noise",
+        "claimType": "Macro context",
+        "direction": "Neutral",
+        "actionable": false,
+        "mappedAssets": ["QQQ"]
+      }
+    },
+    {
+      "id": "eval-018",
+      "label": "Clean semis leadership note should stay accelerator bullish",
+      "sourceId": "src-macrolens",
+      "createdAt": "2026-03-16T14:55:00+01:00",
+      "body": "Tape read: semis are still leading the growth complex without a rates shock getting in the way, and that remains a better backdrop for continuation than for fading strength.",
+      "expected": {
+        "clusterId": "cluster-accelerators",
+        "claimType": "Macro context",
+        "direction": "Bullish",
+        "actionable": true,
+        "mappedAssets": ["SOXX", "QQQ"]
+      }
+    }
+  ],
+  "scenarioCases": [
+    {
+      "id": "scenario-001",
+      "label": "Accelerator convergence should drive the semi decision book",
+      "posts": [
+        {
+          "sourceId": "src-policywire",
+          "createdAt": "2026-03-16T08:10:00+01:00",
+          "body": "Draft export guidance looks narrower than feared. High-end AI accelerators still face scrutiny, but broad data-center demand assumptions may need to move up, not down."
+        },
+        {
+          "sourceId": "src-semiflow",
+          "createdAt": "2026-03-16T07:42:00+01:00",
+          "body": "Board checks still point to hyperscalers pulling forward AI rack deployments into next quarter. That keeps upstream semi orders tighter than the market narrative implies."
+        },
+        {
+          "sourceId": "src-macrolens",
+          "createdAt": "2026-03-16T06:35:00+01:00",
+          "body": "Rates are not the story this week. Risk appetite is broadening and semis are leading again; that's a better backdrop for continuation than for fading strength."
+        }
+      ],
+      "expected": {
+        "clusterCount": 1,
+        "clusterIds": ["cluster-accelerators"],
+        "actionableCount": 3,
+        "decisionActions": {
+          "NVDA": "BUY",
+          "TSM": "BUY",
+          "SOXX": "BUY",
+          "QQQ": "HOLD"
+        },
+        "vetoedAssets": ["QQQ"]
+      }
+    },
+    {
+      "id": "scenario-002",
+      "label": "Enterprise caution should keep software names on HOLD",
+      "posts": [
+        {
+          "sourceId": "src-builderalpha",
+          "createdAt": "2026-03-15T23:11:00+01:00",
+          "body": "Enterprise buyers are talking AI copilots again, but budget owners still want proof of ROI before expanding seats. Demand tone is better, conversion is still lumpy."
+        },
+        {
+          "sourceId": "src-macrolens",
+          "createdAt": "2026-03-15T09:46:00+01:00",
+          "body": "Growth leadership keeps rotating back toward software without a rates scare, but the move still looks broad, valuation-sensitive, and not enough to upgrade QQQ on its own."
+        }
+      ],
+      "expected": {
+        "clusterCount": 1,
+        "clusterIds": ["cluster-enterprise-ai"],
+        "actionableCount": 2,
+        "decisionActions": {
+          "MSFT": "HOLD",
+          "META": "HOLD",
+          "QQQ": "HOLD"
+        },
+        "vetoedAssets": []
+      }
+    },
+    {
+      "id": "scenario-003",
+      "label": "Policy noise should push AMD into SELL",
+      "posts": [
+        {
+          "sourceId": "src-policywire",
+          "createdAt": "2026-03-15T19:24:00+01:00",
+          "body": "A hearing headline is moving fast, but there is no confirmed proposal that changes current procurement policy. Most of the urgency looks narrative-driven, not operational."
+        },
+        {
+          "sourceId": "src-macrolens",
+          "createdAt": "2026-03-15T19:55:00+01:00",
+          "body": "Positioning read: price reacted faster than the evidence stack justified and this still looks like noise getting mistaken for confirmation."
+        }
+      ],
+      "expected": {
+        "clusterCount": 1,
+        "clusterIds": ["cluster-policy-noise"],
+        "actionableCount": 0,
+        "decisionActions": {
+          "AMD": "SELL",
+          "QQQ": "HOLD"
+        },
+        "vetoedAssets": []
+      }
+    },
+    {
+      "id": "scenario-004",
+      "label": "Crypto risk should stay constructive but below BUY",
+      "posts": [
+        {
+          "sourceId": "src-chainpulse",
+          "createdAt": "2026-03-16T09:02:00+01:00",
+          "body": "BTC is catching some of the same liquidity bid as AI beta, but derivatives positioning is no longer clean. Good backdrop, messy trigger."
+        },
+        {
+          "sourceId": "src-macrolens",
+          "createdAt": "2026-03-16T09:40:00+01:00",
+          "body": "Liquidity lens: BTC is still getting help from the same liquidity impulse lifting AI beta, though confirmation still matters more here."
+        }
+      ],
+      "expected": {
+        "clusterCount": 1,
+        "clusterIds": ["cluster-crypto-risk"],
+        "actionableCount": 2,
+        "decisionActions": {
+          "BTC": "HOLD",
+          "QQQ": "HOLD"
+        },
+        "vetoedAssets": ["BTC"]
       }
     }
   ]

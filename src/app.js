@@ -259,6 +259,71 @@ function getRecentAnalysedPosts() {
     });
 }
 
+function countBy(items, getKey) {
+  return items.reduce((accumulator, item) => {
+    const key = getKey(item);
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+}
+
+function average(values) {
+  if (!values.length) {
+    return null;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function buildDecisionHistoryAnalytics(entries) {
+  const directionalReturns = entries
+    .map((entry) => entry.directionalReturn)
+    .filter((value) => typeof value === "number");
+  const assetRows = Object.entries(countBy(entries, (entry) => entry.asset))
+    .map(([asset, count]) => {
+      const assetEntries = entries.filter((entry) => entry.asset === asset);
+      const assetDirectionalReturns = assetEntries
+        .map((entry) => entry.directionalReturn)
+        .filter((value) => typeof value === "number");
+      const winRateBase = assetEntries.filter(
+        (entry) => entry.outcomeState === "favorable" || entry.outcomeState === "stable"
+      ).length;
+
+      return {
+        asset,
+        count,
+        averageDirectionalReturn: average(assetDirectionalReturns),
+        averageConfidence: average(assetEntries.map((entry) => entry.confidence).filter(Boolean)),
+        winRate: count ? winRateBase / count : null
+      };
+    })
+    .sort((left, right) => (right.averageDirectionalReturn ?? -Infinity) - (left.averageDirectionalReturn ?? -Infinity));
+
+  return {
+    actionBreakdown: countBy(entries, (entry) => entry.action),
+    outcomeBreakdown: countBy(entries, (entry) => entry.outcomeState || "open"),
+    averageDirectionalReturn: average(directionalReturns),
+    averageConfidence: average(entries.map((entry) => entry.confidence).filter(Boolean)),
+    assetRows,
+    bestAsset: assetRows[0] || null,
+    weakestAsset: [...assetRows]
+      .sort((left, right) => (left.averageDirectionalReturn ?? Infinity) - (right.averageDirectionalReturn ?? Infinity))[0] || null
+  };
+}
+
+function buildRunDecisionAnalytics(entries) {
+  return {
+    count: entries.length,
+    favorableCount: entries.filter((entry) => entry.outcomeState === "favorable").length,
+    againstCount: entries.filter((entry) => entry.outcomeState === "against").length,
+    openCount: entries.filter((entry) => entry.outcomeState === "open").length,
+    averageDirectionalReturn: average(
+      entries.map((entry) => entry.directionalReturn).filter((value) => typeof value === "number")
+    ),
+    averageConfidence: average(entries.map((entry) => entry.confidence).filter(Boolean))
+  };
+}
+
 function normalizeSelections() {
   const { monitoredUniverse, sources } = getData();
 
@@ -1056,7 +1121,7 @@ function renderAdminPage() {
           <div class="action-stack">
             <button class="refresh-button" data-run-pipeline>${state.isRunningPipeline ? "Running pipeline..." : "Run pipeline"}</button>
             <button class="refresh-button" data-run-evals>${state.isRunningEvals ? "Running evals..." : "Run eval harness"}</button>
-            <button class="refresh-button" data-reseed-fake-tweets>${state.isReseeding ? "Reseeding..." : "Reseed 100 fake tweets"}</button>
+            <button class="refresh-button" data-reseed-fake-tweets>${state.isReseeding ? "Reseeding..." : "Reseed 140 fake tweets"}</button>
           </div>
         </div>
       </section>
@@ -1594,6 +1659,10 @@ function renderReplayInspector() {
                       <strong>${replay.replay.promptVersion}</strong>
                     </article>
                     <article class="context-item">
+                      <span>Prompt label</span>
+                      <strong>${replay.replay.promptGuide?.label || "Prompt bundle"}</strong>
+                    </article>
+                    <article class="context-item">
                       <span>Cache hit</span>
                       <strong>${replay.replay.cache.hit ? "Yes" : "No"}</strong>
                     </article>
@@ -1604,6 +1673,10 @@ function renderReplayInspector() {
                     <article class="context-item">
                       <span>Model</span>
                       <strong>${replay.replay.config.model || "Not configured"}</strong>
+                    </article>
+                    <article class="context-item">
+                      <span>Calibration examples</span>
+                      <strong>${replay.replay.validationReady?.exampleCount || 0}</strong>
                     </article>
                   </div>
                   <article class="operator-card">
@@ -1630,6 +1703,14 @@ function renderReplayInspector() {
                     ${renderJsonBlock(replay.heuristicBaseline)}
                   </details>
                   <details>
+                    <summary>Prompt guide and validation focus</summary>
+                    ${renderJsonBlock(replay.replay.promptGuide)}
+                  </details>
+                  <details>
+                    <summary>Calibration examples</summary>
+                    ${renderJsonBlock(replay.replay.promptGuide?.examples || [])}
+                  </details>
+                  <details>
                     <summary>Cached extraction payload</summary>
                     ${
                       replay.replay.cache.hit
@@ -1646,7 +1727,7 @@ function renderReplayInspector() {
                     ${
                       replay.replay.liveRun
                         ? renderJsonBlock(replay.replay.liveRun)
-                        : '<article class="status-inline"><strong>Live run not executed</strong><p>Once an API key is configured, this panel can run a single live extraction for the selected post.</p></article>'
+                        : `<article class="status-inline"><strong>Live run not executed</strong><p>${replay.replay.validationReady?.liveEligible ? "A live run is available for this post." : "Once an API key is configured, this panel can run a single live extraction for the selected post."}</p></article>`
                     }
                   </details>
                 `
@@ -2275,6 +2356,16 @@ function renderLogs() {
   const selectedEval = state.selectedEvalDetail;
   const selectedRunDecisions = selectedRun?.decisions || [];
   const perFieldAccuracy = Object.entries(selectedEval?.summary?.perFieldAccuracy || {});
+  const historyAnalytics = buildDecisionHistoryAnalytics(history.decisionLog);
+  const selectedRunHistory = history.decisionLog.filter((entry) => entry.runId === state.selectedRunId);
+  const selectedRunAnalytics = buildRunDecisionAnalytics(selectedRunHistory);
+  const actionBreakdown = Object.entries(historyAnalytics.actionBreakdown || {}).sort(
+    ([left], [right]) => left.localeCompare(right)
+  );
+  const outcomeBreakdown = Object.entries(historyAnalytics.outcomeBreakdown || {}).sort(
+    ([left], [right]) => left.localeCompare(right)
+  );
+  const selectedScenarioCases = selectedEval?.scenarioCases || [];
 
   return `
     <main class="content-shell">
@@ -2307,12 +2398,17 @@ function renderLogs() {
         <article class="stat-card">
           <span class="eyebrow">Latest eval</span>
           <strong>${latestEval ? formatScorePercent(latestEval.summary.averageScore) : "Pending"}</strong>
-          <p>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount} exact matches using ${latestEval.extractor.activeMode}.` : "Run the eval harness from Operator to populate regression history."}</p>
+          <p>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount} exact matches using ${latestEval.extractor.activeMode}, plus ${latestEval.summary.scenarioExactMatchCount || 0}/${latestEval.summary.scenarioCaseCount || 0} scenario passes.` : "Run the eval harness from Operator to populate regression history."}</p>
         </article>
         <article class="stat-card">
           <span class="eyebrow">Prompt version</span>
           <strong>${selectedEval?.promptVersion || latestEval?.promptVersion || "Pending"}</strong>
           <p>${selectedEval?.gate?.passed === false ? "The latest selected eval is currently below at least one regression gate." : "The eval suite records prompt/schema revisions so later model runs can be compared cleanly."}</p>
+        </article>
+        <article class="stat-card">
+          <span class="eyebrow">Avg directional return</span>
+          <strong>${formatSignedReturn(historyAnalytics.averageDirectionalReturn)}</strong>
+          <p>${historyAnalytics.bestAsset ? `${historyAnalytics.bestAsset.asset} currently leads the stored outcome leaderboard.` : "Directional-return analytics will populate as the decision log grows."}</p>
         </article>
       </section>
       <section class="section-card split-card">
@@ -2388,6 +2484,14 @@ function renderLogs() {
                     <article class="context-item">
                       <span>Market regime</span>
                       <strong>${selectedRun.market.summary.marketRegime}</strong>
+                    </article>
+                    <article class="context-item">
+                      <span>Run avg return</span>
+                      <strong>${formatSignedReturn(selectedRunAnalytics.averageDirectionalReturn)}</strong>
+                    </article>
+                    <article class="context-item">
+                      <span>Favorable / against</span>
+                      <strong>${selectedRunAnalytics.favorableCount} / ${selectedRunAnalytics.againstCount}</strong>
                     </article>
                   </div>
                   <div class="operator-list">
@@ -2517,8 +2621,16 @@ function renderLogs() {
                       <strong>${formatScorePercent(selectedEval.summary.exactMatchRate)}</strong>
                     </article>
                     <article class="context-item">
+                      <span>Scenario pass rate</span>
+                      <strong>${formatScorePercent(selectedEval.summary.scenarioExactMatchRate || 0)}</strong>
+                    </article>
+                    <article class="context-item">
                       <span>Extractor mode</span>
                       <strong>${selectedEval.extractor.activeMode}</strong>
+                    </article>
+                    <article class="context-item">
+                      <span>Validation mode</span>
+                      <strong>${formatEnumLabel(selectedEval.validationMode || "heuristic-baseline")}</strong>
                     </article>
                     <article class="context-item">
                       <span>Delta vs previous</span>
@@ -2541,6 +2653,30 @@ function renderLogs() {
                       )
                       .join("")}
                   </div>
+                  ${
+                    selectedScenarioCases.length
+                      ? `
+                        <div class="operator-list">
+                          ${selectedScenarioCases
+                            .map(
+                              (testCase) => `
+                              <article class="operator-card">
+                                <div class="operator-card-head">
+                                  <div>
+                                    <strong>${testCase.label}</strong>
+                                    <span>${formatScorePercent(testCase.score)}</span>
+                                  </div>
+                                  <span class="pill pill-muted">${testCase.matched ? "Scenario pass" : "Scenario miss"}</span>
+                                </div>
+                                <p>Misses: ${testCase.fields.filter((field) => !field.matched).map((field) => field.field).join(", ") || "None"}</p>
+                              </article>
+                            `
+                            )
+                            .join("")}
+                        </div>
+                      `
+                      : ""
+                  }
                   ${
                     selectedEval.failedCases.length
                       ? `
@@ -2582,6 +2718,68 @@ function renderLogs() {
                   </article>
                 `
           }
+        </div>
+      </section>
+      <section class="section-card split-card">
+        <div>
+          <div class="section-header">
+            <div>
+              <span class="eyebrow">Outcome analytics</span>
+              <h3>Asset leaderboard across stored decisions</h3>
+            </div>
+          </div>
+          <div class="feed-list">
+            ${historyAnalytics.assetRows
+              .slice(0, 6)
+              .map(
+                (row) => `
+                <article class="feed-item">
+                  <div class="feed-head">
+                    <strong>${row.asset}</strong>
+                    <span>${formatSignedReturn(row.averageDirectionalReturn)}</span>
+                  </div>
+                  <p>${row.count} stored decisions · ${formatScorePercent(row.averageConfidence || 0)} avg confidence · ${formatScorePercent(row.winRate || 0)} stable/favorable rate.</p>
+                </article>
+              `
+              )
+              .join("")}
+          </div>
+        </div>
+        <div>
+          <div class="section-header">
+            <div>
+              <span class="eyebrow">Mix</span>
+              <h3>Action and outcome distribution</h3>
+            </div>
+          </div>
+          <div class="timeline-list">
+            ${actionBreakdown
+              .map(
+                ([action, count]) => `
+                <article class="timeline-item">
+                  <span class="timeline-step">${action}</span>
+                  <div>
+                    <strong>${count} decisions</strong>
+                    <p>${action} appears ${count} times in the current decision history.</p>
+                  </div>
+                </article>
+              `
+              )
+              .join("")}
+            ${outcomeBreakdown
+              .map(
+                ([outcome, count]) => `
+                <article class="timeline-item">
+                  <span class="timeline-step">${String(count).padStart(2, "0")}</span>
+                  <div>
+                    <strong>${formatEnumLabel(outcome)}</strong>
+                    <p>${count} stored decisions currently sit in this outcome state.</p>
+                  </div>
+                </article>
+              `
+              )
+              .join("")}
+          </div>
         </div>
       </section>
     </main>

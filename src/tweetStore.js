@@ -10,7 +10,7 @@ import {
 import { formatBerlinTimestamp, generateFakeTweets } from "./fakeTweetGenerator.js";
 
 const LEGACY_STORE_PATH = fileURLToPath(new URL("../data/tweet-store.json", import.meta.url));
-const TARGET_FAKE_TWEET_COUNT = 100;
+const TARGET_FAKE_TWEET_COUNT = 140;
 const TWEET_STORE_VERSION = 2;
 
 function isValidStore(store) {

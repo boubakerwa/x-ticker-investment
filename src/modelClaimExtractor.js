@@ -4,8 +4,8 @@ import {
   upsertExtractionCache
 } from "./extractionCacheStore.js";
 
-const EXTRACTOR_PROMPT_VERSION = "claim-extractor-v1";
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
+const DEFAULT_PROMPT_VERSION = "claim-extractor-v2";
 const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
 const CLAIM_EXTRACTION_BATCH_SIZE = 8;
 
@@ -28,6 +28,145 @@ const allowedTopicHints = [
   "cluster-crypto-risk"
 ];
 const allowedAssets = ["NVDA", "AMD", "TSM", "MSFT", "META", "SOXX", "QQQ", "BTC"];
+
+const promptExamples = [
+  {
+    id: "prompt-example-accelerators",
+    label: "Accelerator demand remains firm",
+    sourceHandle: "@semiflow",
+    body:
+      "Board checks still point to hyperscalers pulling forward AI rack deployments into next quarter. That keeps upstream semi orders tighter than the market narrative implies.",
+    expected: {
+      topicHint: "cluster-accelerators",
+      claimType: "Channel check",
+      direction: "Bullish",
+      explicitness: "Explicit",
+      actionable: true,
+      mappedAssets: ["NVDA", "TSM", "SOXX"],
+      extractionNote: "Direct channel-check language supports the accelerator-demand cluster."
+    }
+  },
+  {
+    id: "prompt-example-enterprise",
+    label: "Enterprise tone improves but proof still matters",
+    sourceHandle: "@builderalpha",
+    body:
+      "Enterprise buyers are talking AI copilots again, but budget owners still want proof of ROI before expanding seats. Demand tone is better, conversion is still lumpy.",
+    expected: {
+      topicHint: "cluster-enterprise-ai",
+      claimType: "Operator commentary",
+      direction: "Mixed",
+      explicitness: "Interpretive",
+      actionable: true,
+      mappedAssets: ["MSFT", "META"],
+      extractionNote: "The post is actionable but still mixed because ROI proof remains unresolved."
+    }
+  },
+  {
+    id: "prompt-example-noise",
+    label: "Policy rumor should be downgraded",
+    sourceHandle: "@policywire",
+    body:
+      "The loud procurement rumor going around X still has no attached draft language or committee backing. Treat the move as narrative until evidence appears.",
+    expected: {
+      topicHint: "cluster-policy-noise",
+      claimType: "Debunk / clarification",
+      direction: "Neutral",
+      explicitness: "Explicit",
+      actionable: false,
+      mappedAssets: ["AMD", "QQQ"],
+      extractionNote: "This is clarification and rumor control, not a tradeable catalyst."
+    }
+  },
+  {
+    id: "prompt-example-crypto",
+    label: "Crypto setup remains constructive but messy",
+    sourceHandle: "@chainpulse",
+    body:
+      "BTC is catching some of the same liquidity bid as AI beta, but derivatives positioning is no longer clean. Good backdrop, messy trigger.",
+    expected: {
+      topicHint: "cluster-crypto-risk",
+      claimType: "Market desk note",
+      direction: "Mixed",
+      explicitness: "Interpretive",
+      actionable: true,
+      mappedAssets: ["BTC"],
+      extractionNote: "Constructive backdrop is offset by crowded derivatives, keeping the signal mixed."
+    }
+  },
+  {
+    id: "prompt-example-policy-interpretation",
+    label: "Policy language narrows instead of broadening risk",
+    sourceHandle: "@policywire",
+    body:
+      "Fresh export-language read: the latest language still looks narrower than feared on AI compute and nothing here looks like a broad stop sign for AI infrastructure spending.",
+    expected: {
+      topicHint: "cluster-accelerators",
+      claimType: "Policy interpretation",
+      direction: "Bullish",
+      explicitness: "Interpretive",
+      actionable: true,
+      mappedAssets: ["NVDA", "TSM", "SOXX", "QQQ"],
+      extractionNote: "This is a real policy interpretation with positive operating read-through, not rumor-control noise."
+    }
+  },
+  {
+    id: "prompt-example-software-caution",
+    label: "Software tone improves but still stops short of BUY",
+    sourceHandle: "@macrolens",
+    body:
+      "Growth leadership keeps rotating back toward software without a rates scare, but the move still looks broad, valuation-sensitive, and not enough to upgrade QQQ on its own.",
+    expected: {
+      topicHint: "cluster-enterprise-ai",
+      claimType: "Macro context",
+      direction: "Mixed",
+      explicitness: "Interpretive",
+      actionable: true,
+      mappedAssets: ["QQQ"],
+      extractionNote: "The setup is constructive enough to monitor, but the post still argues for patience rather than a directional upgrade."
+    }
+  }
+];
+
+const promptVariants = {
+  "claim-extractor-v1": {
+    label: "Baseline extraction prompt",
+    goal:
+      "Classify short X posts into a narrow claim schema for downstream deterministic clustering and policy.",
+    instructions: [
+      "Return exactly one extraction object per input post and preserve the original postId.",
+      "topicHint must identify the closest narrative family and should stay conservative when the post is mostly noise or clarification.",
+      "actionable should be false for rumor control, debunks, stale commentary, generic macro chatter, or posts that are not asset-relevant enough to trade on.",
+      "mappedAssets must stay inside the source allowedAssets list and should be empty or narrow when the mapping is weak.",
+      "If uncertain, prefer Neutral or Mixed, actionable false, and lower confidence.",
+      "Themes should be short factual phrases rather than summaries.",
+      "extractionNote should briefly explain the dominant reason for the classification."
+    ],
+    validationFocus: [
+      "Do not confuse clarification with a fresh catalyst.",
+      "Do not over-map weak single-name references into too many assets."
+    ]
+  },
+  "claim-extractor-v2": {
+    label: "Tuned extraction prompt with calibration examples",
+    goal:
+      "Produce conservative, high-precision claim objects that can be trusted by the deterministic cluster and decision engine.",
+    instructions: [
+      "Treat the task as classification, not creative summarization. Pick the closest allowed label and avoid adding interpretation that is not present in the post.",
+      "Prefer false negatives over false positives. If the post reads like rumor control, stale commentary, or broad vibes without a real operating implication, mark actionable false.",
+      "Use Bullish or Bearish only when the directional implication is genuinely strong. Mixed is preferred for posts that contain support and caveats together.",
+      "Policy or rumor-control posts should usually become cluster-policy-noise unless they clearly change the operating environment.",
+      "Enterprise-AI posts require evidence of deployment, budget, or monetization. Product hype alone should not become a strong bullish extraction.",
+      "Crypto posts should stay conservative when derivatives, leverage, or volatility language is present.",
+      "Map only assets that the source is allowed to influence and keep the asset list narrow when the read-through is indirect."
+    ],
+    validationFocus: [
+      "High precision on policy-noise detection.",
+      "Avoid forcing BUY-like sentiment out of mixed enterprise or crypto language.",
+      "Keep asset mappings aligned with source permissions and direct narrative exposure."
+    ]
+  }
+};
 
 const claimExtractionSchema = {
   type: "object",
@@ -111,6 +250,21 @@ function normalizeMode(value) {
   return "auto";
 }
 
+function normalizePromptVersion(value) {
+  return promptVariants[value] ? value : DEFAULT_PROMPT_VERSION;
+}
+
+function getActivePromptVariant() {
+  const version = normalizePromptVersion(
+    String(process.env.CLAIM_EXTRACTION_PROMPT_VERSION || DEFAULT_PROMPT_VERSION).trim()
+  );
+
+  return {
+    version,
+    ...promptVariants[version]
+  };
+}
+
 export function getClaimExtractorConfig() {
   const requestedMode = normalizeMode((process.env.CLAIM_EXTRACTION_MODE || "auto").toLowerCase());
   const apiKey = process.env.OPENAI_API_KEY || "";
@@ -120,13 +274,16 @@ export function getClaimExtractorConfig() {
       : apiKey
         ? "openai"
         : "heuristic";
+  const promptVariant = getActivePromptVariant();
 
   return {
     requestedMode,
     activeMode,
     apiKey,
     baseUrl: OPENAI_BASE_URL,
-    model: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL
+    model: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
+    promptVersion: promptVariant.version,
+    promptLabel: promptVariant.label
   };
 }
 
@@ -135,7 +292,9 @@ function getSafeConfig(config) {
     requestedMode: config.requestedMode,
     activeMode: config.activeMode,
     baseUrl: config.baseUrl,
-    model: config.model
+    model: config.model,
+    promptVersion: config.promptVersion,
+    promptLabel: config.promptLabel
   };
 }
 
@@ -170,33 +329,55 @@ function buildBatchPayload(posts, sourceMap) {
   });
 }
 
+function getPromptGuide(promptVariant = getActivePromptVariant()) {
+  return {
+    version: promptVariant.version,
+    label: promptVariant.label,
+    goal: promptVariant.goal,
+    instructions: promptVariant.instructions,
+    validationFocus: promptVariant.validationFocus,
+    examples: promptExamples
+  };
+}
+
 export function getClaimExtractionSchema() {
   return claimExtractionSchema;
 }
 
 export function getClaimExtractionPromptVersion() {
-  return EXTRACTOR_PROMPT_VERSION;
+  return getActivePromptVariant().version;
 }
 
-function buildInstructions() {
+export function getClaimExtractionPromptGuide() {
+  return getPromptGuide();
+}
+
+export function listClaimExtractionPromptVersions() {
+  return Object.keys(promptVariants);
+}
+
+function buildInstructions(promptVariant) {
   return [
     "You extract structured investment-claim signals from short X posts for a narrow AI, tech, and crypto monitoring product.",
-    "Return exactly one extraction object per input post and keep the original postId.",
-    "topicHint must identify the closest narrative family and should be conservative when the post is mostly noise or clarification.",
-    "actionable should be false for rumor control, debunks, stale commentary, generic macro chatter, or posts that are not asset-relevant enough to trade on.",
-    "mappedAssets must stay inside the source allowedAssets list and should be empty or narrow when the mapping is weak.",
-    "If uncertain, prefer Neutral or Mixed, actionable false, and lower confidence.",
-    "confidence should be a number between 0 and 1.",
-    "Themes should be short, factual phrases rather than summaries.",
-    "extractionNote should briefly explain the dominant reason for the classification."
+    promptVariant.goal,
+    ...promptVariant.instructions,
+    `Validation focus: ${promptVariant.validationFocus.join(" ")}`
   ].join(" ");
 }
 
-function buildUserPrompt(posts, sourceMap, generatedAt) {
+function buildUserPrompt(posts, sourceMap, generatedAt, promptVariant) {
   return JSON.stringify(
     {
       generatedAt,
+      promptVersion: promptVariant.version,
       monitoredAssets: allowedAssets,
+      labelTaxonomy: {
+        topicHint: allowedTopicHints,
+        claimType: allowedClaimTypes,
+        direction: allowedDirections,
+        explicitness: allowedExplicitness
+      },
+      calibrationExamples: promptExamples,
       posts: buildBatchPayload(posts, sourceMap)
     },
     null,
@@ -204,26 +385,34 @@ function buildUserPrompt(posts, sourceMap, generatedAt) {
   );
 }
 
-export function buildClaimExtractionRequest({ posts, sources, generatedAt, config = getClaimExtractorConfig() }) {
+export function buildClaimExtractionRequest({
+  posts,
+  sources,
+  generatedAt,
+  config = getClaimExtractorConfig()
+}) {
+  const promptVariant = getActivePromptVariant();
   const sourceMap = new Map(sources.map((source) => [source.id, source]));
+  const instructions = buildInstructions(promptVariant);
 
   return {
-    promptVersion: EXTRACTOR_PROMPT_VERSION,
+    promptVersion: promptVariant.version,
+    promptGuide: getPromptGuide(promptVariant),
     config: getSafeConfig(config),
-    instructions: buildInstructions(),
+    instructions,
     schema: claimExtractionSchema,
     batchPayload: buildBatchPayload(posts, sourceMap),
     requestBody: {
       model: config.model,
       store: false,
-      instructions: buildInstructions(),
+      instructions,
       input: [
         {
           role: "user",
           content: [
             {
               type: "input_text",
-              text: buildUserPrompt(posts, sourceMap, generatedAt)
+              text: buildUserPrompt(posts, sourceMap, generatedAt, promptVariant)
             }
           ]
         }
@@ -255,7 +444,11 @@ function extractOutputText(payload) {
 
       if (typeof content.text === "string" && content.text.trim()) {
         texts.push(content.text);
-      } else if (content.text && typeof content.text === "object" && typeof content.text.value === "string") {
+      } else if (
+        content.text &&
+        typeof content.text === "object" &&
+        typeof content.text.value === "string"
+      ) {
         texts.push(content.text.value);
       }
     }
@@ -304,7 +497,8 @@ async function requestOpenAIExtractions(posts, sourceMap, generatedAt, config, {
   }
 
   return {
-    items
+    items,
+    requestEnvelope
   };
 }
 
@@ -313,6 +507,7 @@ export async function extractClaimsForPosts({ posts, sources, generatedAt }) {
   const sourceMap = new Map(sources.map((source) => [source.id, source]));
   const extractions = new Map();
   const warnings = [];
+  const promptGuide = getPromptGuide();
   let cacheHits = 0;
   let liveExtractions = 0;
   let fallbackCount = 0;
@@ -326,11 +521,14 @@ export async function extractClaimsForPosts({ posts, sources, generatedAt }) {
         activeMode: "heuristic",
         provider: "heuristic-fallback",
         model: "",
+        promptVersion: config.promptVersion,
+        promptLabel: config.promptLabel,
         cacheHits,
         liveExtractions,
         cacheWrites,
         fallbackCount: posts.length
       },
+      promptGuide,
       warnings
     };
   }
@@ -342,7 +540,7 @@ export async function extractClaimsForPosts({ posts, sources, generatedAt }) {
   for (const post of posts) {
     const source = sourceMap.get(post.sourceId) || {};
     const fingerprint = buildExtractionFingerprint({
-      promptVersion: EXTRACTOR_PROMPT_VERSION,
+      promptVersion: config.promptVersion,
       model: config.model,
       post,
       source
@@ -378,6 +576,9 @@ export async function extractClaimsForPosts({ posts, sources, generatedAt }) {
         nextCacheEntries[post._fingerprint] = {
           provider: "openai-responses",
           model: config.model,
+          promptVersion: config.promptVersion,
+          postId: post.id,
+          sourceId: post.sourceId,
           cachedAt: new Date().toISOString(),
           extraction
         };
@@ -405,13 +606,16 @@ export async function extractClaimsForPosts({ posts, sources, generatedAt }) {
       activeMode: "openai",
       provider: "openai-responses",
       model: config.model,
+      promptVersion: config.promptVersion,
+      promptLabel: config.promptLabel,
       cacheHits,
       liveExtractions,
       cacheWrites,
       fallbackCount
     },
-      warnings
-    };
+    promptGuide,
+    warnings
+  };
 }
 
 export async function buildClaimExtractionReplay({ post, sources, generatedAt, live = false }) {
@@ -425,7 +629,7 @@ export async function buildClaimExtractionReplay({ post, sources, generatedAt, l
     config
   });
   const fingerprint = buildExtractionFingerprint({
-    promptVersion: EXTRACTOR_PROMPT_VERSION,
+    promptVersion: config.promptVersion,
     model: config.model,
     post,
     source
@@ -455,7 +659,13 @@ export async function buildClaimExtractionReplay({ post, sources, generatedAt, l
   }
 
   return {
-    promptVersion: EXTRACTOR_PROMPT_VERSION,
+    promptVersion: config.promptVersion,
+    promptGuide: requestEnvelope.promptGuide,
+    validationReady: {
+      liveEligible: config.activeMode === "openai",
+      exampleCount: requestEnvelope.promptGuide.examples.length,
+      promptVersions: listClaimExtractionPromptVersions()
+    },
     config: getSafeConfig(config),
     fingerprint,
     cache: {

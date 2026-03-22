@@ -12,12 +12,12 @@ Explainable multi-day investment recommendations built from a curated list of X 
 - Seeded product data for sources, posts, event clusters, vetoes, and decisions
 - A dependency-light local Node server
 - Local JSON API endpoints that power the frontend snapshot
-- A persisted fake tweet store with 100 analysed tweets until the real X API arrives
+- A persisted fake tweet store with 140 analysed tweets until the real X API arrives
 - A persisted source store and operator CRUD workflow for monitored sources
 - A first server-side agent engine that computes claim extraction, runtime clustering, policy vetoes, and the decision book from the fetched feed
 - A model-backed claim-extraction layer with persistent caching and automatic heuristic fallback when no OpenAI key is configured
 - A persisted pipeline runner that stores ingestion snapshots, market context, clusters, decisions, and decision history
-- An offline extraction eval harness with prompt-versioned regression history
+- An offline extraction eval harness with prompt-versioned regression history and scenario-level cluster / decision checks
 - A run-history UI for replaying stored pipeline runs and eval runs inside the app
 - SQLite-backed persistence for sources, tweets, extraction cache, pipeline runs, and eval runs
 - A background pipeline scheduler so the engine can refresh without manual clicks
@@ -32,6 +32,9 @@ npm start
 
 Then open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
+An example environment file is available at `.env.example`.
+If you create a local `.env`, the npm scripts will load it automatically.
+
 Useful local commands:
 
 ```bash
@@ -43,6 +46,7 @@ npm run evals:strict
 - `npm run pipeline`: rebuild and persist the latest engine snapshot
 - `npm run evals`: execute the offline extraction eval suite and persist the result
 - `npm run evals:strict`: execute the eval suite and fail the command if a regression gate is missed
+- The eval suite now covers both post-level extraction fixtures and scenario-level cluster / decision outcomes.
 
 ## Optional model extraction
 
@@ -118,6 +122,7 @@ Feed provider configuration:
 - the extraction cache fingerprint and cached payload, if present
 - the heuristic baseline
 - the current normalized snapshot output
+- the active prompt guide, validation focus, and embedded calibration examples
 - an optional one-off live model run when `live=1` and `OPENAI_API_KEY` is configured
 
 ## Files

@@ -121,8 +121,10 @@ function summarizeEvalRun(run) {
         trigger: run.trigger,
         suiteName: run.suiteName,
         promptVersion: run.promptVersion,
+        validationMode: run.validationMode,
         extractor: run.extractor,
         summary: run.summary,
+        gate: run.gate,
         failedCases: run.failedCases
       }
     : null;
@@ -494,7 +496,7 @@ createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && requestUrl.pathname === "/api/admin/reseed-fake-tweets") {
-      reseedTweetStore(100);
+      reseedTweetStore(140);
       const pipelineResult = await runPipeline({
         trigger: "reseed-fake-feed"
       });

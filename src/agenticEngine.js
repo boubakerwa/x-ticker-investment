@@ -308,6 +308,20 @@ const noiseKeywords = [
   "not enough documentary support"
 ];
 
+const operationalPolicyKeywords = [
+  "narrower than feared",
+  "broad stop sign",
+  "not a broad stop sign",
+  "move up, not down",
+  "move up",
+  "infrastructure spending",
+  "data-center demand",
+  "data center demand",
+  "operating language",
+  "ai infrastructure spending",
+  "ai compute"
+];
+
 const assetKeywordMap = {
   NVDA: ["nvda", "nvidia", "accelerator", "gpu", "gpus", "compute"],
   AMD: ["amd"],
@@ -380,6 +394,19 @@ function countMatches(haystack, keywords) {
   return keywords.reduce((sum, keyword) => sum + (haystack.includes(keyword) ? 1 : 0), 0);
 }
 
+function hasOperationalPolicyShift(bodyLower) {
+  return (
+    countMatches(bodyLower, operationalPolicyKeywords) >= 2 &&
+    countMatches(bodyLower, clusterConfig["cluster-accelerators"].keywords) >= 1 &&
+    countMatches(bodyLower, neutralKeywords) === 0 &&
+    countMatches(bodyLower, noiseKeywords) === 0
+  );
+}
+
+function hasPolicyNoiseSignal(bodyLower) {
+  return countMatches(bodyLower, [...neutralKeywords, ...noiseKeywords]) >= 1;
+}
+
 function getSourceProfile(source) {
   return {
     ...sourceDefaults,
@@ -388,6 +415,8 @@ function getSourceProfile(source) {
 }
 
 function pickClusterId(rawPost, source, bodyLower) {
+  const operationalPolicyShift = source.id === "src-policywire" && hasOperationalPolicyShift(bodyLower);
+  const policyNoiseSignal = source.id === "src-policywire" && hasPolicyNoiseSignal(bodyLower);
   const scoredClusters = clusterPriority.map((clusterId) => {
     const config = clusterConfig[clusterId];
     const keywordScore = countMatches(bodyLower, config.keywords);
@@ -401,10 +430,23 @@ function pickClusterId(rawPost, source, bodyLower) {
     );
     const sourceScore = config.sourceBias[source.id] || 0;
     const priorScore = rawPost.clusterId === clusterId ? 1 : 0;
+    let score = keywordScore * 2 + themeScore + mappedAssetScore + sourceScore + priorScore;
+
+    if (clusterId === "cluster-accelerators" && operationalPolicyShift) {
+      score += 6;
+    }
+
+    if (clusterId === "cluster-policy-noise" && policyNoiseSignal && !operationalPolicyShift) {
+      score += 4;
+    }
+
+    if (clusterId === "cluster-policy-noise" && operationalPolicyShift) {
+      score -= 4;
+    }
 
     return {
       clusterId,
-      score: keywordScore * 2 + themeScore + mappedAssetScore + sourceScore + priorScore
+      score
     };
   });
 
@@ -467,6 +509,10 @@ function deriveDirection(bodyLower, clusterId) {
   }
 
   if (clusterId === "cluster-accelerators") {
+    if (hasOperationalPolicyShift(bodyLower)) {
+      return "Bullish";
+    }
+
     return bullishScore > 0 ? "Bullish" : "Mixed";
   }
 
