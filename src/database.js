@@ -97,6 +97,59 @@ function initializeSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_eval_runs_generated_at
       ON eval_runs(generated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS runtime_jobs (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      requested_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      related_run_id TEXT,
+      error_message TEXT NOT NULL DEFAULT '',
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_runtime_jobs_requested_at
+      ON runtime_jobs(requested_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_runtime_jobs_type
+      ON runtime_jobs(type);
+
+    CREATE TABLE IF NOT EXISTS notification_events (
+      id TEXT PRIMARY KEY,
+      channel TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      sent_at TEXT,
+      error_message TEXT NOT NULL DEFAULT '',
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notification_events_created_at
+      ON notification_events(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS financial_profiles (
+      id TEXT PRIMARY KEY,
+      updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_financial_profiles_updated_at
+      ON financial_profiles(updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS advisor_answers (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      asset_ticker TEXT NOT NULL,
+      status TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_advisor_answers_created_at
+      ON advisor_answers(created_at DESC);
   `);
 }
 

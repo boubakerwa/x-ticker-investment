@@ -1,4 +1,4 @@
-import { runPipeline } from "./pipelineRunner.js";
+import { executePipelineJob } from "./orchestrator.js";
 
 const DEFAULT_INTERVAL_MINUTES = Number(process.env.PIPELINE_INTERVAL_MINUTES || 15);
 
@@ -11,7 +11,8 @@ let state = {
   nextRunAt: "",
   lastRunAt: "",
   lastRunId: "",
-  lastError: ""
+  lastError: "",
+  lastJobId: ""
 };
 
 function computeNextRunAt(intervalMinutes) {
@@ -27,13 +28,15 @@ async function executeScheduledRun() {
   state.lastError = "";
 
   try {
-    const run = await runPipeline({
+    const result = await executePipelineJob({
       trigger: "background-scheduler",
       reason: "Scheduled pipeline refresh"
     });
+    const run = result.run;
 
     state.lastRunAt = run.generatedAt;
     state.lastRunId = run.id;
+    state.lastJobId = result.jobId;
   } catch (error) {
     state.lastError = error instanceof Error ? error.message : "Scheduled run failed.";
   } finally {
@@ -45,17 +48,27 @@ async function executeScheduledRun() {
 export function startBackgroundPipelineRunner({
   intervalMinutes = DEFAULT_INTERVAL_MINUTES
 } = {}) {
-  if (timer || intervalMinutes <= 0) {
+  if (intervalMinutes <= 0) {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+
     state = {
       ...state,
-      active: intervalMinutes > 0,
+      active: false,
       intervalMinutes,
       startedAt: state.startedAt || new Date().toISOString(),
-      nextRunAt: intervalMinutes > 0 ? computeNextRunAt(intervalMinutes) : "",
-      lastError:
-        intervalMinutes <= 0 ? "Background runner disabled because PIPELINE_INTERVAL_MINUTES <= 0." : state.lastError
+      nextRunAt: "",
+      lastJobId: state.lastJobId,
+      lastError: "Background runner disabled because PIPELINE_INTERVAL_MINUTES <= 0."
     };
     return getBackgroundPipelineStatus();
+  }
+
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
   }
 
   state = {
@@ -65,6 +78,7 @@ export function startBackgroundPipelineRunner({
     intervalMinutes,
     startedAt: new Date().toISOString(),
     nextRunAt: computeNextRunAt(intervalMinutes),
+    lastJobId: state.lastJobId,
     lastError: ""
   };
 

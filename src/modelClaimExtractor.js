@@ -3,10 +3,10 @@ import {
   readExtractionCache,
   upsertExtractionCache
 } from "./extractionCacheStore.js";
+import { requestStructuredResponse, resolveLlmConfig } from "./llmClient.js";
 
 const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 const DEFAULT_PROMPT_VERSION = "claim-extractor-v2";
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
 const CLAIM_EXTRACTION_BATCH_SIZE = 8;
 
 const allowedClaimTypes = [
@@ -267,11 +267,14 @@ function getActivePromptVariant() {
 
 export function getClaimExtractorConfig() {
   const requestedMode = normalizeMode((process.env.CLAIM_EXTRACTION_MODE || "auto").toLowerCase());
-  const apiKey = process.env.OPENAI_API_KEY || "";
+  const llmConfig = resolveLlmConfig({
+    modelEnvVar: "OPENAI_MODEL",
+    defaultModel: DEFAULT_OPENAI_MODEL
+  });
   const activeMode =
     requestedMode === "heuristic"
       ? "heuristic"
-      : apiKey
+      : llmConfig.provider === "local_openai_compatible" || llmConfig.apiKey
         ? "openai"
         : "heuristic";
   const promptVariant = getActivePromptVariant();
@@ -279,9 +282,10 @@ export function getClaimExtractorConfig() {
   return {
     requestedMode,
     activeMode,
-    apiKey,
-    baseUrl: OPENAI_BASE_URL,
-    model: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
+    apiKey: llmConfig.apiKey,
+    baseUrl: llmConfig.baseUrl,
+    provider: llmConfig.provider,
+    model: llmConfig.model,
     promptVersion: promptVariant.version,
     promptLabel: promptVariant.label
   };
@@ -291,6 +295,7 @@ function getSafeConfig(config) {
   return {
     requestedMode: config.requestedMode,
     activeMode: config.activeMode,
+    provider: config.provider,
     baseUrl: config.baseUrl,
     model: config.model,
     promptVersion: config.promptVersion,
@@ -394,12 +399,14 @@ export function buildClaimExtractionRequest({
   const promptVariant = getActivePromptVariant();
   const sourceMap = new Map(sources.map((source) => [source.id, source]));
   const instructions = buildInstructions(promptVariant);
+  const inputText = buildUserPrompt(posts, sourceMap, generatedAt, promptVariant);
 
   return {
     promptVersion: promptVariant.version,
     promptGuide: getPromptGuide(promptVariant),
     config: getSafeConfig(config),
     instructions,
+    inputText,
     schema: claimExtractionSchema,
     batchPayload: buildBatchPayload(posts, sourceMap),
     requestBody: {
@@ -412,7 +419,7 @@ export function buildClaimExtractionRequest({
           content: [
             {
               type: "input_text",
-              text: buildUserPrompt(posts, sourceMap, generatedAt, promptVariant)
+              text: inputText
             }
           ]
         }
@@ -429,38 +436,6 @@ export function buildClaimExtractionRequest({
   };
 }
 
-function extractOutputText(payload) {
-  if (typeof payload.output_text === "string" && payload.output_text.trim()) {
-    return payload.output_text.trim();
-  }
-
-  const texts = [];
-
-  for (const item of payload.output || []) {
-    for (const content of item.content || []) {
-      if (content.type === "refusal") {
-        throw new Error(content.refusal || "OpenAI model refused the extraction request.");
-      }
-
-      if (typeof content.text === "string" && content.text.trim()) {
-        texts.push(content.text);
-      } else if (
-        content.text &&
-        typeof content.text === "object" &&
-        typeof content.text.value === "string"
-      ) {
-        texts.push(content.text.value);
-      }
-    }
-  }
-
-  if (!texts.length) {
-    throw new Error("No structured extraction payload was returned by the model.");
-  }
-
-  return texts.join("\n").trim();
-}
-
 async function requestOpenAIExtractions(posts, sourceMap, generatedAt, config, { includeRaw = false } = {}) {
   const requestEnvelope = buildClaimExtractionRequest({
     posts,
@@ -468,22 +443,16 @@ async function requestOpenAIExtractions(posts, sourceMap, generatedAt, config, {
     generatedAt,
     config
   });
-  const response = await fetch(`${config.baseUrl}/responses`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`
-    },
-    body: JSON.stringify(requestEnvelope.requestBody)
+  const response = await requestStructuredResponse({
+    config,
+    instructions: requestEnvelope.requestBody.instructions,
+    inputText: requestEnvelope.inputText,
+    schema: claimExtractionSchema,
+    schemaName: "tweet_claim_extractions",
+    emptyOutputMessage: "No structured extraction payload was returned by the model.",
+    requestErrorMessage: "Extraction request failed."
   });
-
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || `OpenAI request failed with ${response.status}.`);
-  }
-
-  const rawText = extractOutputText(payload);
+  const rawText = response.outputText;
   const parsed = JSON.parse(rawText);
   const items = Array.isArray(parsed.items) ? parsed.items : [];
 
@@ -491,7 +460,7 @@ async function requestOpenAIExtractions(posts, sourceMap, generatedAt, config, {
     return {
       items,
       rawText,
-      rawResponse: payload,
+      rawResponse: response.payload,
       requestEnvelope
     };
   }
@@ -574,7 +543,7 @@ export async function extractClaimsForPosts({ posts, sources, generatedAt }) {
 
         extractions.set(post.id, extraction);
         nextCacheEntries[post._fingerprint] = {
-          provider: "openai-responses",
+          provider: config.provider === "local_openai_compatible" ? "local-openai-compatible" : "openai-responses",
           model: config.model,
           promptVersion: config.promptVersion,
           postId: post.id,
@@ -604,7 +573,7 @@ export async function extractClaimsForPosts({ posts, sources, generatedAt }) {
     stats: {
       requestedMode: config.requestedMode,
       activeMode: "openai",
-      provider: "openai-responses",
+      provider: config.provider === "local_openai_compatible" ? "local-openai-compatible" : "openai-responses",
       model: config.model,
       promptVersion: config.promptVersion,
       promptLabel: config.promptLabel,

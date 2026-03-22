@@ -1,12 +1,14 @@
-import { runPipeline } from "../src/pipelineRunner.js";
+import { executePipelineJob } from "../src/orchestrator.js";
 
-const run = await runPipeline({
+const result = await executePipelineJob({
   trigger: "cli"
 });
+const run = result.run;
 
 console.log(
   JSON.stringify(
     {
+      jobId: result.jobId,
       runId: run.id,
       generatedAt: run.generatedAt,
       trigger: run.trigger,

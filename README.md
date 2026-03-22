@@ -21,6 +21,11 @@ Explainable multi-day investment recommendations built from a curated list of X 
 - A run-history UI for replaying stored pipeline runs and eval runs inside the app
 - SQLite-backed persistence for sources, tweets, extraction cache, pipeline runs, and eval runs
 - A background pipeline scheduler so the engine can refresh without manual clicks
+- A lightweight orchestrator runtime that records pipeline/report jobs and routes notifications
+- Optional Telegram notifications for pipeline alerts, digests, and runtime test messages
+- A persisted financial profile store for holdings, liabilities, liquidity, and investor goals
+- A guided onboarding wizard for building the initial financial profile, including funds, ETFs, pension/insurance products, liabilities, and contract checklists
+- A portfolio-aware advisor workflow for asking explicit asset questions against the latest snapshot
 - A market-data provider adapter that can use Stooq daily data without keys and fall back to mock data automatically
 - Decision outcome tracking that records reference prices and updates later run outcomes over time
 
@@ -58,6 +63,16 @@ Optional environment variables:
 - `OPENAI_MODEL`: override the default extraction model (`gpt-4.1-mini`)
 - `CLAIM_EXTRACTION_MODE`: `auto` (default), `openai`, or `heuristic`
 - `OPENAI_BASE_URL`: override the OpenAI API base URL if needed
+- `NOTIFICATION_PROVIDER`: set to `telegram` to enable Telegram delivery
+- `NOTIFICATIONS_ENABLED`: set to `1` to turn on the notification router
+- `TELEGRAM_BOT_TOKEN`: Telegram Bot API token
+- `TELEGRAM_CHAT_ID`: destination chat id for alerts and digests
+- `TELEGRAM_API_BASE_URL`: override the Telegram Bot API base URL if needed
+- `LLM_PROVIDER`: `openai` (default) or `local_openai_compatible`
+- `LOCAL_LLM_BASE_URL`: base URL for a local OpenAI-compatible Responses API
+- `LOCAL_LLM_API_KEY`: optional token for the local adapter (defaults to `local-dev-token`)
+- `LOCAL_LLM_MODEL`: local model id exposed by the adapter
+- `FINANCIAL_ADVISOR_MODEL`: override the default advisor model (`gpt-4.1-mini`)
 
 The extraction cache is persisted in `data/extraction-cache.json` so already-processed tweets are not re-sent on every refresh.
 
@@ -81,10 +96,24 @@ The app no longer computes the full engine state only at request time.
   - failed cases for quick regression review
   - regression gate pass/fail state
 
+### Runtime architecture
+
+```mermaid
+flowchart LR
+  A[Operator action / scheduler] --> B[orchestrator.js]
+  B --> C[runtimeJobStore.js]
+  B --> D[pipelineRunner.js]
+  D --> E[pipelineStore.js]
+  B --> F[reportBuilder.js]
+  B --> G[notificationProvider.js]
+  G --> H[notificationStore.js]
+```
+
 Background execution:
 
 - `PIPELINE_INTERVAL_MINUTES`: how often the server should rerun the pipeline in the background
 - Set it to `0` to disable the background scheduler
+- Use `POST /api/admin/runtime/pause` and `POST /api/admin/runtime/resume` for manual scheduler control
 
 Market provider configuration:
 
@@ -107,10 +136,18 @@ Feed provider configuration:
 - `GET /api/evals/history`
 - `GET /api/evals/history/:id`
 - `GET /api/runtime/status`
+- `GET /api/operator/profile`
+- `PUT /api/operator/profile`
+- `GET /api/advisor/history`
+- `POST /api/advisor/ask`
 - `GET /api/engine/extraction-replay?postId=<id>&live=1`
 - `POST /api/admin/run-pipeline`
 - `POST /api/admin/run-evals`
 - `POST /api/admin/reseed-fake-tweets`
+- `POST /api/admin/runtime/pause`
+- `POST /api/admin/runtime/resume`
+- `POST /api/admin/runtime/send-digest`
+- `POST /api/admin/runtime/test-notification`
 - `GET /api/operator/sources`
 - `POST /api/operator/sources`
 - `PUT /api/operator/sources/:id`
@@ -141,6 +178,15 @@ Feed provider configuration:
 - `src/marketDataProvider.js` provides the market-data adapter with Stooq + mock fallback
 - `src/pipelineRunner.js` executes and persists the full pipeline
 - `src/backgroundPipelineRunner.js` schedules recurring pipeline refreshes while the server is running
+- `src/orchestrator.js` coordinates runtime jobs, pipeline refreshes, and digest notifications
+- `src/llmClient.js` centralizes Responses API calls so hosted OpenAI and local OpenAI-compatible servers share one path
+- `src/financialProfileStore.js` persists the operator financial profile
+- `src/financialAdvisor.js` answers explicit asset questions using the financial profile plus the latest snapshot
+- `src/advisorStore.js` stores advisor answers for replay in the UI
+- `src/runtimeJobStore.js` persists runtime job history
+- `src/notificationProvider.js` routes alert delivery and supports Telegram via env vars
+- `src/notificationStore.js` persists notification event history
+- `src/reportBuilder.js` formats digest and alert payloads for operator delivery
 - `src/pipelineStore.js` stores pipeline snapshots and decision history
 - `src/evalHarness.js` runs the offline extraction regression suite
 - `src/evalStore.js` stores eval history
@@ -154,3 +200,20 @@ Feed provider configuration:
 - `data/eval-history.json` is the persisted eval-history store
 - `data/eval-suite.json` is the local regression fixture set for extraction testing
 - `data/x-ticker.sqlite` is the new primary persistence layer; the JSON files are now legacy migration inputs / compatibility artifacts
+
+## Local Qwen on a Mac Mini
+
+See `docs/local-qwen-macmini.md` for the recommended Apple-silicon path:
+
+- `mlx-lm` for local inference
+- `local_llm_adapter/main.py` as a minimal OpenAI-compatible Responses adapter
+- `scripts/start-local-qwen-adapter.sh` to launch the adapter locally
+
+```mermaid
+flowchart LR
+  A[src/modelClaimExtractor.js / src/financialAdvisor.js] --> B[src/llmClient.js]
+  B --> C{LLM_PROVIDER}
+  C -->|openai| D[OpenAI Responses API]
+  C -->|local_openai_compatible| E[local_llm_adapter/main.py]
+  E --> F[mlx-lm + Qwen3-4B]
+```
