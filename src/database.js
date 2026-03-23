@@ -106,6 +106,25 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_decision_reviews_asset
       ON decision_reviews(asset);
 
+    CREATE TABLE IF NOT EXISTS research_dossiers (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      title TEXT NOT NULL,
+      theme TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_research_dossiers_updated_at
+      ON research_dossiers(updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_research_dossiers_status
+      ON research_dossiers(status);
+
+    CREATE INDEX IF NOT EXISTS idx_research_dossiers_theme
+      ON research_dossiers(theme);
+
     CREATE TABLE IF NOT EXISTS eval_runs (
       id TEXT PRIMARY KEY,
       generated_at TEXT NOT NULL,

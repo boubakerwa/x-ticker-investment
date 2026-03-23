@@ -988,6 +988,107 @@ function applyMarketAdjustments(asset, scores, marketData) {
   };
 }
 
+function deriveDecisionMath(asset, primaryCluster, finalAction, scores, marketData, vetoReason) {
+  const clusterAgreement = primaryCluster?.agreementScore ?? 0.5;
+  const support = scores.support;
+  const risk = scores.risk;
+  const caution = scores.caution;
+  const sourceCoverage = scores.sourceCoverage;
+  const mappedPostCount = scores.mappedPosts.length;
+  const assetBias =
+    asset.ticker === "BTC"
+      ? -0.04
+      : asset.ticker === "QQQ"
+        ? -0.02
+        : asset.ticker === "SOXX" || asset.ticker === "NVDA"
+          ? 0.01
+          : 0;
+  const returns5d = Number(marketData?.returns5d || 0);
+  const relativeStrength = Number(marketData?.relativeStrength || 0);
+  const volumeRatio = Number(marketData?.volumeRatio || 1);
+  const volatility = Number(marketData?.volatilityScore || 0);
+  const trendLift = clamp(returns5d * 0.7 + relativeStrength * 6 + (volumeRatio - 1) * 0.02, -0.04, 0.05);
+  const downsidePressure = clamp(
+    Math.max(0, -returns5d) * 0.8 + Math.max(0, -relativeStrength) * 5 + Math.max(0, volatility - 0.5) * 0.03,
+    0,
+    0.05
+  );
+  const thesisProbability = round(
+    clamp(
+      0.38 +
+        (clusterAgreement - 0.5) * 0.55 +
+        (support - risk) * 0.22 +
+        sourceCoverage * 0.015 +
+        Math.min(mappedPostCount, 4) * 0.01 +
+        trendLift -
+        caution * 0.17 -
+        (vetoReason ? 0.06 : 0) +
+        assetBias +
+        (finalAction === "BUY" ? 0.04 : finalAction === "SELL" ? 0.01 : -0.05),
+      0.28,
+      0.86
+    )
+  );
+
+  const expectedUpside = round(
+    clamp(
+      finalAction === "SELL"
+        ? 0.02 + risk * 0.05 + caution * 0.03 + downsidePressure + (vetoReason ? 0.008 : 0)
+        : 0.025 + support * 0.06 + clusterAgreement * 0.05 + Math.max(0, trendLift) * 0.4,
+      0.02,
+      0.16
+    )
+  );
+  const expectedDownside = round(
+    clamp(
+      finalAction === "SELL"
+        ? 0.02 + support * 0.04 + caution * 0.03 + Math.max(0, trendLift) * 0.2 + volatility * 0.03
+        : 0.02 + risk * 0.05 + caution * 0.04 + volatility * 0.03 + downsidePressure + (vetoReason ? 0.01 : 0),
+      0.02,
+      0.12
+    )
+  );
+  const rewardRisk = round(clamp(expectedUpside / Math.max(expectedDownside, 0.01), 0.4, 4));
+  const maxLossGuardrail = round(clamp(expectedDownside * 0.7, 0.02, 0.06));
+  const uncertainty = round(
+    clamp(
+      0.16 +
+        caution * 0.24 +
+        Math.max(0, 0.58 - clusterAgreement) * 0.18 +
+        Math.max(0, 3 - sourceCoverage) * 0.03 +
+        Math.max(0, volatility - 0.42) * 0.08 +
+        (vetoReason ? 0.04 : 0),
+      0.1,
+      0.42
+    )
+  );
+  const sizeBand =
+    finalAction === "SELL"
+      ? thesisProbability >= 0.7 && expectedDownside >= expectedUpside
+        ? "exit"
+        : "reduce"
+      : finalAction === "HOLD"
+        ? "watch"
+        : thesisProbability >= 0.76 && rewardRisk >= 2 && maxLossGuardrail <= 0.035
+          ? "small"
+          : thesisProbability >= 0.68 && rewardRisk >= 1.6
+            ? "starter"
+            : "probe";
+
+  return {
+    thesisProbability,
+    uncertainty,
+    expectedUpside,
+    expectedDownside,
+    rewardRisk,
+    sizeBand,
+    maxLossGuardrail,
+    decisionMathSummary: `${Math.round(thesisProbability * 100)}% thesis probability, ${rewardRisk.toFixed(
+      1
+    )}x reward/risk, ${sizeBand} size band, ${Math.round(maxLossGuardrail * 100)}% max-loss guardrail.`
+  };
+}
+
 function buildMarketContext(asset, primaryCluster, scores, marketData) {
   if (!marketData) {
     return {
@@ -1125,6 +1226,14 @@ function buildDecisionBook(clusters, posts, marketSnapshot) {
       policyResult.vetoReason,
       scores
     );
+    const decisionMath = deriveDecisionMath(
+      asset,
+      primaryCluster,
+      finalAction,
+      scores,
+      marketData,
+      policyResult.vetoReason
+    );
     const confidence = round(
       clamp(
         0.5 +
@@ -1153,6 +1262,15 @@ function buildDecisionBook(clusters, posts, marketSnapshot) {
             : "3-7 days",
       timestamp: formatBerlinTimestamp(posts[0]?.createdAt || new Date().toISOString()),
       clusterIds: primaryCluster ? [primaryCluster.id] : [],
+      decisionMath,
+      thesisProbability: decisionMath.thesisProbability,
+      uncertaintyScore: decisionMath.uncertainty,
+      expectedUpside: decisionMath.expectedUpside,
+      expectedDownside: decisionMath.expectedDownside,
+      rewardRisk: decisionMath.rewardRisk,
+      sizeBand: decisionMath.sizeBand,
+      maxLossGuardrail: decisionMath.maxLossGuardrail,
+      decisionMathSummary: decisionMath.decisionMathSummary,
       rationale: decisionCopy.rationale,
       whyNot: decisionCopy.whyNot,
       uncertainty: decisionCopy.uncertainty,

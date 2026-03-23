@@ -42,11 +42,21 @@ import {
   readSourceStore,
   updateSource
 } from "./src/sourceStore.js";
+import {
+  buildResearchDashboardState,
+  createResearchDossier,
+  deleteResearchDossier,
+  getResearchDossier,
+  RESEARCH_DOSSIER_STATUSES,
+  updateResearchDossier
+} from "./src/researchStore.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOST || "127.0.0.1";
 const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 1024 * 1024);
+const REVIEW_READY_RESEARCH_STATUSES = new Set(["validated", "approved"]);
+const ACTIONABLE_RESEARCH_STATUSES = new Set(["approved"]);
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -271,6 +281,209 @@ function buildPlaceholders(decisionHistory, evalRuns) {
   };
 }
 
+function normalizeTicker(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9.-]/g, "");
+}
+
+function normalizeResearchStatus(value) {
+  const normalizedValue = String(value || "discovery")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+
+  if (normalizedValue === "draft" || normalizedValue === "intake") {
+    return "discovery";
+  }
+
+  if (normalizedValue === "in_review" || normalizedValue === "review") {
+    return "candidate";
+  }
+
+  return normalizedValue || "discovery";
+}
+
+function getResearchStatusRank(status) {
+  const rank = {
+    approved: 6,
+    validated: 5,
+    candidate: 4,
+    discovery: 3,
+    dismissed: 2,
+    expired: 1,
+    archived: 0
+  };
+
+  return rank[normalizeResearchStatus(status)] ?? -1;
+}
+
+function buildDecisionMathPayload(decision = {}) {
+  if (decision?.decisionMath) {
+    return decision.decisionMath;
+  }
+
+  const payload = {
+    thesisProbability: decision?.thesisProbability,
+    uncertainty: decision?.uncertaintyScore ?? decision?.uncertaintyValue ?? null,
+    expectedUpside: decision?.expectedUpside,
+    expectedDownside: decision?.expectedDownside,
+    rewardRisk: decision?.rewardRisk,
+    sizeBand: decision?.sizeBand,
+    maxLossGuardrail: decision?.maxLossGuardrail,
+    decisionMathSummary: decision?.decisionMathSummary
+  };
+
+  return Object.values(payload).some((value) => value != null && value !== "") ? payload : null;
+}
+
+function summarizeLinkedResearch(dossier) {
+  if (!dossier) {
+    return null;
+  }
+
+  return {
+    id: dossier.id,
+    title: dossier.title,
+    theme: dossier.theme,
+    thesis: dossier.thesis,
+    summary: dossier.summary,
+    horizon: dossier.horizon,
+    status: normalizeResearchStatus(dossier.status),
+    assets: dossier.assets || [],
+    supportingEvidenceCount: dossier.supportingEvidence?.length || 0,
+    contradictingEvidenceCount: dossier.contradictingEvidence?.length || 0,
+    citationsCount: dossier.citations?.length || 0,
+    sourceQualityScore: dossier.sourceQualityScore,
+    timelinessScore: dossier.timelinessScore,
+    updatedAt: dossier.updatedAt || "",
+    createdAt: dossier.createdAt || "",
+    supportingEvidence: dossier.supportingEvidence || [],
+    contradictingEvidence: dossier.contradictingEvidence || []
+  };
+}
+
+function buildResearchLookup(dossiers = []) {
+  const researchByAsset = new Map();
+
+  for (const dossier of dossiers) {
+    for (const asset of dossier.assets || []) {
+      const ticker = normalizeTicker(asset);
+      const current = researchByAsset.get(ticker);
+
+      if (!current) {
+        researchByAsset.set(ticker, dossier);
+        continue;
+      }
+
+      const rankDifference =
+        getResearchStatusRank(dossier.status) - getResearchStatusRank(current.status);
+
+      if (rankDifference > 0) {
+        researchByAsset.set(ticker, dossier);
+        continue;
+      }
+
+      if (
+        rankDifference === 0 &&
+        String(dossier.updatedAt || "").localeCompare(String(current.updatedAt || "")) > 0
+      ) {
+        researchByAsset.set(ticker, dossier);
+      }
+    }
+  }
+
+  return researchByAsset;
+}
+
+function decorateDecisionWithResearch(decision, linkedResearch) {
+  const researchStatus = normalizeResearchStatus(linkedResearch?.status);
+  const researchEligibleForReview = linkedResearch
+    ? REVIEW_READY_RESEARCH_STATUSES.has(researchStatus)
+    : false;
+  const researchApproved = linkedResearch
+    ? ACTIONABLE_RESEARCH_STATUSES.has(researchStatus)
+    : false;
+  const researchBlockingReason = !linkedResearch
+    ? `Capture a research dossier for ${decision.asset} before it reaches the approval queue.`
+    : researchEligibleForReview
+      ? ""
+      : `${linkedResearch.title || linkedResearch.theme || decision.asset} is still ${researchStatus}; validate the thesis before it enters the queue.`;
+
+  return {
+    ...decision,
+    decisionMath: buildDecisionMathPayload(decision),
+    linkedResearchId: linkedResearch?.id || "",
+    linkedResearch: summarizeLinkedResearch(linkedResearch),
+    researchStatus: linkedResearch ? researchStatus : "discovery",
+    researchEligibleForReview,
+    researchApproved,
+    researchBlockingReason,
+    researchUpdatedAt: linkedResearch?.updatedAt || ""
+  };
+}
+
+function decorateReviewItemWithResearch(item, researchByAsset) {
+  const linkedResearch = researchByAsset.get(normalizeTicker(item.asset)) || null;
+  const researchStatus = normalizeResearchStatus(linkedResearch?.status);
+  const researchEligibleForReview = linkedResearch
+    ? REVIEW_READY_RESEARCH_STATUSES.has(researchStatus)
+    : false;
+  const researchApproved = linkedResearch
+    ? ACTIONABLE_RESEARCH_STATUSES.has(researchStatus)
+    : false;
+
+  return {
+    ...item,
+    linkedResearchId: linkedResearch?.id || "",
+    linkedResearch: summarizeLinkedResearch(linkedResearch),
+    researchStatus: linkedResearch ? researchStatus : "discovery",
+    researchEligibleForReview,
+    researchApproved,
+    researchBlockingReason: !linkedResearch
+      ? `Capture a research dossier for ${item.asset} before it reaches the approval queue.`
+      : researchEligibleForReview
+        ? ""
+        : `${linkedResearch.title || linkedResearch.theme || item.asset} is still ${researchStatus}; validate the thesis before it enters the queue.`
+  };
+}
+
+function buildReviewSummary(items, blockedItems = []) {
+  const proposedCount = items.filter((item) => item.reviewStatus === "proposed").length;
+  const approvedCount = items.filter((item) => item.reviewStatus === "approved").length;
+  const dismissedCount = items.filter((item) => item.reviewStatus === "dismissed").length;
+
+  return {
+    totalCount: items.length,
+    proposedCount,
+    approvedCount,
+    dismissedCount,
+    reviewedCount: approvedCount + dismissedCount,
+    blockedCount: blockedItems.length,
+    nextDecisionId: items.find((item) => item.reviewStatus === "proposed")?.id || ""
+  };
+}
+
+function filterReviewStateByResearch(reviewState, researchByAsset) {
+  const decoratedCurrent = (reviewState.current || []).map((item) =>
+    decorateReviewItemWithResearch(item, researchByAsset)
+  );
+  const eligibleCurrent = decoratedCurrent.filter((item) => item.researchEligibleForReview);
+  const queueBase = decoratedCurrent.some((item) => item.tracked)
+    ? decoratedCurrent.filter((item) => item.tracked)
+    : decoratedCurrent;
+  const visibleQueue = queueBase.filter((item) => item.researchEligibleForReview);
+  const blocked = decoratedCurrent.filter((item) => !item.researchEligibleForReview);
+
+  return {
+    summary: buildReviewSummary(visibleQueue, blocked),
+    queue: visibleQueue,
+    current: eligibleCurrent,
+    blocked
+  };
+}
+
 async function ensureBootstrap() {
   if (!bootstrapPromise) {
     bootstrapPromise = ensureLatestPipelineRun({
@@ -307,17 +520,32 @@ async function getPersistedAppState() {
   const latestEvalRun = getLatestEvalRun();
   const financialProfile = readFinancialProfile();
   const advisorHistory = listAdvisorAnswers(10);
+  const researchState = buildResearchDashboardState();
+  const researchByAsset = buildResearchLookup(researchState.dossiers);
+  const decoratedSnapshot = {
+    ...latestSnapshot,
+    appData: {
+      ...latestSnapshot.appData,
+      decisions: (latestSnapshot.appData?.decisions || []).map((decision) =>
+        decorateDecisionWithResearch(
+          decision,
+          researchByAsset.get(normalizeTicker(decision.asset)) || null
+        )
+      )
+    }
+  };
   const decisionReviewState = buildCurrentDecisionReviewState({
-    snapshot: latestSnapshot,
+    snapshot: decoratedSnapshot,
     financialProfile
   });
+  const gatedReviewState = filterReviewStateByResearch(decisionReviewState, researchByAsset);
   const decoratedDecisionHistory = decorateDecisionHistoryWithReviews(decisionHistory);
   const recentDecisionReviews = listDecisionReviews(16);
 
   return {
-    snapshot: latestSnapshot,
+    snapshot: decoratedSnapshot,
     appData: {
-      ...latestSnapshot.appData,
+      ...decoratedSnapshot.appData,
       runtime: {
         scheduler: getBackgroundPipelineStatus(),
         orchestrator: getOrchestratorStatus()
@@ -331,10 +559,12 @@ async function getPersistedAppState() {
         latestRun: summarizeEvalRun(latestEvalRun),
         history: evalRuns.map((run) => summarizeEvalRun(run))
       },
+      research: researchState,
       reviews: {
-        summary: decisionReviewState.summary,
-        queue: decisionReviewState.queue,
-        current: decisionReviewState.current,
+        summary: gatedReviewState.summary,
+        queue: gatedReviewState.queue,
+        current: gatedReviewState.current,
+        blocked: gatedReviewState.blocked,
         recent: recentDecisionReviews
       },
       advisor: {
@@ -580,6 +810,35 @@ createServer(async (request, response) => {
       }
     }
 
+    if (requestUrl.pathname === "/api/operator/research") {
+      if (request.method === "GET") {
+        const researchState = buildResearchDashboardState();
+        sendJson(response, 200, {
+          ok: true,
+          statuses: RESEARCH_DOSSIER_STATUSES,
+          ...researchState
+        });
+        return;
+      }
+
+      if (request.method === "POST") {
+        const payload = await readJsonBody(request);
+
+        try {
+          const dossier = createResearchDossier(payload);
+          sendJson(response, 201, {
+            ok: true,
+            dossier
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Research dossier create failed.";
+          sendError(response, 400, message);
+        }
+
+        return;
+      }
+    }
+
     if (requestUrl.pathname === "/api/operator/decision-reviews" && request.method === "GET") {
       sendJson(response, 200, {
         ok: true,
@@ -648,6 +907,62 @@ createServer(async (request, response) => {
         answer
       });
       return;
+    }
+
+    if (requestUrl.pathname.startsWith("/api/operator/research/")) {
+      const dossierId = decodeURIComponent(requestUrl.pathname.replace("/api/operator/research/", ""));
+
+      if (!dossierId) {
+        sendError(response, 400, "Research dossier id is required.");
+        return;
+      }
+
+      if (request.method === "GET") {
+        const dossier = getResearchDossier(dossierId);
+
+        if (!dossier) {
+          sendError(response, 404, "Research dossier not found.");
+          return;
+        }
+
+        sendJson(response, 200, {
+          ok: true,
+          dossier
+        });
+        return;
+      }
+
+      if (request.method === "PUT") {
+        const payload = await readJsonBody(request);
+
+        try {
+          const dossier = updateResearchDossier(dossierId, payload);
+          sendJson(response, 200, {
+            ok: true,
+            dossier
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Research dossier update failed.";
+          sendError(response, message === "Research dossier not found." ? 404 : 400, message);
+        }
+
+        return;
+      }
+
+      if (request.method === "DELETE") {
+        try {
+          const dossier = deleteResearchDossier(dossierId);
+          sendJson(response, 200, {
+            ok: true,
+            dossier
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Research dossier delete failed.";
+          sendError(response, message === "Research dossier not found." ? 404 : 400, message);
+        }
+
+        return;
+      }
     }
 
     if (requestUrl.pathname.startsWith("/api/operator/decision-reviews/")) {

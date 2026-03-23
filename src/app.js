@@ -62,6 +62,23 @@ const EMPTY_DATA = {
     latestRun: null,
     history: []
   },
+  research: {
+    summary: {
+      totalCount: 0,
+      dossierCount: 0,
+      candidateCount: 0,
+      approvedCount: 0,
+      dismissedCount: 0,
+      expiredCount: 0,
+      activeThemeCount: 0,
+      averageSourceQualityScore: 0,
+      averageTimelinessScore: 0,
+      nextDossierId: ""
+    },
+    dossiers: [],
+    scorecards: [],
+    inbox: []
+  },
   reviews: {
     summary: {
       totalCount: 0,
@@ -130,6 +147,7 @@ const state = {
   selectedRunId: "",
   selectedEvalId: "",
   editingSourceId: "",
+  editingResearchId: "",
   actionFilter: "ALL",
   isLoading: true,
   isRefreshing: false,
@@ -200,6 +218,7 @@ const getStoreStatus = () => state.storeStatus || EMPTY_STORE_STATUS;
 const getEngine = () => getData().engine || EMPTY_DATA.engine;
 const getHistory = () => getData().history || EMPTY_DATA.history;
 const getEvaluation = () => getData().evaluation || EMPTY_DATA.evaluation;
+const getResearch = () => getData().research || EMPTY_DATA.research;
 const getReviews = () => getData().reviews || EMPTY_DATA.reviews;
 const getAdvisor = () => getData().advisor || EMPTY_DATA.advisor;
 const getRuntime = () => getData().runtime || EMPTY_DATA.runtime;
@@ -219,6 +238,67 @@ const formatEnumLabel = (value) =>
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
 const formatShortId = (value) => String(value || "").slice(0, 18) || "Pending";
+
+function formatRatio(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return "Pending";
+  }
+
+  return `${numericValue.toFixed(1)}x`;
+}
+
+function formatProbability(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return "Pending";
+  }
+
+  if (numericValue > 1 && numericValue <= 100) {
+    return `${Math.round(numericValue)}%`;
+  }
+
+  return `${Math.round(numericValue * 100)}%`;
+}
+
+function formatDecisionMathValue(value, { ratio = false, probability = false } = {}) {
+  if (value == null || value === "") {
+    return "Pending";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => formatDecisionMathValue(item, { ratio, probability })).join(" - ");
+  }
+
+  if (typeof value === "object") {
+    const rangeStart = value.low ?? value.min ?? value.lower ?? value.from;
+    const rangeEnd = value.high ?? value.max ?? value.upper ?? value.to;
+
+    if (rangeStart != null || rangeEnd != null) {
+      const left = rangeStart != null ? formatDecisionMathValue(rangeStart, { ratio, probability }) : "Pending";
+      const right = rangeEnd != null ? formatDecisionMathValue(rangeEnd, { ratio, probability }) : "Pending";
+      return `${left} - ${right}`;
+    }
+
+    return value.label || value.text || value.summary || value.note || JSON.stringify(value);
+  }
+
+  if (ratio) {
+    return formatRatio(value);
+  }
+
+  if (probability) {
+    return formatProbability(value);
+  }
+
+  return formatSignedReturn(value);
+}
 
 function normalizeTicker(value) {
   return String(value || "")
@@ -323,11 +403,532 @@ function getCurrentDecisionReview(ticker) {
   return getCurrentDecisionReviews().find((item) => item.id === decisionId) || null;
 }
 
-function renderDecisionReviewTag(status = "proposed") {
-  return `<span class="tag review-tag review-${escapeHtml(status)}">${formatEnumLabel(status)}</span>`;
+function getDecisionMath(decision = null) {
+  if (decision?.decisionMath) {
+    return decision.decisionMath;
+  }
+
+  if (decision?.math) {
+    return decision.math;
+  }
+
+  const fallbackMath = {
+    thesisProbability: decision?.thesisProbability,
+    uncertainty: decision?.uncertaintyScore ?? decision?.uncertaintyValue,
+    expectedUpside: decision?.expectedUpside,
+    expectedDownside: decision?.expectedDownside,
+    rewardRisk: decision?.rewardRisk,
+    sizeBand: decision?.sizeBand,
+    maxLossGuardrail: decision?.maxLossGuardrail,
+    decisionMathSummary: decision?.decisionMathSummary
+  };
+
+  return Object.values(fallbackMath).some((value) => value != null && value !== "")
+    ? fallbackMath
+    : null;
 }
 
-function renderDecisionReviewActions(reviewId, reviewStatus = "proposed") {
+function getResearchDossiers() {
+  const research = getResearch();
+  return research.dossiers || research.items || research.queue || research.entries || [];
+}
+
+function getResearchSummary() {
+  return getResearch().summary || EMPTY_DATA.research.summary;
+}
+
+function getResearchScorecards() {
+  const research = getResearch();
+  return research.scorecards || research.analytics || research.scorecard || [];
+}
+
+function getResearchLifecycleCounts(dossiers = getResearchDossiers()) {
+  return dossiers.reduce(
+    (accumulator, dossier) => {
+      const status = normalizeResearchStatus(dossier?.status || dossier?.stage);
+      accumulator.totalCount += 1;
+
+      if (accumulator[`${status}Count`] != null) {
+        accumulator[`${status}Count`] += 1;
+      }
+
+      return accumulator;
+    },
+    {
+      totalCount: 0,
+      discoveryCount: 0,
+      candidateCount: 0,
+      validatedCount: 0,
+      approvedCount: 0,
+      dismissedCount: 0,
+      expiredCount: 0
+    }
+  );
+}
+
+function normalizeResearchStatus(status) {
+  const normalized = String(status || "candidate")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+
+  if (normalized === "draft" || normalized === "intake") {
+    return "discovery";
+  }
+
+  if (normalized === "in_review" || normalized === "review") {
+    return "candidate";
+  }
+
+  if (["approved", "dismissed", "expired", "candidate", "discovery", "validated", "archived"].includes(normalized)) {
+    return normalized;
+  }
+
+  return "candidate";
+}
+
+function getResearchStatusRank(status) {
+  const rank = {
+    approved: 6,
+    validated: 5,
+    candidate: 4,
+    discovery: 3,
+    dismissed: 2,
+    expired: 1,
+    archived: 0
+  };
+
+  return rank[normalizeResearchStatus(status)] ?? -1;
+}
+
+function getResearchDossierById(dossierId) {
+  return getResearchDossiers().find((dossier) => dossier.id === dossierId) || null;
+}
+
+function getResearchForAsset(assetTicker, decision = null) {
+  const cleanTicker = normalizeTicker(assetTicker);
+
+  if (decision?.linkedResearch) {
+    return decision.linkedResearch;
+  }
+
+  return getResearchDossiers()
+    .filter((dossier) => getResearchDossierAssets(dossier).includes(cleanTicker))
+    .sort((left, right) => {
+      const rankDifference =
+        getResearchStatusRank(right?.status || right?.stage) -
+        getResearchStatusRank(left?.status || left?.stage);
+
+      if (rankDifference !== 0) {
+        return rankDifference;
+      }
+
+      return String(right?.updatedAt || "").localeCompare(String(left?.updatedAt || ""));
+    })[0] || null;
+}
+
+function isResearchEligibleForReview(research) {
+  const status = normalizeResearchStatus(research?.status || research?.stage);
+  return status === "validated" || status === "approved";
+}
+
+function isResearchApproved(research) {
+  return normalizeResearchStatus(research?.status || research?.stage) === "approved";
+}
+
+function getResearchBlockingReason(decision, research) {
+  if (decision?.researchBlockingReason) {
+    return decision.researchBlockingReason;
+  }
+
+  if (!research) {
+    return `Capture a research dossier for ${decision?.asset || "this asset"} before it reaches the approval queue.`;
+  }
+
+  if (!isResearchEligibleForReview(research)) {
+    return `${getResearchDossierHeadline(research, decision?.asset || "This thesis")} is still ${normalizeResearchStatus(
+      research.status || research.stage
+    )}; validate the thesis before it enters the queue.`;
+  }
+
+  return "";
+}
+
+function getResearchDossierAssets(dossier) {
+  return (dossier?.assets || dossier?.assetTickers || dossier?.symbols || [])
+    .map((asset) => normalizeTicker(asset))
+    .filter(Boolean);
+}
+
+function getResearchEvidenceList(dossier, key) {
+  return Array.isArray(dossier?.[key]) ? dossier[key] : [];
+}
+
+function getResearchDossierHeadline(dossier, fallbackLabel = "Research dossier") {
+  return (
+    dossier?.title ||
+    dossier?.headline ||
+    dossier?.theme ||
+    dossier?.thesis ||
+    dossier?.name ||
+    fallbackLabel
+  );
+}
+
+function formatEvidenceItem(item) {
+  if (item == null) {
+    return "";
+  }
+
+  if (typeof item === "string") {
+    return item;
+  }
+
+  return item.title || item.label || item.summary || item.source || item.name || JSON.stringify(item);
+}
+
+function renderResearchEvidenceList(items, emptyCopy) {
+  const cleanedItems = (items || [])
+    .map(formatEvidenceItem)
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (!cleanedItems.length) {
+    return `<p class="subtle">${emptyCopy}</p>`;
+  }
+
+  return `<ul class="research-evidence-list">${cleanedItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function renderLinkedResearchCard(research, decision = null, { includeActions = true } = {}) {
+  if (!research) {
+    return `
+      <article class="research-linked-card">
+        <span class="eyebrow">Linked research</span>
+        <h4>No dossier linked yet</h4>
+        <p>Capture a research dossier with supporting evidence, contradictory evidence, and citations before this thesis becomes actionable.</p>
+        ${
+          includeActions
+            ? `
+              <div class="office-form-actions">
+                <button class="mini-chip" data-view="research">Open research</button>
+              </div>
+            `
+            : ""
+        }
+      </article>
+    `;
+  }
+
+  const researchStatus = normalizeResearchStatus(research.status || research.stage);
+  const supportingCount =
+    research.supportingEvidenceCount ?? getResearchEvidenceList(research, "supportingEvidence").length;
+  const contradictingCount =
+    research.contradictingEvidenceCount ?? getResearchEvidenceList(research, "contradictingEvidence").length;
+  const citationsCount = research.citationsCount ?? getResearchEvidenceList(research, "citations").length;
+  const blockingReason = getResearchBlockingReason(decision, research);
+
+  return `
+    <article class="research-linked-card">
+      <div class="decision-topline">
+        <strong>${escapeHtml(getResearchDossierHeadline(research))}</strong>
+        ${renderLifecyclePill(researchStatus)}
+      </div>
+      <p>${escapeHtml(research.thesis || research.summary || "The dossier is linked, but the thesis copy is still being filled in.")}</p>
+      <div class="research-linked-grid">
+        <div class="math-metric">
+          <span>Source quality</span>
+          <strong>${formatDecisionMathValue(research.sourceQualityScore, { probability: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Timeliness</span>
+          <strong>${formatDecisionMathValue(research.timelinessScore, { probability: true })}</strong>
+        </div>
+      </div>
+      <div class="research-card-meta">
+        <span class="tag">${research.theme || "General"}</span>
+        <span class="tag">${supportingCount} supportive</span>
+        <span class="tag">${contradictingCount} conflicting</span>
+        <span class="tag">${citationsCount} citations</span>
+        ${research.updatedAt ? `<span class="tag">Updated ${formatGeneratedAt(research.updatedAt)}</span>` : ""}
+      </div>
+      ${
+        blockingReason
+          ? `<p class="subtle">${escapeHtml(blockingReason)}</p>`
+          : `<p class="subtle">Research governance is clear enough for queue review. Approval still depends on operator judgment and sizing guardrails.</p>`
+      }
+      ${
+        includeActions
+          ? `
+            <div class="office-form-actions">
+              <button class="mini-chip" data-view="research">Open research</button>
+              ${
+                research.assets?.[0]
+                  ? `<button class="mini-chip" data-asset="${escapeHtml(String(research.assets[0]))}">Open asset</button>`
+                  : ""
+              }
+            </div>
+          `
+          : ""
+      }
+    </article>
+  `;
+}
+
+function renderLifecyclePill(status) {
+  const normalized = normalizeResearchStatus(status);
+  const labelMap = {
+    discovery: "Discovery",
+    candidate: "Candidate",
+    validated: "Validated",
+    approved: "Approved",
+    dismissed: "Dismissed",
+    expired: "Expired",
+    archived: "Archived"
+  };
+
+  return `<span class="tag lifecycle-tag lifecycle-${escapeHtml(normalized)}">${labelMap[normalized] || formatEnumLabel(normalized)}</span>`;
+}
+
+function renderDecisionMathBlock(decisionMath) {
+  if (!decisionMath) {
+    return `
+      <article class="math-card math-card-empty">
+        <span class="eyebrow">Decision math</span>
+        <h4>Conservative math not yet attached</h4>
+        <p>Once the engine publishes thesis probability, expected upside/downside, and a guardrail, they appear here.</p>
+      </article>
+    `;
+  }
+
+  const probability = decisionMath.thesisProbability ?? decisionMath.probability;
+  const uncertainty = decisionMath.uncertainty ?? decisionMath.confidenceInterval ?? decisionMath.confidenceBand;
+  const expectedUpside = decisionMath.expectedUpside;
+  const expectedDownside = decisionMath.expectedDownside;
+  const rewardRisk = decisionMath.rewardRisk ?? decisionMath.rewardToRisk;
+  const sizeBand = decisionMath.sizeBand ?? decisionMath.positionSizeBand ?? decisionMath.size;
+  const maxLossGuardrail = decisionMath.maxLossGuardrail ?? decisionMath.maxLoss ?? decisionMath.guardrail;
+  const horizon = decisionMath.horizon || decisionMath.holdingPeriod || "";
+
+  return `
+    <article class="math-card">
+      <div class="section-header compact">
+        <div>
+          <span class="eyebrow">Decision math</span>
+          <h4>Conservative sizing and payoff cues</h4>
+        </div>
+      </div>
+      <div class="math-grid">
+        <div class="math-metric">
+          <span>Thesis probability</span>
+          <strong>${formatDecisionMathValue(probability, { probability: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Uncertainty</span>
+          <strong>${formatDecisionMathValue(uncertainty, { probability: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Expected upside</span>
+          <strong>${formatDecisionMathValue(expectedUpside)}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Expected downside</span>
+          <strong>${formatDecisionMathValue(expectedDownside)}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Reward / risk</span>
+          <strong>${formatDecisionMathValue(rewardRisk, { ratio: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Size band</span>
+          <strong>${escapeHtml(String(sizeBand || "Pending"))}</strong>
+        </div>
+      </div>
+      <div class="math-footer">
+        <span class="pill pill-muted">Guardrail ${formatDecisionMathValue(maxLossGuardrail, { probability: true })}</span>
+        ${horizon ? `<span class="pill pill-muted">${escapeHtml(String(horizon))}</span>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function renderDecisionMathSummary(decisionMath) {
+  if (!decisionMath) {
+    return `<p class="subtle">Decision math pending.</p>`;
+  }
+
+  const probability = decisionMath.thesisProbability ?? decisionMath.probability;
+  const rewardRisk = decisionMath.rewardRisk ?? decisionMath.rewardToRisk;
+  const sizeBand = decisionMath.sizeBand ?? decisionMath.positionSizeBand ?? decisionMath.size;
+  const guardrail = decisionMath.maxLossGuardrail ?? decisionMath.maxLoss ?? decisionMath.guardrail;
+
+  return `
+    <div class="decision-math-summary">
+      <span class="tag">P ${formatDecisionMathValue(probability, { probability: true })}</span>
+      <span class="tag">RR ${formatDecisionMathValue(rewardRisk, { ratio: true })}</span>
+      <span class="tag">${escapeHtml(String(sizeBand || "Size pending"))}</span>
+      <span class="tag">Guardrail ${formatDecisionMathValue(guardrail, { probability: true })}</span>
+    </div>
+  `;
+}
+
+function renderResearchDossierCard(dossier) {
+  const status = normalizeResearchStatus(dossier?.status || dossier?.stage);
+  const assets = getResearchDossierAssets(dossier);
+  const evidenceQuality = dossier?.sourceQualityScore ?? dossier?.sourceQuality ?? dossier?.qualityScore;
+  const timeliness = dossier?.timelinessScore ?? dossier?.freshnessScore ?? dossier?.timeliness;
+  const linkedClusters = Array.isArray(dossier?.linkedClusterIds) ? dossier.linkedClusterIds : dossier?.clusterIds || [];
+  const riskFactors = Array.isArray(dossier?.riskFactors) ? dossier.riskFactors : [];
+  const citations = getResearchEvidenceList(dossier, "citations");
+
+  return `
+    <article class="research-card ${status === "approved" ? "is-approved" : status === "dismissed" ? "is-dismissed" : "is-candidate"}">
+      <div class="research-card-head">
+        <div>
+          <div class="decision-topline">
+            <strong>${escapeHtml(getResearchDossierHeadline(dossier))}</strong>
+            ${renderLifecyclePill(status)}
+          </div>
+          <p>${escapeHtml(dossier?.thesis || dossier?.summary || dossier?.description || "No thesis summary provided yet.")}</p>
+        </div>
+        <button class="mini-chip" type="button" data-view="assets">Open assets</button>
+      </div>
+      <div class="research-card-meta">
+        <span class="tag">${escapeHtml(String(dossier?.theme || dossier?.category || "General"))}</span>
+        <span class="tag">${assets.length ? `${assets.length} assets` : "No assets linked"}</span>
+        <span class="tag">${linkedClusters.length ? `${linkedClusters.length} clusters` : "No clusters linked"}</span>
+        ${dossier?.horizon ? `<span class="tag">${escapeHtml(String(dossier.horizon))}</span>` : ""}
+        <span class="tag">${citations.length} citations</span>
+        ${dossier?.createdAt ? `<span class="tag">${formatGeneratedAt(dossier.createdAt)}</span>` : ""}
+        ${dossier?.updatedAt ? `<span class="tag">Updated ${formatGeneratedAt(dossier.updatedAt)}</span>` : ""}
+      </div>
+      <div class="research-score-grid">
+        <div class="math-metric">
+          <span>Source quality</span>
+          <strong>${formatDecisionMathValue(evidenceQuality, { probability: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Timeliness</span>
+          <strong>${formatDecisionMathValue(timeliness, { probability: true })}</strong>
+        </div>
+      </div>
+      <div>
+        <span class="eyebrow">Supporting evidence</span>
+        ${renderResearchEvidenceList(getResearchEvidenceList(dossier, "supportingEvidence"), "No supporting evidence logged yet.")}
+      </div>
+      <div>
+        <span class="eyebrow">Contradicting evidence</span>
+        ${renderResearchEvidenceList(getResearchEvidenceList(dossier, "contradictingEvidence"), "No contradictory evidence logged yet.")}
+      </div>
+      ${
+        riskFactors.length
+          ? `
+            <div class="chip-row">
+              ${riskFactors.slice(0, 4).map((risk) => `<span class="tag tag-muted">${escapeHtml(formatEvidenceItem(risk))}</span>`).join("")}
+            </div>
+          `
+          : ""
+      }
+      <div class="office-form-actions">
+        <button class="mini-chip" type="button" data-edit-research="${escapeHtml(dossier.id)}">Edit</button>
+        ${
+          status !== "validated" && status !== "approved"
+            ? `<button class="mini-chip" type="button" data-research-status="${escapeHtml(dossier.id)}" data-next-status="validated">Validate</button>`
+            : ""
+        }
+        ${
+          status !== "approved"
+            ? `<button class="mini-chip" type="button" data-research-status="${escapeHtml(dossier.id)}" data-next-status="approved">Approve thesis</button>`
+            : ""
+        }
+        ${
+          status !== "dismissed"
+            ? `<button class="mini-chip" type="button" data-research-status="${escapeHtml(dossier.id)}" data-next-status="dismissed">Dismiss</button>`
+            : ""
+        }
+        <button class="mini-chip" type="button" data-delete-research="${escapeHtml(dossier.id)}">Delete</button>
+      </div>
+      ${
+        assets.length
+          ? `<div class="chip-row">${assets.map((asset) => `<button class="mini-chip" data-asset="${asset}">${asset}</button>`).join("")}</div>`
+          : ""
+      }
+    </article>
+  `;
+}
+
+function renderResearchLifecycleBoard(dossiers) {
+  const groups = {
+    discovery: [],
+    candidate: [],
+    validated: [],
+    approved: [],
+    dismissed: [],
+    expired: [],
+    archived: []
+  };
+
+  dossiers.forEach((dossier) => {
+    const status = normalizeResearchStatus(dossier?.status || dossier?.stage);
+    const bucket = groups[status] ? status : "candidate";
+    groups[bucket].push(dossier);
+  });
+
+  const stages = [
+    ["discovery", "Research inbox"],
+    ["candidate", "Candidate thesis"],
+    ["validated", "Validated"],
+    ["approved", "Approved"],
+    ["dismissed", "Dismissed"],
+    ["expired", "Expired"],
+    ["archived", "Archived"]
+  ];
+
+  return `
+    <section class="lifecycle-board">
+      ${stages
+        .map(([status, label]) => {
+          const items = groups[status] || [];
+          return `
+            <article class="lifecycle-column lifecycle-${status}">
+              <div class="lifecycle-column-head">
+                <span>${label}</span>
+                <strong>${items.length}</strong>
+              </div>
+              <div class="lifecycle-column-body">
+                ${
+                  items.length
+                    ? items
+                        .slice(0, 3)
+                        .map(
+                          (dossier) => `
+                            <div class="lifecycle-card">
+                              <div class="decision-topline">
+                                <strong>${escapeHtml(getResearchDossierHeadline(dossier))}</strong>
+                                ${renderLifecyclePill(status)}
+                              </div>
+                              <p>${escapeHtml(dossier?.thesis || dossier?.summary || "No summary provided.")}</p>
+                            </div>
+                          `
+                        )
+                        .join("")
+                    : `<p class="subtle">Nothing here yet.</p>`
+                }
+              </div>
+            </article>
+          `;
+        })
+        .join("")}
+    </section>
+  `;
+}
+
+function renderDecisionReviewTag(status = "proposed") {
+  const label = status === "proposed" ? "Candidate" : formatEnumLabel(status);
+  return `<span class="tag review-tag review-${escapeHtml(status)}">${label}</span>`;
+}
+
+function renderDecisionReviewActions(reviewId, reviewStatus = "proposed", extraActions = "") {
   if (!reviewId) {
     return `<span class="subtle">No live decision to review.</span>`;
   }
@@ -343,8 +944,26 @@ function renderDecisionReviewActions(reviewId, reviewStatus = "proposed") {
           ? `<button class="mini-chip" type="button" data-review-decision="${escapeHtml(reviewId)}" data-review-status="proposed" ${disabledAttribute}>Reset</button>`
           : ""
       }
+      ${extraActions}
     </div>
   `;
+}
+
+function renderDecisionReviewGate(reviewId, reviewStatus, decision = null, research = null) {
+  const researchAction = research
+    ? `<button class="mini-chip" type="button" data-view="research">Open research</button>`
+    : "";
+
+  if (!isResearchEligibleForReview(research)) {
+    return `
+      <div class="office-review-actions">
+        <span class="subtle">${escapeHtml(getResearchBlockingReason(decision, research))}</span>
+        ${researchAction}
+      </div>
+    `;
+  }
+
+  return renderDecisionReviewActions(reviewId, reviewStatus, researchAction);
 }
 
 function escapeHtml(value) {
@@ -362,6 +981,10 @@ function renderJsonBlock(value) {
 
 function getSourceBeingEdited() {
   return getData().sources.find((source) => source.id === state.editingSourceId) || null;
+}
+
+function getResearchBeingEdited() {
+  return getResearchDossierById(state.editingResearchId);
 }
 
 function getLatestAdvisorAnswer() {
@@ -929,6 +1552,10 @@ async function loadData({ refresh = false } = {}) {
       state.editingSourceId = "";
     }
 
+    if (state.editingResearchId && !getResearchBeingEdited()) {
+      state.editingResearchId = "";
+    }
+
     const deferredLoads = [];
 
     if (state.view === "admin" && state.selectedReplayPostId) {
@@ -981,6 +1608,12 @@ async function parseError(response, fallbackMessage) {
 
 function setEditingSource(sourceId = "") {
   state.editingSourceId = sourceId;
+  state.operatorNotice = "";
+  render();
+}
+
+function setEditingResearch(dossierId = "") {
+  state.editingResearchId = dossierId;
   state.operatorNotice = "";
   render();
 }
@@ -1321,6 +1954,89 @@ async function deleteOperatorSource(sourceId) {
   }, "Source deleted.");
 }
 
+async function submitResearchForm(form) {
+  const formData = new FormData(form);
+  const editingResearch = getResearchBeingEdited();
+  const payload = {
+    title: String(formData.get("title") || "").trim(),
+    theme: String(formData.get("theme") || "").trim(),
+    assets: String(formData.get("assets") || "").trim(),
+    horizon: String(formData.get("horizon") || "").trim(),
+    thesis: String(formData.get("thesis") || "").trim(),
+    supportingEvidence: String(formData.get("supportingEvidence") || "").trim(),
+    contradictingEvidence: String(formData.get("contradictingEvidence") || "").trim(),
+    citations: String(formData.get("citations") || "").trim(),
+    edgeHypothesis: String(formData.get("edgeHypothesis") || "").trim(),
+    riskFactors: String(formData.get("riskFactors") || "").trim(),
+    sourceQualityScore: String(formData.get("sourceQualityScore") || "").trim(),
+    timelinessScore: String(formData.get("timelinessScore") || "").trim(),
+    status: String(formData.get("status") || "").trim() || "discovery"
+  };
+
+  await runMutation(async () => {
+    const response = await fetch(
+      editingResearch
+        ? `/api/operator/research/${encodeURIComponent(editingResearch.id)}`
+        : "/api/operator/research",
+      {
+        method: editingResearch ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        await parseError(
+          response,
+          editingResearch ? "Failed to update the research dossier." : "Failed to create the research dossier."
+        )
+      );
+    }
+
+    const result = await response.json();
+    state.editingResearchId = result.dossier?.id || "";
+  }, editingResearch ? "Research dossier updated." : "Research dossier captured.");
+}
+
+async function updateResearchStatus(dossierId, status) {
+  const actionLabel = status === "approved" ? "approved" : status === "validated" ? "validated" : status === "dismissed" ? "dismissed" : "updated";
+
+  await runMutation(async () => {
+    const response = await fetch(`/api/operator/research/${encodeURIComponent(dossierId)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        status
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to update the research dossier status."));
+    }
+  }, `Research dossier ${actionLabel}.`);
+}
+
+async function deleteOperatorResearch(dossierId) {
+  await runMutation(async () => {
+    const response = await fetch(`/api/operator/research/${encodeURIComponent(dossierId)}`, {
+      method: "DELETE"
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to delete the research dossier."));
+    }
+
+    if (state.editingResearchId === dossierId) {
+      state.editingResearchId = "";
+    }
+  }, "Research dossier deleted.");
+}
+
 async function updateDecisionReview(decisionId, status) {
   const actionLabel =
     status === "approved" ? "approved" : status === "dismissed" ? "dismissed" : "reset to proposed";
@@ -1566,6 +2282,31 @@ function attachListeners() {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       submitSourceForm(form);
+    });
+  });
+
+  document.querySelectorAll("[data-edit-research]").forEach((button) => {
+    button.addEventListener("click", () => setEditingResearch(button.dataset.editResearch));
+  });
+
+  document.querySelectorAll("[data-cancel-research-edit]").forEach((button) => {
+    button.addEventListener("click", () => setEditingResearch(""));
+  });
+
+  document.querySelectorAll("[data-delete-research]").forEach((button) => {
+    button.addEventListener("click", () => deleteOperatorResearch(button.dataset.deleteResearch));
+  });
+
+  document.querySelectorAll("[data-research-status]").forEach((button) => {
+    button.addEventListener("click", () =>
+      updateResearchStatus(button.dataset.researchStatus, button.dataset.nextStatus)
+    );
+  });
+
+  document.querySelectorAll("[data-research-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitResearchForm(form);
     });
   });
 
@@ -1817,10 +2558,13 @@ function renderNav() {
   const metadata = getData().metadata || EMPTY_DATA.metadata;
   const feedMode = getFeedMode();
   const setupState = buildSingleUserSetupState(profile);
+  const researchSummary = getResearchSummary();
+  const researchDossiers = getResearchDossiers();
   const trackedAssets = buildTrackedPortfolioAnalytics(profile).trackedAssets.length;
   const primaryItems = [
     ["dashboard", "Overview", trackedAssets || "0"],
     ["setup", "Portfolio", `${profile.holdings.length} holdings`],
+    ["research", "Research", `${researchSummary.dossierCount || researchDossiers.length} dossiers`],
     ["signals", "Signals", `${getRecentAnalysedPosts().length} posts`],
     ["advisor", "Advisor", getAdvisor().history.length || "0"],
     [isAdvancedView() ? state.view : "admin", "Operations", getHistory().runs.length || "0"]
@@ -2460,6 +3204,7 @@ function renderDecisionCards() {
                       <span>${decision.horizon}</span>
                       <span>${formatPercent(decision.confidence)}</span>
                     </div>
+                    ${renderDecisionMathSummary(getDecisionMath(decision))}
                     <p>${decision.rationale[0]}</p>
                     <details>
                       <summary>Full reasoning trace</summary>
@@ -2704,6 +3449,15 @@ function renderDashboard() {
   }));
   const focusItems = (priorityAssets.length ? priorityAssets : globalFocusItems).slice(0, 4);
   const reviewSummary = getReviewSummary();
+  const researchSummary = getResearchSummary();
+  const researchDossiers = getResearchDossiers();
+  const researchCandidateCount =
+    researchSummary.candidateCount || researchDossiers.filter((dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate").length;
+  const researchApprovedCount =
+    researchSummary.approvedCount || researchDossiers.filter((dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "approved").length;
+  const featuredResearch = researchDossiers.find(
+    (dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate"
+  ) || researchDossiers[0] || null;
   const reviewQueue = getDecisionReviewQueue().slice(0, 4);
   const nextReviewItem = reviewQueue.find((item) => item.reviewStatus === "proposed") || null;
   const fallbackRows = focusItems.length
@@ -2711,6 +3465,7 @@ function renderDashboard() {
         .map((item) => {
           const decision = item.decision;
           const decisionReview = getCurrentDecisionReview(item.ticker);
+          const linkedResearch = getResearchForAsset(item.ticker, decision);
           const description =
             decision?.rationale?.[0] ||
             item.asset?.thesis ||
@@ -2722,9 +3477,9 @@ function renderDashboard() {
               <td>${decision?.action || "WATCH"}</td>
               <td>${decision ? formatPercent(decision.confidence || 0) : "Pending"}</td>
               <td>${item.relatedPosts.length}</td>
-              <td>${description}</td>
-              <td>${decisionReview ? renderDecisionReviewTag(decisionReview.reviewStatus) : `<span class="subtle">No review needed</span>`}</td>
-              <td>${decisionReview ? renderDecisionReviewActions(decisionReview.id, decisionReview.reviewStatus) : `<span class="subtle">Nothing queued.</span>`}</td>
+              <td>${description}${decision ? renderDecisionMathSummary(getDecisionMath(decision)) : ""}</td>
+              <td>${decisionReview && isResearchEligibleForReview(linkedResearch) ? renderDecisionReviewTag(decisionReview.reviewStatus) : `<span class="subtle">${isResearchEligibleForReview(linkedResearch) ? "No review needed" : "Research first"}</span>`}</td>
+              <td>${decisionReview ? renderDecisionReviewGate(decisionReview.id, decisionReview.reviewStatus, decision, linkedResearch) : `<span class="subtle">Nothing queued.</span>`}</td>
             </tr>
           `;
         })
@@ -2743,7 +3498,7 @@ function renderDashboard() {
               <td>${item.action}</td>
               <td>${formatPercent(item.confidence || 0)}</td>
               <td>${item.relatedPostCount}</td>
-              <td>${item.summary || "No rationale captured."}</td>
+              <td>${item.summary || "No rationale captured."}${renderDecisionMathSummary(getDecisionMath(item))}</td>
               <td>
                 ${renderDecisionReviewTag(item.reviewStatus)}
                 ${
@@ -2752,7 +3507,7 @@ function renderDashboard() {
                     : `<div class="office-review-meta">Pending operator decision</div>`
                 }
               </td>
-              <td>${renderDecisionReviewActions(item.id, item.reviewStatus)}</td>
+              <td>${renderDecisionReviewGate(item.id, item.reviewStatus, item, item.linkedResearch)}</td>
             </tr>
           `
         )
@@ -2781,13 +3536,17 @@ function renderDashboard() {
   const nextAction =
     !setupState.hasDecisionFrame || !setupState.hasPortfolioContext
       ? "Complete the Portfolio tab so the brief can focus on your real positions."
-      : reviewSummary.proposedCount
-        ? `Approve or dismiss ${nextReviewItem?.asset || "the top queued decision"} first.`
-      : !setupState.hasRealSignalInput
-        ? "Use the Signals tab to import a few real posts before trusting the queue."
-        : urgentAssets.length
-          ? `Review ${urgentAssets[0]?.ticker || "the first urgent asset"} first.`
-          : "The setup is usable. Check the queue and ask targeted questions in Advisor.";
+      : !researchSummary.dossierCount && !researchDossiers.length && getData().decisions.length
+        ? "Capture a research dossier before treating any fresh decision as actionable."
+      : researchSummary.dossierCount || researchDossiers.length
+        ? `Review ${escapeHtml(getResearchDossierHeadline(featuredResearch, "the lead research dossier"))} before approving the queue.`
+        : reviewSummary.proposedCount
+          ? `Approve or dismiss ${nextReviewItem?.asset || "the top queued decision"} first.`
+          : !setupState.hasRealSignalInput
+            ? "Use the Signals tab to import a few real posts before trusting the queue."
+            : urgentAssets.length
+              ? `Review ${urgentAssets[0]?.ticker || "the first urgent asset"} first.`
+              : "The setup is usable. Check the queue and ask targeted questions in Advisor.";
 
   return `
     <main class="office-content">
@@ -2825,6 +3584,50 @@ function renderDashboard() {
         <div class="office-next-step">
           <span>Next action</span>
           <strong>${nextAction}</strong>
+        </div>
+        <div class="office-research-callout">
+          <div>
+            <span class="eyebrow">Research before approval</span>
+            <h3>${featuredResearch ? escapeHtml(getResearchDossierHeadline(featuredResearch)) : "No research dossiers yet"}</h3>
+            <p>${featuredResearch ? escapeHtml(featuredResearch.thesis || featuredResearch.summary || "Inspect the thesis packet before the candidate gets promoted.") : "When the app-data payload exposes a research block, the lead dossier will appear here."}</p>
+          </div>
+          <div class="office-research-callout-meta">
+            ${featuredResearch ? renderLifecyclePill(featuredResearch.status || featuredResearch.stage) : `<span class="pill pill-muted">Discovery</span>`}
+            <span class="pill pill-muted">${researchSummary.dossierCount || researchDossiers.length} dossiers</span>
+            <span class="pill pill-muted">${researchApprovedCount} approved</span>
+          </div>
+          <button class="mini-chip" data-view="research">Open research</button>
+        </div>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Research intake</span>
+            <h3>Evidence chain before the queue</h3>
+          </div>
+          <button class="mini-chip" data-view="research">Open research view</button>
+        </div>
+        <div class="research-dashboard-grid">
+          <article class="research-dashboard-card">
+            <span>Candidate packets</span>
+            <strong>${researchCandidateCount}</strong>
+            <p>Theses waiting for a human decision or deeper validation.</p>
+          </article>
+          <article class="research-dashboard-card">
+            <span>Approved packets</span>
+            <strong>${researchApprovedCount}</strong>
+            <p>Evidence already cleared to shape recommendations downstream.</p>
+          </article>
+          <article class="research-dashboard-card">
+            <span>Quality / timeliness</span>
+            <strong>${formatDecisionMathValue(researchSummary.averageSourceQualityScore, { probability: true })}</strong>
+            <p>${researchSummary.averageTimelinessScore != null ? `Timeliness ${formatDecisionMathValue(researchSummary.averageTimelinessScore, { probability: true })}` : "Timeliness pending from the research block."}</p>
+          </article>
+          <article class="research-dashboard-card">
+            <span>Lifecycle focus</span>
+            <strong>${featuredResearch ? renderLifecyclePill(featuredResearch.status || featuredResearch.stage) : "Discovery"}</strong>
+            <p>${featuredResearch ? escapeHtml(featuredResearch.summary || featuredResearch.thesis || "Start with the lead thesis packet.") : "Research, then candidate review, then approval."}</p>
+          </article>
         </div>
       </section>
       <section class="office-grid office-grid-two">
@@ -2933,23 +3736,53 @@ function renderAssetDecision(asset, decision) {
   }
 
   const decisionReview = getCurrentDecisionReview(asset.ticker);
+  const decisionMath = getDecisionMath(decision);
+  const linkedResearch = getResearchForAsset(asset.ticker, decision);
+  const researchStatus = normalizeResearchStatus(linkedResearch?.status || linkedResearch?.stage);
+  const researchEligibleForReview =
+    decision?.researchEligibleForReview != null
+      ? Boolean(decision.researchEligibleForReview)
+      : isResearchEligibleForReview(linkedResearch);
+  const lifecycleLabel = decisionReview
+    ? decisionReview.reviewStatus === "approved"
+      ? "Approved"
+      : decisionReview.reviewStatus === "dismissed"
+        ? "Dismissed"
+        : "Candidate"
+    : "Informational";
 
   return `
     <article class="section-card nested-card">
       <span class="eyebrow">Decision summary</span>
       <h3>${decision.rationale[0]}</h3>
       <p>${decision.whyNot[0]}</p>
+      <div class="research-lifecycle-strip">
+        <div class="research-lifecycle-step is-active">
+          <span>Research</span>
+          <strong>${linkedResearch ? formatEnumLabel(researchStatus) : "Missing"}</strong>
+        </div>
+        <div class="research-lifecycle-step ${researchEligibleForReview && (decisionReview?.reviewStatus === "proposed" || !decisionReview) ? "is-active" : ""}">
+          <span>Candidate</span>
+          <strong>${researchEligibleForReview ? lifecycleLabel : "Blocked"}</strong>
+        </div>
+        <div class="research-lifecycle-step ${(decisionReview?.reviewStatus === "approved" || isResearchApproved(linkedResearch)) ? "is-active" : ""}">
+          <span>Approved</span>
+          <strong>${decisionReview?.reviewStatus === "approved" && isResearchApproved(linkedResearch) ? "Eligible" : "Locked"}</strong>
+        </div>
+      </div>
       <div class="office-review-strip">
         <div>
           <span class="eyebrow">Operator review</span>
           <div class="office-review-status">
             ${
-              decisionReview
+              decisionReview && researchEligibleForReview
                 ? renderDecisionReviewTag(decisionReview.reviewStatus)
-                : `<span class="subtle">No explicit review required</span>`
+                : `<span class="subtle">${researchEligibleForReview ? "No explicit review required" : "Research gating active"}</span>`
             }
             <strong>${
-              decisionReview?.reviewedAt
+              !researchEligibleForReview
+                ? getResearchBlockingReason(decision, linkedResearch)
+                : decisionReview?.reviewedAt
                 ? `Updated ${formatGeneratedAt(decisionReview.reviewedAt)}`
                 : decisionReview
                   ? "Still awaiting review"
@@ -2957,8 +3790,12 @@ function renderAssetDecision(asset, decision) {
             }</strong>
           </div>
         </div>
-        ${renderDecisionReviewActions(decisionReview?.id || "", decisionReview?.reviewStatus || "proposed")}
+        ${renderDecisionReviewGate(decisionReview?.id || "", decisionReview?.reviewStatus || "proposed", decision, linkedResearch)}
       </div>
+      <div class="research-linked-grid">
+        ${renderLinkedResearchCard(linkedResearch, decision)}
+      </div>
+      ${renderDecisionMathBlock(decisionMath)}
       <details open>
         <summary>Full reasoning trace</summary>
         <div class="details-stack">
@@ -2980,6 +3817,256 @@ function renderAssetDecision(asset, decision) {
   `;
 }
 
+function renderResearchView() {
+  const dossiers = getResearchDossiers();
+  const summary = getResearchSummary();
+  const scorecards = getResearchScorecards();
+  const lifecycleCounts = getResearchLifecycleCounts(dossiers);
+  const featuredDossier = dossiers.find((dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate") || dossiers[0] || null;
+  const editingResearch = getResearchBeingEdited();
+  const researchIntro =
+    featuredDossier?.thesis ||
+    featuredDossier?.summary ||
+    "Collect thesis evidence here before it becomes a candidate recommendation.";
+
+  return `
+    <main class="office-content research-content">
+      ${renderStatusBanner()}
+      ${renderOperatorNotice()}
+      <section class="office-panel office-summary-panel research-hero">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Research first</span>
+            <h2>Dossiers before candidate approval</h2>
+            <p class="section-copy">This view makes the upstream work explicit: thesis evidence, source quality, and conservative math before a decision gets promoted.</p>
+          </div>
+          <button class="mini-chip" data-view="dashboard">Back to overview</button>
+        </div>
+        <div class="office-summary-grid research-summary-grid">
+          <article class="office-metric">
+            <span>Dossiers</span>
+            <strong>${summary.dossierCount || lifecycleCounts.totalCount}</strong>
+            <small>${summary.totalCount || lifecycleCounts.totalCount} total research packets</small>
+          </article>
+          <article class="office-metric">
+            <span>Candidate theses</span>
+            <strong>${summary.candidateCount ?? lifecycleCounts.candidateCount}</strong>
+            <small>Waiting for approval or dismissal</small>
+          </article>
+          <article class="office-metric">
+            <span>Approved theses</span>
+            <strong>${summary.approvedCount ?? lifecycleCounts.approvedCount}</strong>
+            <small>Allowed to inform the downstream book</small>
+          </article>
+          <article class="office-metric">
+            <span>Research quality</span>
+            <strong>${formatDecisionMathValue(summary.averageSourceQualityScore, { probability: true })}</strong>
+            <small>Avg source quality across the dossier set</small>
+          </article>
+        </div>
+        <div class="research-intro-panel">
+          <div>
+            <span class="eyebrow">Featured thesis</span>
+            <h3>${escapeHtml(getResearchDossierHeadline(featuredDossier, "No dossier yet"))}</h3>
+            <p>${escapeHtml(researchIntro)}</p>
+          </div>
+          <div class="research-intro-pills">
+            ${featuredDossier ? renderLifecyclePill(featuredDossier.status || featuredDossier.stage) : `<span class="pill pill-muted">Discovery</span>`}
+            <span class="pill pill-muted">${summary.activeThemeCount || scorecards.length || 0} themes</span>
+            <span class="pill pill-muted">${summary.averageTimelinessScore != null ? `Timeliness ${formatDecisionMathValue(summary.averageTimelinessScore, { probability: true })}` : "Timeliness pending"}</span>
+          </div>
+        </div>
+      </section>
+      <section class="office-grid office-grid-two research-grid">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Manual intake</span>
+              <h3>${editingResearch ? "Edit dossier" : "Capture a research dossier"}</h3>
+            </div>
+            ${
+              editingResearch
+                ? `<button class="mini-chip" type="button" data-cancel-research-edit>New dossier</button>`
+                : `<button class="mini-chip" data-view="signals">Open signals</button>`
+            }
+          </div>
+          <form class="operator-form office-form" data-research-form>
+            <div class="field-grid">
+              <label class="form-field">
+                <span>Title</span>
+                <input name="title" value="${escapeHtml(editingResearch?.title || "")}" placeholder="AI capex broadening" />
+              </label>
+              <label class="form-field">
+                <span>Theme</span>
+                <input name="theme" value="${escapeHtml(editingResearch?.theme || "")}" placeholder="AI, semis, macro, crypto" />
+              </label>
+              <label class="form-field">
+                <span>Assets</span>
+                <input name="assets" value="${escapeHtml(getResearchDossierAssets(editingResearch).join(", "))}" placeholder="NVDA, SOXX, BTC" />
+              </label>
+              <label class="form-field">
+                <span>Horizon</span>
+                <input name="horizon" value="${escapeHtml(editingResearch?.horizon || "")}" placeholder="3-8 weeks" />
+              </label>
+            </div>
+            <label class="form-field">
+              <span>Thesis</span>
+              <textarea name="thesis" rows="4" placeholder="State the thesis in one clear paragraph.">${escapeHtml(editingResearch?.thesis || "")}</textarea>
+            </label>
+            <label class="form-field">
+              <span>Supporting evidence</span>
+              <textarea name="supportingEvidence" rows="4" placeholder="One item per line">${escapeHtml(getResearchEvidenceList(editingResearch, "supportingEvidence").map(formatEvidenceItem).join("\n"))}</textarea>
+            </label>
+            <label class="form-field">
+              <span>Contradicting evidence</span>
+              <textarea name="contradictingEvidence" rows="4" placeholder="One item per line">${escapeHtml(getResearchEvidenceList(editingResearch, "contradictingEvidence").map(formatEvidenceItem).join("\n"))}</textarea>
+            </label>
+            <label class="form-field">
+              <span>Citations</span>
+              <textarea name="citations" rows="3" placeholder="One source per line">${escapeHtml(getResearchEvidenceList(editingResearch, "citations").map(formatEvidenceItem).join("\n"))}</textarea>
+            </label>
+            <div class="field-grid">
+              <label class="form-field">
+                <span>Source quality</span>
+                <input name="sourceQualityScore" type="number" min="0" max="1" step="0.01" value="${escapeHtml(String(editingResearch?.sourceQualityScore ?? ""))}" placeholder="0.65" />
+              </label>
+              <label class="form-field">
+                <span>Timeliness</span>
+                <input name="timelinessScore" type="number" min="0" max="1" step="0.01" value="${escapeHtml(String(editingResearch?.timelinessScore ?? ""))}" placeholder="0.72" />
+              </label>
+              <label class="form-field">
+                <span>Status</span>
+                <select name="status">
+                  ${["discovery", "candidate", "validated", "approved", "dismissed", "expired", "archived"]
+                    .map((status) => `<option value="${status}" ${normalizeResearchStatus(editingResearch?.status || editingResearch?.stage || "discovery") === status ? "selected" : ""}>${formatEnumLabel(status)}</option>`)
+                    .join("")}
+                </select>
+              </label>
+            </div>
+            <label class="form-field">
+              <span>Edge hypothesis</span>
+              <textarea name="edgeHypothesis" rows="3" placeholder="Why might the market be underpricing or overpricing this thesis?">${escapeHtml(editingResearch?.edgeHypothesis || "")}</textarea>
+            </label>
+            <label class="form-field">
+              <span>Risk factors</span>
+              <input name="riskFactors" value="${escapeHtml((editingResearch?.riskFactors || []).map(formatEvidenceItem).join(", "))}" placeholder="Demand fade, policy risk, valuation stretch" />
+            </label>
+            <div class="office-form-actions">
+              <button class="refresh-button" type="submit" ${state.isMutating ? "disabled" : ""}>
+                ${state.isMutating ? "Saving..." : editingResearch ? "Save dossier" : "Create dossier"}
+              </button>
+              <button class="mini-chip" type="button" data-view="dashboard">Back to overview</button>
+            </div>
+          </form>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Promotion rules</span>
+              <h3>What must be true before approval</h3>
+            </div>
+          </div>
+          <div class="office-checklist">
+            <div class="office-checklist-row is-complete">
+              <strong>Discovery can be quick</strong>
+              <span>Capture</span>
+              <p>Drafts can be rough notes, pasted research, or early theses.</p>
+            </div>
+            <div class="office-checklist-row">
+              <strong>Validation needs evidence</strong>
+              <span>Gate</span>
+              <p>To validate, the dossier must have assets, horizon, supporting evidence, contradicting evidence, and citations.</p>
+            </div>
+            <div class="office-checklist-row">
+              <strong>Approval unlocks actioning</strong>
+              <span>Guardrail</span>
+              <p>Advisor and queue flows stay conservative until the thesis is explicitly approved.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+      <section class="office-grid office-grid-two research-grid">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Lifecycle</span>
+              <h3>Research to candidate flow</h3>
+            </div>
+          </div>
+          ${renderResearchLifecycleBoard(dossiers)}
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Scorecards</span>
+              <h3>Source and theme signal quality</h3>
+            </div>
+          </div>
+          <div class="research-scorecard-grid">
+            ${
+              scorecards.length
+                ? scorecards
+                    .map((scorecard) => {
+                      const score = scorecard?.score ?? scorecard?.value ?? scorecard?.sourceQualityScore ?? scorecard?.timelinessScore;
+                      const label = scorecard?.title || scorecard?.theme || scorecard?.source || scorecard?.name || "Scorecard";
+                      const supporting = scorecard?.supportingEvidenceCount ?? scorecard?.supportingCount ?? scorecard?.sampleCount;
+                      const contrarian = scorecard?.contradictingEvidenceCount ?? scorecard?.contradictingCount ?? scorecard?.negativeCount;
+
+                      return `
+                        <article class="research-scorecard">
+                          <div class="decision-topline">
+                            <strong>${escapeHtml(String(label))}</strong>
+                            <span class="tag">${formatDecisionMathValue(score, { probability: true })}</span>
+                          </div>
+                          <p>${escapeHtml(scorecard?.summary || scorecard?.body || scorecard?.notes || "No scorecard summary provided.")}</p>
+                          <div class="research-scorecard-meta">
+                            <span class="tag">${supporting != null ? `${supporting} supportive` : "Supportive count pending"}</span>
+                            <span class="tag">${contrarian != null ? `${contrarian} conflicting` : "Conflicting count pending"}</span>
+                          </div>
+                        </article>
+                      `;
+                    })
+                    .join("")
+                : `
+                  <article class="status-inline">
+                    <strong>No scorecards yet</strong>
+                    <p>The research block can publish source and theme scorecards here once they are available.</p>
+                  </article>
+                `
+            }
+          </div>
+        </section>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Dossiers</span>
+            <h3>Evidence before decisioning</h3>
+          </div>
+          <div class="office-form-actions">
+            <button class="mini-chip" data-view="signals">Open signals</button>
+            <button class="mini-chip" data-view="assets">Open assets</button>
+          </div>
+        </div>
+        ${
+          dossiers.length
+            ? `
+              <div class="research-dossier-grid">
+                ${dossiers.map((dossier) => renderResearchDossierCard(dossier)).join("")}
+              </div>
+            `
+            : `
+              <article class="status-inline">
+                <strong>No dossiers yet</strong>
+                <p>When the app-data payload exposes a research dossier list, the evidence trail will appear here.</p>
+              </article>
+            `
+        }
+      </section>
+    </main>
+  `;
+}
+
 function renderAssetsView() {
   const { monitoredUniverse } = getData();
   const asset = monitoredUniverse.find((item) => item.ticker === state.selectedAsset);
@@ -2992,6 +4079,9 @@ function renderAssetsView() {
   }
 
   const decision = getDecisionByAsset(asset.ticker);
+  const relatedResearch = getResearchDossiers().filter((dossier) =>
+    getResearchDossierAssets(dossier).includes(asset.ticker)
+  );
   const relatedClusters = decision?.clusterIds?.length
     ? decision.clusterIds.map((clusterId) => getCluster(clusterId)).filter(Boolean)
     : getData().clusters.filter((cluster) => cluster.mappedAssets.includes(asset.ticker));
@@ -3065,6 +4155,35 @@ function renderAssetsView() {
                 }
               </div>
               <p class="subtle">Risk flag: ${asset.riskFlag}</p>
+            </article>
+            <article class="section-card nested-card full-span">
+              <span class="eyebrow">Research context</span>
+              <h3>Evidence packets tied to ${asset.ticker}</h3>
+              ${
+                relatedResearch.length
+                  ? `
+                    <div class="research-linked-grid">
+                      ${relatedResearch
+                        .slice(0, 3)
+                        .map(
+                          (dossier) => `
+                            <article class="research-linked-card">
+                              <div class="decision-topline">
+                                <strong>${escapeHtml(getResearchDossierHeadline(dossier))}</strong>
+                                ${renderLifecyclePill(dossier.status || dossier.stage)}
+                              </div>
+                              <p>${escapeHtml(dossier.thesis || dossier.summary || "No thesis summary provided.")}</p>
+                              <div class="chip-row">
+                                <button class="mini-chip" data-view="research">Open research</button>
+                              </div>
+                            </article>
+                          `
+                        )
+                        .join("")}
+                    </div>
+                  `
+                  : `<p class="subtle">No linked research dossier is present in the current payload.</p>`
+              }
             </article>
             <article class="section-card nested-card full-span">
               <span class="eyebrow">Linked event clusters</span>
@@ -3671,6 +4790,11 @@ function renderAdvisorView() {
   ).slice(0, 4);
   const canAsk = Boolean(suggestedTickers.length && setupState.hasDecisionFrame);
   const cashSummary = buildProfileCashSummary(profile);
+  const advisorFocusTicker = latestAnswer?.assetTicker || suggestedTickers[0] || "";
+  const advisorFocusDecision = advisorFocusTicker ? getDecisionByAsset(advisorFocusTicker) : null;
+  const advisorFocusResearch = advisorFocusTicker
+    ? getResearchForAsset(advisorFocusTicker, advisorFocusDecision)
+    : null;
 
   return `
     <main class="office-content">
@@ -3774,6 +4898,17 @@ function renderAdvisorView() {
               <button class="mini-chip" type="button" data-view="setup">Open portfolio</button>
             </div>
           </form>
+          ${
+            advisorFocusTicker
+              ? `
+                <div class="research-linked-grid">
+                  ${renderLinkedResearchCard(advisorFocusResearch, advisorFocusDecision, {
+                    includeActions: true
+                  })}
+                </div>
+              `
+              : ""
+          }
         </section>
         <section class="office-panel">
           <div class="office-panel-head">
@@ -4449,6 +5584,10 @@ function renderContent() {
 
   if (state.view === "assets") {
     return renderAssetsView();
+  }
+
+  if (state.view === "research") {
+    return renderResearchView();
   }
 
   if (state.view === "setup") {

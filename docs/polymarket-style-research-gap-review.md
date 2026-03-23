@@ -4,6 +4,21 @@
 
 The article argues that the winning edge came from **preparation**, not just code: a dedicated research layer, sharper market selection, stronger data-source validation, tighter math, and adaptive execution. Our current implementation already does several important things better than that framing for a decision-support product: it is bounded, explainable, replayable, auditable, and intentionally conservative.
 
+## Implementation status update
+
+The repo now covers the first major tranche of the gaps described in this review:
+
+- a persisted research dossier store and operator research workflow
+- a canonical thesis lifecycle with validation and approval states
+- research-gated decision review surfaces
+- explicit decision math on candidate calls
+- advisor fallback behavior that respects research and approval governance
+
+That means this document should now be read as:
+
+- a record of what motivated the recent changes, and
+- a guide to the next layers still worth building, especially richer scorecards, deeper evidence adapters, usefulness evals, and regime adaptation.
+
 That said, the repo still has a meaningful gap on the **research layer** side. Today the system is strongest at:
 
 - ingesting a curated X feed,
