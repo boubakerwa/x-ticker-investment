@@ -48,6 +48,7 @@ This branch executes the first part of the roadmap:
 - Telegram notification provider
 - daily digest generation
 - runtime/admin APIs for pause/resume/digest/test notification
+- operator approval queue with proposed/approved/dismissed decision states
 - persisted financial profile capture for holdings, liabilities, and liquidity context
 - portfolio-aware advisor questions grounded in the latest pipeline snapshot
 

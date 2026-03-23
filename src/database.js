@@ -86,6 +86,26 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_decision_history_asset
       ON decision_history(asset);
 
+    CREATE TABLE IF NOT EXISTS decision_reviews (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      asset TEXT NOT NULL,
+      status TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      reviewed_at TEXT,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_decision_reviews_updated_at
+      ON decision_reviews(updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_decision_reviews_status
+      ON decision_reviews(status);
+
+    CREATE INDEX IF NOT EXISTS idx_decision_reviews_asset
+      ON decision_reviews(asset);
+
     CREATE TABLE IF NOT EXISTS eval_runs (
       id TEXT PRIMARY KEY,
       generated_at TEXT NOT NULL,

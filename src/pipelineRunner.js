@@ -8,9 +8,11 @@ import {
   getMarketProviderVersion
 } from "./marketDataProvider.js";
 import { getClaimExtractorConfig } from "./modelClaimExtractor.js";
+import { syncDecisionReviewsForRun } from "./decisionReviewStore.js";
 import {
   getLatestPipelineSnapshot,
   isPipelineSnapshotCurrent,
+  listPipelineRuns,
   persistPipelineRun
 } from "./pipelineStore.js";
 import { readSourceStore } from "./sourceStore.js";
@@ -129,6 +131,7 @@ export async function runPipeline({
   reason = ""
 } = {}) {
   const generatedAt = new Date().toISOString();
+  const previousRun = listPipelineRuns(1)[0] || null;
   const sourceStore = readSourceStore();
   const feedSyncResult = await syncFeedProvider({
     generatedAt,
@@ -199,6 +202,14 @@ export async function runPipeline({
   };
 
   persistPipelineRun(runRecord);
+  const createdReviews = syncDecisionReviewsForRun({
+    run: runRecord,
+    previousRun
+  });
+
+  runRecord.reviewQueue = {
+    createdCount: createdReviews.length
+  };
   return runRecord;
 }
 

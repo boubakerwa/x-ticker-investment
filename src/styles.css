@@ -409,6 +409,21 @@ button {
   color: var(--accent);
 }
 
+.review-proposed {
+  background: rgba(12, 80, 109, 0.12);
+  color: var(--accent);
+}
+
+.review-approved {
+  background: rgba(15, 139, 111, 0.14);
+  color: var(--buy);
+}
+
+.review-dismissed {
+  background: rgba(183, 71, 58, 0.16);
+  color: var(--sell);
+}
+
 .pill-muted {
   background: rgba(29, 36, 51, 0.08);
   color: var(--muted);
@@ -1840,6 +1855,33 @@ body {
   font-size: 0.8rem;
 }
 
+.office-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.office-review-meta {
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.review-tag.review-proposed {
+  background: rgba(212, 140, 20, 0.18);
+  color: var(--hold);
+}
+
+.review-tag.review-approved {
+  background: rgba(15, 139, 111, 0.14);
+  color: var(--buy);
+}
+
+.review-tag.review-dismissed {
+  background: rgba(183, 71, 58, 0.16);
+  color: var(--sell);
+}
+
 .office-table {
   width: 100%;
   border-collapse: collapse;
@@ -1864,6 +1906,31 @@ body {
 
 .office-table tbody tr:first-child td {
   border-top: 1px solid #e4ebf2;
+}
+
+.office-review-actions,
+.office-review-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.office-review-meta {
+  margin-top: 0.45rem;
+  color: #66727d;
+  font-size: 0.78rem;
+}
+
+.office-review-strip {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: 0.95rem 0;
+  border-top: 1px solid #eef2f5;
+  border-bottom: 1px solid #eef2f5;
 }
 
 .office-action-list,
@@ -1949,7 +2016,8 @@ body {
 
 @media (max-width: 760px) {
   .office-titlebar,
-  .office-panel-head {
+  .office-panel-head,
+  .office-review-strip {
     flex-direction: column;
     align-items: start;
   }

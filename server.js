@@ -11,6 +11,13 @@ import {
   startBackgroundPipelineRunner,
   stopBackgroundPipelineRunner
 } from "./src/backgroundPipelineRunner.js";
+import {
+  buildCurrentDecisionReviewState,
+  decorateDecisionHistoryWithReviews,
+  DECISION_REVIEW_STATUSES,
+  listDecisionReviews,
+  updateDecisionReviewStatus
+} from "./src/decisionReviewStore.js";
 import { answerFinancialQuestion } from "./src/financialAdvisor.js";
 import { listAdvisorAnswers } from "./src/advisorStore.js";
 import { runExtractionEval } from "./src/evalHarness.js";
@@ -300,6 +307,12 @@ async function getPersistedAppState() {
   const latestEvalRun = getLatestEvalRun();
   const financialProfile = readFinancialProfile();
   const advisorHistory = listAdvisorAnswers(10);
+  const decisionReviewState = buildCurrentDecisionReviewState({
+    snapshot: latestSnapshot,
+    financialProfile
+  });
+  const decoratedDecisionHistory = decorateDecisionHistoryWithReviews(decisionHistory);
+  const recentDecisionReviews = listDecisionReviews(16);
 
   return {
     snapshot: latestSnapshot,
@@ -312,17 +325,23 @@ async function getPersistedAppState() {
       history: {
         latestRunId: latestSnapshot.runId,
         runs: pipelineRuns.map((run) => summarizeRun(run)),
-        decisionLog: decisionHistory
+        decisionLog: decoratedDecisionHistory
       },
       evaluation: {
         latestRun: summarizeEvalRun(latestEvalRun),
         history: evalRuns.map((run) => summarizeEvalRun(run))
       },
+      reviews: {
+        summary: decisionReviewState.summary,
+        queue: decisionReviewState.queue,
+        current: decisionReviewState.current,
+        recent: recentDecisionReviews
+      },
       advisor: {
         financialProfile,
         history: advisorHistory
       },
-      placeholders: buildPlaceholders(decisionHistory, evalRuns)
+      placeholders: buildPlaceholders(decoratedDecisionHistory, evalRuns)
     },
     storeStatus: {
       ...latestSnapshot.storeStatus,
@@ -561,6 +580,15 @@ createServer(async (request, response) => {
       }
     }
 
+    if (requestUrl.pathname === "/api/operator/decision-reviews" && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        statuses: DECISION_REVIEW_STATUSES,
+        reviews: listDecisionReviews(24)
+      });
+      return;
+    }
+
     if (requestUrl.pathname === "/api/operator/manual-feed/import" && request.method === "POST") {
       const payload = await readJsonBody(request);
       const importedPosts = parseManualImportText(payload.rawText);
@@ -620,6 +648,49 @@ createServer(async (request, response) => {
         answer
       });
       return;
+    }
+
+    if (requestUrl.pathname.startsWith("/api/operator/decision-reviews/")) {
+      const reviewId = decodeURIComponent(
+        requestUrl.pathname.replace("/api/operator/decision-reviews/", "")
+      );
+
+      if (!reviewId) {
+        sendError(response, 400, "Decision review id is required.");
+        return;
+      }
+
+      if (request.method === "PUT") {
+        const payload = await readJsonBody(request);
+        const status = String(payload.status || "proposed").trim().toLowerCase();
+
+        if (!DECISION_REVIEW_STATUSES.includes(status)) {
+          sendError(
+            response,
+            400,
+            `status must be one of: ${DECISION_REVIEW_STATUSES.join(", ")}.`
+          );
+          return;
+        }
+
+        try {
+          const review = updateDecisionReviewStatus({
+            reviewId,
+            status,
+            note: payload.note
+          });
+
+          sendJson(response, 200, {
+            ok: true,
+            review
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Decision review update failed.";
+          sendError(response, message === "Decision review not found." ? 404 : 400, message);
+        }
+
+        return;
+      }
     }
 
     if (requestUrl.pathname.startsWith("/api/operator/sources/")) {

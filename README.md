@@ -30,6 +30,7 @@ Explainable multi-day investment recommendations built from a curated list of X 
 - A quick holdings import path from pasted CSV / TSV / semicolon broker exports
 - A portfolio-aware advisor workflow for asking explicit asset questions against the latest snapshot
 - A portfolio-first Today view driven by your saved holdings and watchlist
+- An operator approval queue that records proposed, approved, and dismissed decision states for current calls
 - A market-data provider adapter that can use Stooq daily data without keys and fall back to mock data automatically
 - Decision outcome tracking that records reference prices and updates later run outcomes over time
 
@@ -146,6 +147,8 @@ Feed provider configuration:
 - `GET /api/runtime/status`
 - `GET /api/operator/profile`
 - `PUT /api/operator/profile`
+- `GET /api/operator/decision-reviews`
+- `PUT /api/operator/decision-reviews/:id`
 - `POST /api/operator/manual-feed/import`
 - `GET /api/advisor/history`
 - `POST /api/advisor/ask`
@@ -189,6 +192,7 @@ Feed provider configuration:
 - `src/pipelineRunner.js` executes and persists the full pipeline
 - `src/backgroundPipelineRunner.js` schedules recurring pipeline refreshes while the server is running
 - `src/orchestrator.js` coordinates runtime jobs, pipeline refreshes, and digest notifications
+- `src/decisionReviewStore.js` persists operator review states for current decision proposals
 - `src/llmClient.js` centralizes Responses API calls so hosted OpenAI and local OpenAI-compatible servers share one path
 - `src/financialProfileStore.js` persists the operator financial profile
 - `src/financialAdvisor.js` answers explicit asset questions using the financial profile plus the latest snapshot

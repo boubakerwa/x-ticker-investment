@@ -62,6 +62,19 @@ const EMPTY_DATA = {
     latestRun: null,
     history: []
   },
+  reviews: {
+    summary: {
+      totalCount: 0,
+      proposedCount: 0,
+      approvedCount: 0,
+      dismissedCount: 0,
+      reviewedCount: 0,
+      nextDecisionId: ""
+    },
+    queue: [],
+    current: [],
+    recent: []
+  },
   advisor: {
     financialProfile: {
       investorName: "",
@@ -187,6 +200,7 @@ const getStoreStatus = () => state.storeStatus || EMPTY_STORE_STATUS;
 const getEngine = () => getData().engine || EMPTY_DATA.engine;
 const getHistory = () => getData().history || EMPTY_DATA.history;
 const getEvaluation = () => getData().evaluation || EMPTY_DATA.evaluation;
+const getReviews = () => getData().reviews || EMPTY_DATA.reviews;
 const getAdvisor = () => getData().advisor || EMPTY_DATA.advisor;
 const getRuntime = () => getData().runtime || EMPTY_DATA.runtime;
 const isAdvancedView = (view = state.view) => ADVANCED_VIEWS.includes(view);
@@ -285,6 +299,52 @@ function buildTrackedPortfolioAnalytics(profile = getAdvisor().financialProfile 
     urgentAssets,
     priorityAssets
   };
+}
+
+function getReviewSummary() {
+  return getReviews().summary || EMPTY_DATA.reviews.summary;
+}
+
+function getDecisionReviewQueue() {
+  return getReviews().queue || [];
+}
+
+function getCurrentDecisionReviews() {
+  return getReviews().current || [];
+}
+
+function getDecisionIdByAsset(ticker) {
+  const latestRunId = getHistory().latestRunId || "";
+  return latestRunId && ticker ? `${latestRunId}:${ticker}` : "";
+}
+
+function getCurrentDecisionReview(ticker) {
+  const decisionId = getDecisionIdByAsset(ticker);
+  return getCurrentDecisionReviews().find((item) => item.id === decisionId) || null;
+}
+
+function renderDecisionReviewTag(status = "proposed") {
+  return `<span class="tag review-tag review-${escapeHtml(status)}">${formatEnumLabel(status)}</span>`;
+}
+
+function renderDecisionReviewActions(reviewId, reviewStatus = "proposed") {
+  if (!reviewId) {
+    return `<span class="subtle">No live decision to review.</span>`;
+  }
+
+  const disabledAttribute = state.isMutating ? "disabled" : "";
+
+  return `
+    <div class="office-review-actions">
+      <button class="mini-chip" type="button" data-review-decision="${escapeHtml(reviewId)}" data-review-status="approved" ${disabledAttribute}>Approve</button>
+      <button class="mini-chip" type="button" data-review-decision="${escapeHtml(reviewId)}" data-review-status="dismissed" ${disabledAttribute}>Dismiss</button>
+      ${
+        reviewStatus !== "proposed"
+          ? `<button class="mini-chip" type="button" data-review-decision="${escapeHtml(reviewId)}" data-review-status="proposed" ${disabledAttribute}>Reset</button>`
+          : ""
+      }
+    </div>
+  `;
 }
 
 function escapeHtml(value) {
@@ -1261,6 +1321,27 @@ async function deleteOperatorSource(sourceId) {
   }, "Source deleted.");
 }
 
+async function updateDecisionReview(decisionId, status) {
+  const actionLabel =
+    status === "approved" ? "approved" : status === "dismissed" ? "dismissed" : "reset to proposed";
+
+  await runMutation(async () => {
+    const response = await fetch(`/api/operator/decision-reviews/${encodeURIComponent(decisionId)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        status
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to update the decision review."));
+    }
+  }, `Decision ${actionLabel}.`);
+}
+
 async function loadReplay({ postId = state.selectedReplayPostId, live = false, silent = false } = {}) {
   if (!postId) {
     return;
@@ -1433,6 +1514,12 @@ function attachListeners() {
 
   document.querySelectorAll("[data-action-filter]").forEach((button) => {
     button.addEventListener("click", () => setActionFilter(button.dataset.actionFilter));
+  });
+
+  document.querySelectorAll("[data-review-decision]").forEach((button) => {
+    button.addEventListener("click", () => {
+      updateDecisionReview(button.dataset.reviewDecision, button.dataset.reviewStatus);
+    });
   });
 
   document.querySelectorAll("[data-refresh]").forEach((button) => {
@@ -2616,10 +2703,14 @@ function renderDashboard() {
     ).slice(0, 2)
   }));
   const focusItems = (priorityAssets.length ? priorityAssets : globalFocusItems).slice(0, 4);
-  const focusRows = focusItems.length
+  const reviewSummary = getReviewSummary();
+  const reviewQueue = getDecisionReviewQueue().slice(0, 4);
+  const nextReviewItem = reviewQueue.find((item) => item.reviewStatus === "proposed") || null;
+  const fallbackRows = focusItems.length
     ? focusItems
         .map((item) => {
           const decision = item.decision;
+          const decisionReview = getCurrentDecisionReview(item.ticker);
           const description =
             decision?.rationale?.[0] ||
             item.asset?.thesis ||
@@ -2632,15 +2723,41 @@ function renderDashboard() {
               <td>${decision ? formatPercent(decision.confidence || 0) : "Pending"}</td>
               <td>${item.relatedPosts.length}</td>
               <td>${description}</td>
+              <td>${decisionReview ? renderDecisionReviewTag(decisionReview.reviewStatus) : `<span class="subtle">No review needed</span>`}</td>
+              <td>${decisionReview ? renderDecisionReviewActions(decisionReview.id, decisionReview.reviewStatus) : `<span class="subtle">Nothing queued.</span>`}</td>
             </tr>
           `;
         })
         .join("")
     : `
       <tr>
-        <td colspan="5">No focus list yet. Save a watchlist or holdings first.</td>
+        <td colspan="7">No focus list yet. Save a watchlist or holdings first.</td>
       </tr>
     `;
+  const focusRows = reviewQueue.length
+    ? reviewQueue
+        .map(
+          (item) => `
+            <tr>
+              <td><button class="inline-link" data-asset="${item.asset}">${item.asset}</button></td>
+              <td>${item.action}</td>
+              <td>${formatPercent(item.confidence || 0)}</td>
+              <td>${item.relatedPostCount}</td>
+              <td>${item.summary || "No rationale captured."}</td>
+              <td>
+                ${renderDecisionReviewTag(item.reviewStatus)}
+                ${
+                  item.reviewedAt
+                    ? `<div class="office-review-meta">${formatGeneratedAt(item.reviewedAt)}</div>`
+                    : `<div class="office-review-meta">Pending operator decision</div>`
+                }
+              </td>
+              <td>${renderDecisionReviewActions(item.id, item.reviewStatus)}</td>
+            </tr>
+          `
+        )
+        .join("")
+    : fallbackRows;
   const signalRows = (recentSignals.length ? recentSignals : getRecentAnalysedPosts().slice(0, 3)).length
     ? (recentSignals.length ? recentSignals : getRecentAnalysedPosts().slice(0, 3))
         .map((post) => {
@@ -2664,6 +2781,8 @@ function renderDashboard() {
   const nextAction =
     !setupState.hasDecisionFrame || !setupState.hasPortfolioContext
       ? "Complete the Portfolio tab so the brief can focus on your real positions."
+      : reviewSummary.proposedCount
+        ? `Approve or dismiss ${nextReviewItem?.asset || "the top queued decision"} first.`
       : !setupState.hasRealSignalInput
         ? "Use the Signals tab to import a few real posts before trusting the queue."
         : urgentAssets.length
@@ -2673,6 +2792,7 @@ function renderDashboard() {
   return `
     <main class="office-content">
       ${renderStatusBanner()}
+      ${renderOperatorNotice()}
       <section class="office-panel office-summary-panel">
         <div class="office-panel-head">
           <div>
@@ -2692,9 +2812,9 @@ function renderDashboard() {
             <small>${getRecentAnalysedPosts().length} recent posts in scope</small>
           </article>
           <article class="office-metric">
-            <span>Active calls</span>
-            <strong>${actionableAssets.length}</strong>
-            <small>${urgentAssets.length} urgent and ${getData().decisions.length} total decisions</small>
+            <span>Pending approvals</span>
+            <strong>${reviewSummary.proposedCount}</strong>
+            <small>${reviewSummary.reviewedCount} reviewed and ${getData().decisions.length} total decisions</small>
           </article>
           <article class="office-metric">
             <span>Safety buffer</span>
@@ -2711,8 +2831,8 @@ function renderDashboard() {
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Priority queue</span>
-              <h3>What to review first</h3>
+              <span class="eyebrow">Approval queue</span>
+              <h3>What to approve or dismiss first</h3>
             </div>
             <button class="mini-chip" data-view="advisor">Open advisor</button>
           </div>
@@ -2724,6 +2844,8 @@ function renderDashboard() {
                 <th>Confidence</th>
                 <th>Posts</th>
                 <th>Reason</th>
+                <th>Status</th>
+                <th>Review</th>
               </tr>
             </thead>
             <tbody>${focusRows}</tbody>
@@ -2810,11 +2932,33 @@ function renderAssetDecision(asset, decision) {
     `;
   }
 
+  const decisionReview = getCurrentDecisionReview(asset.ticker);
+
   return `
     <article class="section-card nested-card">
       <span class="eyebrow">Decision summary</span>
       <h3>${decision.rationale[0]}</h3>
       <p>${decision.whyNot[0]}</p>
+      <div class="office-review-strip">
+        <div>
+          <span class="eyebrow">Operator review</span>
+          <div class="office-review-status">
+            ${
+              decisionReview
+                ? renderDecisionReviewTag(decisionReview.reviewStatus)
+                : `<span class="subtle">No explicit review required</span>`
+            }
+            <strong>${
+              decisionReview?.reviewedAt
+                ? `Updated ${formatGeneratedAt(decisionReview.reviewedAt)}`
+                : decisionReview
+                  ? "Still awaiting review"
+                  : "This decision is informational unless it re-enters the approval queue."
+            }</strong>
+          </div>
+        </div>
+        ${renderDecisionReviewActions(decisionReview?.id || "", decisionReview?.reviewStatus || "proposed")}
+      </div>
       <details open>
         <summary>Full reasoning trace</summary>
         <div class="details-stack">
@@ -2855,6 +2999,7 @@ function renderAssetsView() {
   return `
     <main class="content-shell">
       ${renderStatusBanner()}
+      ${renderOperatorNotice()}
       <section class="section-card asset-shell">
         <div class="asset-rail">
           <div class="section-header compact">
@@ -4056,6 +4201,7 @@ function renderLogs() {
                   <div class="tag-row">
                     <span class="tag">${formatScorePercent(entry.confidence)}</span>
                     <span class="tag">${entry.vetoed ? "Policy-adjusted" : "Direct output"}</span>
+                    ${entry.reviewStatus ? renderDecisionReviewTag(entry.reviewStatus) : ""}
                     <span class="tag">${formatEnumLabel(entry.outcomeState || "open")}</span>
                     <span class="tag">${formatSignedReturn(entry.returnSinceDecision)}</span>
                     <span class="tag">${formatShortId(entry.runId)}</span>
