@@ -31,18 +31,58 @@ function clampReliability(value) {
   return Number(Math.min(0.99, Math.max(0, numericValue)).toFixed(2));
 }
 
+export function buildSourceReliability(baselineReliability) {
+  const score = clampReliability(baselineReliability);
+
+  if (score >= 0.85) {
+    return {
+      score,
+      tier: "high",
+      label: "Reliable",
+      operatorGuidance: "Can originate meaningful claims when the wording is operational and specific."
+    };
+  }
+
+  if (score >= 0.72) {
+    return {
+      score,
+      tier: "solid",
+      label: "Reliable",
+      operatorGuidance: "Usually worth listening to, but still validate the claimed operating impact."
+    };
+  }
+
+  if (score >= 0.58) {
+    return {
+      score,
+      tier: "mixed",
+      label: "Review carefully",
+      operatorGuidance: "Useful as signal input, but should be corroborated before it shapes a decision."
+    };
+  }
+
+  return {
+    score,
+    tier: "low",
+    label: "Fact-check needed",
+    operatorGuidance: "Treat as radar only until the claim is independently verified."
+  };
+}
+
 function normalizeSource(source, existingSource = {}) {
   const handle = String(source.handle || existingSource.handle || "").trim();
   const name = String(source.name || existingSource.name || handle || "").trim();
+  const baselineReliability = clampReliability(
+    source.baselineReliability ?? existingSource.baselineReliability ?? 0.6
+  );
 
   return {
     id: String(source.id || existingSource.id || "").trim(),
     handle,
     name,
     category: String(source.category || existingSource.category || "Operator / Custom").trim(),
-    baselineReliability: clampReliability(
-      source.baselineReliability ?? existingSource.baselineReliability ?? 0.6
-    ),
+    baselineReliability,
+    reliability: buildSourceReliability(baselineReliability),
     preferredHorizon: String(
       source.preferredHorizon || existingSource.preferredHorizon || "2-7 days"
     ).trim(),

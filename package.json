@@ -8,6 +8,8 @@
     "dev": "node --env-file-if-exists=.env server.js",
     "pipeline": "node --env-file-if-exists=.env scripts/run-pipeline.js",
     "evals": "node --env-file-if-exists=.env scripts/run-evals.js",
-    "evals:strict": "node --env-file-if-exists=.env scripts/run-evals.js --strict"
+    "evals:strict": "node --env-file-if-exists=.env scripts/run-evals.js --strict",
+    "evals:model": "node --env-file-if-exists=.env scripts/run-model-evals.js",
+    "evals:model:strict": "node --env-file-if-exists=.env scripts/run-model-evals.js --strict"
   }
 }

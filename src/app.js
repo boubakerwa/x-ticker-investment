@@ -29,6 +29,9 @@ const EMPTY_DATA = {
       decisionCount: 0,
       vetoCount: 0,
       sourceCount: 0,
+      verificationBlockedCount: 0,
+      verificationCorroboratedCount: 0,
+      verificationOverrideCount: 0,
       newestPostAt: "",
       oldestPostAt: ""
     },
@@ -36,10 +39,22 @@ const EMPTY_DATA = {
     notes: []
   },
   runtime: {
+    bootstrap: {
+      status: "",
+      lastAttemptAt: "",
+      lastSuccessAt: "",
+      lastError: "",
+      fallbackSnapshotRunId: "",
+      usingFallbackSnapshot: false
+    },
     scheduler: {
       active: false,
       running: false,
+      mode: "",
       intervalMinutes: 0,
+      scheduleTimes: [],
+      timezone: "",
+      scheduleDescription: "",
       startedAt: "",
       nextRunAt: "",
       lastRunAt: "",
@@ -61,6 +76,36 @@ const EMPTY_DATA = {
   evaluation: {
     latestRun: null,
     history: []
+  },
+  research: {
+    summary: {
+      totalCount: 0,
+      dossierCount: 0,
+      candidateCount: 0,
+      approvedCount: 0,
+      dismissedCount: 0,
+      expiredCount: 0,
+      activeThemeCount: 0,
+      averageSourceQualityScore: 0,
+      averageTimelinessScore: 0,
+      nextDossierId: ""
+    },
+    dossiers: [],
+    scorecards: [],
+    inbox: []
+  },
+  reviews: {
+    summary: {
+      totalCount: 0,
+      proposedCount: 0,
+      approvedCount: 0,
+      dismissedCount: 0,
+      reviewedCount: 0,
+      nextDecisionId: ""
+    },
+    queue: [],
+    current: [],
+    recent: []
   },
   advisor: {
     financialProfile: {
@@ -109,6 +154,17 @@ const EMPTY_STORE_STATUS = {
   byCluster: []
 };
 
+const DEFAULT_TEST_DRAFT = {
+  sourceId: "",
+  sourceHandle: "@testbench",
+  sourceName: "Ad hoc test source",
+  sourceCategory: "Test / Ad hoc",
+  allowedAssets: "",
+  relevantSectors: "",
+  rawText: "",
+  runLive: true
+};
+
 const state = {
   view: "dashboard",
   selectedAsset: "",
@@ -117,6 +173,7 @@ const state = {
   selectedRunId: "",
   selectedEvalId: "",
   editingSourceId: "",
+  editingResearchId: "",
   actionFilter: "ALL",
   isLoading: true,
   isRefreshing: false,
@@ -129,10 +186,12 @@ const state = {
   isAskingAdvisor: false,
   isMutating: false,
   isReplayLoading: false,
+  isTestRunLoading: false,
   isRunDetailLoading: false,
   isEvalDetailLoading: false,
   error: "",
   replayError: "",
+  testRunError: "",
   runDetailError: "",
   evalDetailError: "",
   operatorNotice: "",
@@ -144,6 +203,8 @@ const state = {
   data: EMPTY_DATA,
   recentTweets: [],
   replayData: null,
+  testDraft: { ...DEFAULT_TEST_DRAFT },
+  testRunData: null,
   selectedRunDetail: null,
   selectedEvalDetail: null,
   advisorAnswer: null,
@@ -187,6 +248,8 @@ const getStoreStatus = () => state.storeStatus || EMPTY_STORE_STATUS;
 const getEngine = () => getData().engine || EMPTY_DATA.engine;
 const getHistory = () => getData().history || EMPTY_DATA.history;
 const getEvaluation = () => getData().evaluation || EMPTY_DATA.evaluation;
+const getResearch = () => getData().research || EMPTY_DATA.research;
+const getReviews = () => getData().reviews || EMPTY_DATA.reviews;
 const getAdvisor = () => getData().advisor || EMPTY_DATA.advisor;
 const getRuntime = () => getData().runtime || EMPTY_DATA.runtime;
 const isAdvancedView = (view = state.view) => ADVANCED_VIEWS.includes(view);
@@ -205,6 +268,68 @@ const formatEnumLabel = (value) =>
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
 const formatShortId = (value) => String(value || "").slice(0, 18) || "Pending";
+const getEvalMode = (run) => String(run?.extractor?.activeMode || run?.validationMode || run?.model?.provider || "model");
+
+function formatRatio(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return "Pending";
+  }
+
+  return `${numericValue.toFixed(1)}x`;
+}
+
+function formatProbability(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return "Pending";
+  }
+
+  if (numericValue > 1 && numericValue <= 100) {
+    return `${Math.round(numericValue)}%`;
+  }
+
+  return `${Math.round(numericValue * 100)}%`;
+}
+
+function formatDecisionMathValue(value, { ratio = false, probability = false } = {}) {
+  if (value == null || value === "") {
+    return "Pending";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => formatDecisionMathValue(item, { ratio, probability })).join(" - ");
+  }
+
+  if (typeof value === "object") {
+    const rangeStart = value.low ?? value.min ?? value.lower ?? value.from;
+    const rangeEnd = value.high ?? value.max ?? value.upper ?? value.to;
+
+    if (rangeStart != null || rangeEnd != null) {
+      const left = rangeStart != null ? formatDecisionMathValue(rangeStart, { ratio, probability }) : "Pending";
+      const right = rangeEnd != null ? formatDecisionMathValue(rangeEnd, { ratio, probability }) : "Pending";
+      return `${left} - ${right}`;
+    }
+
+    return value.label || value.text || value.summary || value.note || JSON.stringify(value);
+  }
+
+  if (ratio) {
+    return formatRatio(value);
+  }
+
+  if (probability) {
+    return formatProbability(value);
+  }
+
+  return formatSignedReturn(value);
+}
 
 function normalizeTicker(value) {
   return String(value || "")
@@ -215,6 +340,64 @@ function normalizeTicker(value) {
 
 function normalizeTickerList(items) {
   return [...new Set((items || []).map((item) => normalizeTicker(item)).filter(Boolean))];
+}
+
+function buildTrackedSourceLabel({ isHolding = false, isWatchlist = false } = {}) {
+  if (isHolding && isWatchlist) {
+    return "Portfolio + watchlist";
+  }
+
+  if (isHolding) {
+    return "Portfolio holding";
+  }
+
+  if (isWatchlist) {
+    return "Watchlist";
+  }
+
+  return "";
+}
+
+function buildWatchedUniverseAsset(ticker, baseAsset, holding, isWatchlist) {
+  const normalizedTicker = normalizeTicker(ticker);
+
+  if (!normalizedTicker) {
+    return null;
+  }
+
+  const isHolding = Boolean(holding);
+  const trackingLabel = buildTrackedSourceLabel({ isHolding, isWatchlist });
+  const personalNotes = String(holding?.notes || "").trim();
+  const personalCategory = String(holding?.category || "").trim();
+  const personalLabel = String(holding?.label || "").trim();
+  const personalAssetCopy = isHolding
+    ? "This asset comes from your saved portfolio."
+    : "This asset comes from your saved watchlist.";
+  const personalNotesCopy = personalNotes
+    ? personalNotes
+    : `${personalAssetCopy} Add a short note in Portfolio to improve automated impact mapping.`;
+
+  return {
+    ...(baseAsset || {}),
+    ticker: normalizedTicker,
+    name: baseAsset?.name || personalLabel || normalizedTicker,
+    type: baseAsset?.type || personalCategory || "Custom tracked asset",
+    bucket: baseAsset?.bucket || trackingLabel || "Tracked asset",
+    thesis: baseAsset?.thesis || personalNotesCopy,
+    riskFlag:
+      baseAsset?.riskFlag ||
+      (personalNotes
+        ? "Impact ranking uses your saved notes plus the live post narrative."
+        : "No curated metadata yet. Add a short note in Portfolio to improve automated impact mapping."),
+    isCurated: Boolean(baseAsset),
+    isTracked: isHolding || isWatchlist,
+    isHolding,
+    isWatchlist,
+    trackingLabel,
+    personalLabel,
+    personalCategory,
+    personalNotes
+  };
 }
 
 function buildProfileCashSummary(profile) {
@@ -236,15 +419,80 @@ function getTrackedAssetTickers(profile = getAdvisor().financialProfile || EMPTY
   ]);
 }
 
+function getWatchedUniverse(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
+  const baseUniverse = Array.isArray(getData().monitoredUniverse) ? getData().monitoredUniverse : [];
+  const trackedTickers = getTrackedAssetTickers(profile);
+  const holdingsByTicker = new Map(
+    (profile.holdings || [])
+      .map((holding) => [normalizeTicker(holding.ticker), holding])
+      .filter(([ticker]) => ticker)
+  );
+  const watchlistSet = new Set(normalizeTickerList(profile.watchlist || []));
+  const baseByTicker = new Map(
+    baseUniverse
+      .map((asset) => [normalizeTicker(asset.ticker), asset])
+      .filter(([ticker]) => ticker)
+  );
+  const watchedUniverse = [];
+  const seen = new Set();
+
+  trackedTickers.forEach((ticker) => {
+    const watchedAsset = buildWatchedUniverseAsset(
+      ticker,
+      baseByTicker.get(ticker) || null,
+      holdingsByTicker.get(ticker) || null,
+      watchlistSet.has(ticker)
+    );
+
+    if (watchedAsset && !seen.has(ticker)) {
+      watchedUniverse.push(watchedAsset);
+      seen.add(ticker);
+    }
+  });
+
+  baseUniverse.forEach((asset) => {
+    const ticker = normalizeTicker(asset.ticker);
+
+    if (!ticker || seen.has(ticker)) {
+      return;
+    }
+
+    const watchedAsset = buildWatchedUniverseAsset(
+      ticker,
+      asset,
+      holdingsByTicker.get(ticker) || null,
+      watchlistSet.has(ticker)
+    );
+
+    if (watchedAsset) {
+      watchedUniverse.push(watchedAsset);
+      seen.add(ticker);
+    }
+  });
+
+  return watchedUniverse;
+}
+
+function getPostExposureTickers(
+  post,
+  profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile
+) {
+  return normalizeTickerList([
+    ...(Array.isArray(post?.mappedAssets) ? post.mappedAssets : []),
+    ...getLikelyImpacts(post, profile).map((impact) => impact.asset)
+  ]);
+}
+
 function getTrackedAssets(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
   const trackedTickers = getTrackedAssetTickers(profile);
+  const watchedUniverse = getWatchedUniverse(profile);
 
   return trackedTickers.map((ticker) => {
-    const universeAsset = getData().monitoredUniverse.find((asset) => asset.ticker === ticker) || null;
+    const universeAsset = watchedUniverse.find((asset) => asset.ticker === ticker) || null;
     const holding = (profile.holdings || []).find((item) => normalizeTicker(item.ticker) === ticker) || null;
     const decision = getDecisionByAsset(ticker) || null;
     const relatedPosts = sortPostsByCreatedAt(
-      getData().posts.filter((post) => (post.mappedAssets || []).includes(ticker))
+      getData().posts.filter((post) => getPostExposureTickers(post, profile).includes(ticker))
     ).slice(0, 3);
 
     return {
@@ -287,6 +535,591 @@ function buildTrackedPortfolioAnalytics(profile = getAdvisor().financialProfile 
   };
 }
 
+function getReviewSummary() {
+  return getReviews().summary || EMPTY_DATA.reviews.summary;
+}
+
+function getDecisionReviewQueue() {
+  return getReviews().queue || [];
+}
+
+function getCurrentDecisionReviews() {
+  return getReviews().current || [];
+}
+
+function getDecisionIdByAsset(ticker) {
+  const latestRunId = getHistory().latestRunId || "";
+  return latestRunId && ticker ? `${latestRunId}:${ticker}` : "";
+}
+
+function getCurrentDecisionReview(ticker) {
+  const decisionId = getDecisionIdByAsset(ticker);
+  return getCurrentDecisionReviews().find((item) => item.id === decisionId) || null;
+}
+
+function getDecisionMath(decision = null) {
+  if (decision?.decisionMath) {
+    return decision.decisionMath;
+  }
+
+  if (decision?.math) {
+    return decision.math;
+  }
+
+  const fallbackMath = {
+    thesisProbability: decision?.thesisProbability,
+    uncertainty: decision?.uncertaintyScore ?? decision?.uncertaintyValue,
+    expectedUpside: decision?.expectedUpside,
+    expectedDownside: decision?.expectedDownside,
+    rewardRisk: decision?.rewardRisk,
+    sizeBand: decision?.sizeBand,
+    maxLossGuardrail: decision?.maxLossGuardrail,
+    decisionMathSummary: decision?.decisionMathSummary
+  };
+
+  return Object.values(fallbackMath).some((value) => value != null && value !== "")
+    ? fallbackMath
+    : null;
+}
+
+function getResearchDossiers() {
+  const research = getResearch();
+  return research.dossiers || research.items || research.queue || research.entries || [];
+}
+
+function getResearchSummary() {
+  return getResearch().summary || EMPTY_DATA.research.summary;
+}
+
+function getResearchScorecards() {
+  const research = getResearch();
+  return research.scorecards || research.analytics || research.scorecard || [];
+}
+
+function getResearchLifecycleCounts(dossiers = getResearchDossiers()) {
+  return dossiers.reduce(
+    (accumulator, dossier) => {
+      const status = normalizeResearchStatus(dossier?.status || dossier?.stage);
+      accumulator.totalCount += 1;
+
+      if (accumulator[`${status}Count`] != null) {
+        accumulator[`${status}Count`] += 1;
+      }
+
+      return accumulator;
+    },
+    {
+      totalCount: 0,
+      discoveryCount: 0,
+      candidateCount: 0,
+      validatedCount: 0,
+      approvedCount: 0,
+      dismissedCount: 0,
+      expiredCount: 0
+    }
+  );
+}
+
+function normalizeResearchStatus(status) {
+  const normalized = String(status || "candidate")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+
+  if (normalized === "draft" || normalized === "intake") {
+    return "discovery";
+  }
+
+  if (normalized === "in_review" || normalized === "review") {
+    return "candidate";
+  }
+
+  if (["approved", "dismissed", "expired", "candidate", "discovery", "validated", "archived"].includes(normalized)) {
+    return normalized;
+  }
+
+  return "candidate";
+}
+
+function getResearchStatusRank(status) {
+  const rank = {
+    approved: 6,
+    validated: 5,
+    candidate: 4,
+    discovery: 3,
+    dismissed: 2,
+    expired: 1,
+    archived: 0
+  };
+
+  return rank[normalizeResearchStatus(status)] ?? -1;
+}
+
+function getResearchDossierById(dossierId) {
+  return getResearchDossiers().find((dossier) => dossier.id === dossierId) || null;
+}
+
+function getResearchForAsset(assetTicker, decision = null) {
+  const cleanTicker = normalizeTicker(assetTicker);
+
+  if (decision?.linkedResearch) {
+    return decision.linkedResearch;
+  }
+
+  return getResearchDossiers()
+    .filter((dossier) => getResearchDossierAssets(dossier).includes(cleanTicker))
+    .sort((left, right) => {
+      const rankDifference =
+        getResearchStatusRank(right?.status || right?.stage) -
+        getResearchStatusRank(left?.status || left?.stage);
+
+      if (rankDifference !== 0) {
+        return rankDifference;
+      }
+
+      return String(right?.updatedAt || "").localeCompare(String(left?.updatedAt || ""));
+    })[0] || null;
+}
+
+function isResearchEligibleForReview(research) {
+  const status = normalizeResearchStatus(research?.status || research?.stage);
+  return status === "validated" || status === "approved";
+}
+
+function isResearchApproved(research) {
+  return normalizeResearchStatus(research?.status || research?.stage) === "approved";
+}
+
+function getResearchBlockingReason(decision, research) {
+  if (decision?.researchBlockingReason) {
+    return decision.researchBlockingReason;
+  }
+
+  if (!research) {
+    return `Capture a research dossier for ${decision?.asset || "this asset"} before it reaches the approval queue.`;
+  }
+
+  if (!isResearchEligibleForReview(research)) {
+    return `${getResearchDossierHeadline(research, decision?.asset || "This thesis")} is still ${normalizeResearchStatus(
+      research.status || research.stage
+    )}; validate the thesis before it enters the queue.`;
+  }
+
+  return "";
+}
+
+function getResearchDossierAssets(dossier) {
+  return (dossier?.assets || dossier?.assetTickers || dossier?.symbols || [])
+    .map((asset) => normalizeTicker(asset))
+    .filter(Boolean);
+}
+
+function getResearchEvidenceList(dossier, key) {
+  return Array.isArray(dossier?.[key]) ? dossier[key] : [];
+}
+
+function getResearchDossierHeadline(dossier, fallbackLabel = "Research dossier") {
+  return (
+    dossier?.title ||
+    dossier?.headline ||
+    dossier?.theme ||
+    dossier?.thesis ||
+    dossier?.name ||
+    fallbackLabel
+  );
+}
+
+function formatEvidenceItem(item) {
+  if (item == null) {
+    return "";
+  }
+
+  if (typeof item === "string") {
+    return item;
+  }
+
+  return item.title || item.label || item.summary || item.source || item.name || JSON.stringify(item);
+}
+
+function renderResearchEvidenceList(items, emptyCopy) {
+  const cleanedItems = (items || [])
+    .map(formatEvidenceItem)
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (!cleanedItems.length) {
+    return `<p class="subtle">${emptyCopy}</p>`;
+  }
+
+  return `<ul class="research-evidence-list">${cleanedItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function renderLinkedResearchCard(research, decision = null, { includeActions = true } = {}) {
+  if (!research) {
+    return `
+      <article class="research-linked-card">
+        <span class="eyebrow">Linked research</span>
+        <h4>No dossier linked yet</h4>
+        <p>Capture a research dossier with supporting evidence, contradictory evidence, and citations before this thesis becomes actionable.</p>
+        ${
+          includeActions
+            ? `
+              <div class="office-form-actions">
+                <button class="mini-chip" data-view="research">Open research</button>
+              </div>
+            `
+            : ""
+        }
+      </article>
+    `;
+  }
+
+  const researchStatus = normalizeResearchStatus(research.status || research.stage);
+  const supportingCount =
+    research.supportingEvidenceCount ?? getResearchEvidenceList(research, "supportingEvidence").length;
+  const contradictingCount =
+    research.contradictingEvidenceCount ?? getResearchEvidenceList(research, "contradictingEvidence").length;
+  const citationsCount = research.citationsCount ?? getResearchEvidenceList(research, "citations").length;
+  const blockingReason = getResearchBlockingReason(decision, research);
+
+  return `
+    <article class="research-linked-card">
+      <div class="decision-topline">
+        <strong>${escapeHtml(getResearchDossierHeadline(research))}</strong>
+        ${renderLifecyclePill(researchStatus)}
+      </div>
+      <p>${escapeHtml(research.thesis || research.summary || "The dossier is linked, but the thesis copy is still being filled in.")}</p>
+      <div class="research-linked-grid">
+        <div class="math-metric">
+          <span>Source quality</span>
+          <strong>${formatDecisionMathValue(research.sourceQualityScore, { probability: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Timeliness</span>
+          <strong>${formatDecisionMathValue(research.timelinessScore, { probability: true })}</strong>
+        </div>
+      </div>
+      <div class="research-card-meta">
+        <span class="tag">${research.theme || "General"}</span>
+        <span class="tag">${supportingCount} supportive</span>
+        <span class="tag">${contradictingCount} conflicting</span>
+        <span class="tag">${citationsCount} citations</span>
+        ${research.updatedAt ? `<span class="tag">Updated ${formatGeneratedAt(research.updatedAt)}</span>` : ""}
+      </div>
+      ${
+        blockingReason
+          ? `<p class="subtle">${escapeHtml(blockingReason)}</p>`
+          : `<p class="subtle">Research governance is clear enough for queue review. Approval still depends on operator judgment and sizing guardrails.</p>`
+      }
+      ${
+        includeActions
+          ? `
+            <div class="office-form-actions">
+              <button class="mini-chip" data-view="research">Open research</button>
+              ${
+                research.assets?.[0]
+                  ? `<button class="mini-chip" data-asset="${escapeHtml(String(research.assets[0]))}">Open asset</button>`
+                  : ""
+              }
+            </div>
+          `
+          : ""
+      }
+    </article>
+  `;
+}
+
+function renderLifecyclePill(status) {
+  const normalized = normalizeResearchStatus(status);
+  const labelMap = {
+    discovery: "Discovery",
+    candidate: "Candidate",
+    validated: "Validated",
+    approved: "Approved",
+    dismissed: "Dismissed",
+    expired: "Expired",
+    archived: "Archived"
+  };
+
+  return `<span class="tag lifecycle-tag lifecycle-${escapeHtml(normalized)}">${labelMap[normalized] || formatEnumLabel(normalized)}</span>`;
+}
+
+function renderDecisionMathBlock(decisionMath) {
+  if (!decisionMath) {
+    return `
+      <article class="math-card math-card-empty">
+        <span class="eyebrow">Decision math</span>
+        <h4>Conservative math not yet attached</h4>
+        <p>Once the engine publishes thesis probability, expected upside/downside, and a guardrail, they appear here.</p>
+      </article>
+    `;
+  }
+
+  const probability = decisionMath.thesisProbability ?? decisionMath.probability;
+  const uncertainty = decisionMath.uncertainty ?? decisionMath.confidenceInterval ?? decisionMath.confidenceBand;
+  const expectedUpside = decisionMath.expectedUpside;
+  const expectedDownside = decisionMath.expectedDownside;
+  const rewardRisk = decisionMath.rewardRisk ?? decisionMath.rewardToRisk;
+  const sizeBand = decisionMath.sizeBand ?? decisionMath.positionSizeBand ?? decisionMath.size;
+  const maxLossGuardrail = decisionMath.maxLossGuardrail ?? decisionMath.maxLoss ?? decisionMath.guardrail;
+  const horizon = decisionMath.horizon || decisionMath.holdingPeriod || "";
+
+  return `
+    <article class="math-card">
+      <div class="section-header compact">
+        <div>
+          <span class="eyebrow">Decision math</span>
+          <h4>Conservative sizing and payoff cues</h4>
+        </div>
+      </div>
+      <div class="math-grid">
+        <div class="math-metric">
+          <span>Thesis probability</span>
+          <strong>${formatDecisionMathValue(probability, { probability: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Uncertainty</span>
+          <strong>${formatDecisionMathValue(uncertainty, { probability: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Expected upside</span>
+          <strong>${formatDecisionMathValue(expectedUpside)}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Expected downside</span>
+          <strong>${formatDecisionMathValue(expectedDownside)}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Reward / risk</span>
+          <strong>${formatDecisionMathValue(rewardRisk, { ratio: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Size band</span>
+          <strong>${escapeHtml(String(sizeBand || "Pending"))}</strong>
+        </div>
+      </div>
+      <div class="math-footer">
+        <span class="pill pill-muted">Guardrail ${formatDecisionMathValue(maxLossGuardrail, { probability: true })}</span>
+        ${horizon ? `<span class="pill pill-muted">${escapeHtml(String(horizon))}</span>` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function renderDecisionMathSummary(decisionMath) {
+  if (!decisionMath) {
+    return `<p class="subtle">Decision math pending.</p>`;
+  }
+
+  const probability = decisionMath.thesisProbability ?? decisionMath.probability;
+  const rewardRisk = decisionMath.rewardRisk ?? decisionMath.rewardToRisk;
+  const sizeBand = decisionMath.sizeBand ?? decisionMath.positionSizeBand ?? decisionMath.size;
+  const guardrail = decisionMath.maxLossGuardrail ?? decisionMath.maxLoss ?? decisionMath.guardrail;
+
+  return `
+    <div class="decision-math-summary">
+      <span class="tag">P ${formatDecisionMathValue(probability, { probability: true })}</span>
+      <span class="tag">RR ${formatDecisionMathValue(rewardRisk, { ratio: true })}</span>
+      <span class="tag">${escapeHtml(String(sizeBand || "Size pending"))}</span>
+      <span class="tag">Guardrail ${formatDecisionMathValue(guardrail, { probability: true })}</span>
+    </div>
+  `;
+}
+
+function renderResearchDossierCard(dossier) {
+  const status = normalizeResearchStatus(dossier?.status || dossier?.stage);
+  const assets = getResearchDossierAssets(dossier);
+  const evidenceQuality = dossier?.sourceQualityScore ?? dossier?.sourceQuality ?? dossier?.qualityScore;
+  const timeliness = dossier?.timelinessScore ?? dossier?.freshnessScore ?? dossier?.timeliness;
+  const linkedClusters = Array.isArray(dossier?.linkedClusterIds) ? dossier.linkedClusterIds : dossier?.clusterIds || [];
+  const riskFactors = Array.isArray(dossier?.riskFactors) ? dossier.riskFactors : [];
+  const citations = getResearchEvidenceList(dossier, "citations");
+
+  return `
+    <article class="research-card ${status === "approved" ? "is-approved" : status === "dismissed" ? "is-dismissed" : "is-candidate"}">
+      <div class="research-card-head">
+        <div>
+          <div class="decision-topline">
+            <strong>${escapeHtml(getResearchDossierHeadline(dossier))}</strong>
+            ${renderLifecyclePill(status)}
+          </div>
+          <p>${escapeHtml(dossier?.thesis || dossier?.summary || dossier?.description || "No thesis summary provided yet.")}</p>
+        </div>
+        <button class="mini-chip" type="button" data-view="assets">Open assets</button>
+      </div>
+      <div class="research-card-meta">
+        <span class="tag">${escapeHtml(String(dossier?.theme || dossier?.category || "General"))}</span>
+        <span class="tag">${assets.length ? `${assets.length} assets` : "No assets linked"}</span>
+        <span class="tag">${linkedClusters.length ? `${linkedClusters.length} clusters` : "No clusters linked"}</span>
+        ${dossier?.horizon ? `<span class="tag">${escapeHtml(String(dossier.horizon))}</span>` : ""}
+        <span class="tag">${citations.length} citations</span>
+        ${dossier?.createdAt ? `<span class="tag">${formatGeneratedAt(dossier.createdAt)}</span>` : ""}
+        ${dossier?.updatedAt ? `<span class="tag">Updated ${formatGeneratedAt(dossier.updatedAt)}</span>` : ""}
+      </div>
+      <div class="research-score-grid">
+        <div class="math-metric">
+          <span>Source quality</span>
+          <strong>${formatDecisionMathValue(evidenceQuality, { probability: true })}</strong>
+        </div>
+        <div class="math-metric">
+          <span>Timeliness</span>
+          <strong>${formatDecisionMathValue(timeliness, { probability: true })}</strong>
+        </div>
+      </div>
+      <div>
+        <span class="eyebrow">Supporting evidence</span>
+        ${renderResearchEvidenceList(getResearchEvidenceList(dossier, "supportingEvidence"), "No supporting evidence logged yet.")}
+      </div>
+      <div>
+        <span class="eyebrow">Contradicting evidence</span>
+        ${renderResearchEvidenceList(getResearchEvidenceList(dossier, "contradictingEvidence"), "No contradictory evidence logged yet.")}
+      </div>
+      ${
+        riskFactors.length
+          ? `
+            <div class="chip-row">
+              ${riskFactors.slice(0, 4).map((risk) => `<span class="tag tag-muted">${escapeHtml(formatEvidenceItem(risk))}</span>`).join("")}
+            </div>
+          `
+          : ""
+      }
+      <div class="office-form-actions">
+        <button class="mini-chip" type="button" data-edit-research="${escapeHtml(dossier.id)}">Edit</button>
+        ${
+          status !== "validated" && status !== "approved"
+            ? `<button class="mini-chip" type="button" data-research-status="${escapeHtml(dossier.id)}" data-next-status="validated">Validate</button>`
+            : ""
+        }
+        ${
+          status !== "approved"
+            ? `<button class="mini-chip" type="button" data-research-status="${escapeHtml(dossier.id)}" data-next-status="approved">Approve thesis</button>`
+            : ""
+        }
+        ${
+          status !== "dismissed"
+            ? `<button class="mini-chip" type="button" data-research-status="${escapeHtml(dossier.id)}" data-next-status="dismissed">Dismiss</button>`
+            : ""
+        }
+        <button class="mini-chip" type="button" data-delete-research="${escapeHtml(dossier.id)}">Delete</button>
+      </div>
+      ${
+        assets.length
+          ? `<div class="chip-row">${assets.map((asset) => `<button class="mini-chip" data-asset="${asset}">${asset}</button>`).join("")}</div>`
+          : ""
+      }
+    </article>
+  `;
+}
+
+function renderResearchLifecycleBoard(dossiers) {
+  const groups = {
+    discovery: [],
+    candidate: [],
+    validated: [],
+    approved: [],
+    dismissed: [],
+    expired: [],
+    archived: []
+  };
+
+  dossiers.forEach((dossier) => {
+    const status = normalizeResearchStatus(dossier?.status || dossier?.stage);
+    const bucket = groups[status] ? status : "candidate";
+    groups[bucket].push(dossier);
+  });
+
+  const stages = [
+    ["discovery", "Research inbox"],
+    ["candidate", "Candidate thesis"],
+    ["validated", "Validated"],
+    ["approved", "Approved"],
+    ["dismissed", "Dismissed"],
+    ["expired", "Expired"],
+    ["archived", "Archived"]
+  ];
+
+  return `
+    <section class="lifecycle-board">
+      ${stages
+        .map(([status, label]) => {
+          const items = groups[status] || [];
+          return `
+            <article class="lifecycle-column lifecycle-${status}">
+              <div class="lifecycle-column-head">
+                <span>${label}</span>
+                <strong>${items.length}</strong>
+              </div>
+              <div class="lifecycle-column-body">
+                ${
+                  items.length
+                    ? items
+                        .slice(0, 3)
+                        .map(
+                          (dossier) => `
+                            <div class="lifecycle-card">
+                              <div class="decision-topline">
+                                <strong>${escapeHtml(getResearchDossierHeadline(dossier))}</strong>
+                                ${renderLifecyclePill(status)}
+                              </div>
+                              <p>${escapeHtml(dossier?.thesis || dossier?.summary || "No summary provided.")}</p>
+                            </div>
+                          `
+                        )
+                        .join("")
+                    : `<p class="subtle">Nothing here yet.</p>`
+                }
+              </div>
+            </article>
+          `;
+        })
+        .join("")}
+    </section>
+  `;
+}
+
+function renderDecisionReviewTag(status = "proposed") {
+  const label = status === "proposed" ? "Candidate" : formatEnumLabel(status);
+  return `<span class="tag review-tag review-${escapeHtml(status)}">${label}</span>`;
+}
+
+function renderDecisionReviewActions(reviewId, reviewStatus = "proposed", extraActions = "") {
+  if (!reviewId) {
+    return `<span class="subtle">No live decision to review.</span>`;
+  }
+
+  const disabledAttribute = state.isMutating ? "disabled" : "";
+
+  return `
+    <div class="office-review-actions">
+      <button class="mini-chip" type="button" data-review-decision="${escapeHtml(reviewId)}" data-review-status="approved" ${disabledAttribute}>Approve</button>
+      <button class="mini-chip" type="button" data-review-decision="${escapeHtml(reviewId)}" data-review-status="dismissed" ${disabledAttribute}>Dismiss</button>
+      ${
+        reviewStatus !== "proposed"
+          ? `<button class="mini-chip" type="button" data-review-decision="${escapeHtml(reviewId)}" data-review-status="proposed" ${disabledAttribute}>Reset</button>`
+          : ""
+      }
+      ${extraActions}
+    </div>
+  `;
+}
+
+function renderDecisionReviewGate(reviewId, reviewStatus, decision = null, research = null) {
+  const researchAction = research
+    ? `<button class="mini-chip" type="button" data-view="research">Open research</button>`
+    : "";
+
+  if (!isResearchEligibleForReview(research)) {
+    return `
+      <div class="office-review-actions">
+        <span class="subtle">${escapeHtml(getResearchBlockingReason(decision, research))}</span>
+        ${researchAction}
+      </div>
+    `;
+  }
+
+  return renderDecisionReviewActions(reviewId, reviewStatus, researchAction);
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -296,12 +1129,366 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function getSourceReliabilityInfo(source) {
+  const score = Number(source?.reliability?.score ?? source?.baselineReliability ?? 0);
+  const normalizedScore = Number.isFinite(score) ? Math.max(0, Math.min(score, 0.99)) : 0.5;
+  const label =
+    String(source?.reliability?.label || "").trim() ||
+    (normalizedScore >= 0.72
+      ? "Reliable"
+      : normalizedScore >= 0.58
+        ? "Review carefully"
+        : "Fact-check needed");
+  const tier =
+    String(source?.reliability?.tier || "").trim() ||
+    (normalizedScore >= 0.85 ? "high" : normalizedScore >= 0.72 ? "solid" : normalizedScore >= 0.58 ? "mixed" : "low");
+  const operatorGuidance =
+    String(source?.reliability?.operatorGuidance || "").trim() ||
+    (label === "Reliable"
+      ? "Good source, but still validate the claimed operating impact."
+      : label === "Review carefully"
+        ? "Useful signal input, but corroborate before it shapes a decision."
+        : "Treat as radar only until the claim is independently verified.");
+
+  return {
+    score: Number(normalizedScore.toFixed(2)),
+    label,
+    tier,
+    operatorGuidance
+  };
+}
+
+function getAssetMappingInfo(post) {
+  const mapping = post?.assetMapping || {};
+  const mappedAssets = Array.isArray(post?.mappedAssets) ? post.mappedAssets : [];
+  const labelByBasis = {
+    unmapped: "Unmapped",
+    direct: "Direct mapping",
+    source_hint: "Source hint",
+    mixed: "Mixed mapping",
+    broad_inference: "Broad inference",
+    model_inference: "Review mapping",
+    cluster_inference: "Cluster inference"
+  };
+  const basis = String(mapping.basis || (mappedAssets.length ? "direct" : "unmapped")).trim();
+  const confidence = String(mapping.confidence || (mappedAssets.length ? "high" : "low")).trim();
+  const label = String(mapping.label || labelByBasis[basis] || "Review mapping").trim();
+  const note = String(mapping.note || "").trim();
+  const requiresReview =
+    Boolean(mapping.requiresReview) ||
+    basis === "mixed" ||
+    basis === "broad_inference" ||
+    basis === "model_inference" ||
+    basis === "cluster_inference";
+
+  return {
+    basis,
+    confidence,
+    label,
+    note,
+    requiresReview
+  };
+}
+
+function getPostVerificationInfo(post) {
+  const verification = post?.verification || {};
+  const status = String(verification.status || "").trim() || "trusted";
+  const badge = String(verification.badge || "").trim();
+  const note = String(verification.note || "").trim();
+
+  return {
+    status,
+    badge,
+    note,
+    requirement: String(verification.requirement || "").trim(),
+    blocksActionability: Boolean(verification.blocksActionability),
+    overrideActive: Boolean(verification.overrideActive),
+    corroborated: Boolean(verification.corroborated),
+    corroboratingSourceCount: Number(verification.corroboratingSourceCount || 0)
+  };
+}
+
+function renderPostVerificationTag(post, className = "") {
+  const verification = getPostVerificationInfo(post);
+
+  if (!verification.badge || verification.status === "trusted") {
+    return "";
+  }
+
+  const resolvedClassName =
+    className ||
+    (verification.blocksActionability
+      ? "tag tag-warning"
+      : verification.overrideActive
+        ? "tag"
+        : "tag tag-muted");
+
+  return `<span class="${resolvedClassName}">${escapeHtml(verification.badge)}</span>`;
+}
+
+function renderPostVerificationNote(post, className = "mapping-note") {
+  const verification = getPostVerificationInfo(post);
+
+  if (!verification.note || verification.status === "trusted") {
+    return "";
+  }
+
+  return `<p class="${className}">${escapeHtml(verification.note)}</p>`;
+}
+
+function renderPostVerificationControls(post) {
+  const verification = getPostVerificationInfo(post);
+  const postId = String(post?.id || "").trim();
+
+  if (!postId || postId.startsWith("adhoc-test-") || verification.requirement !== "corroboration_or_override") {
+    return "";
+  }
+
+  return `
+    <div class="verification-actions">
+      <button
+        class="mini-chip"
+        type="button"
+        data-post-verification-override="${escapeHtml(postId)}"
+        data-post-verification-enabled="${verification.overrideActive ? "0" : "1"}"
+      >
+        ${verification.overrideActive ? "Clear override" : "Override fact-check gate"}
+      </button>
+    </div>
+  `;
+}
+
+function renderPostVerificationStack(post) {
+  const verificationTag = renderPostVerificationTag(post);
+  const verificationNote = renderPostVerificationNote(post);
+  const verificationControls = renderPostVerificationControls(post);
+
+  if (!verificationTag && !verificationNote && !verificationControls) {
+    return "";
+  }
+
+  return `
+    <div class="verification-stack">
+      ${verificationTag ? `<div class="chip-row verification-chip-row">${verificationTag}</div>` : ""}
+      ${verificationNote}
+      ${verificationControls}
+    </div>
+  `;
+}
+
+function renderMappedAssetButtons(post, buttonClass = "mini-chip", emptyLabel = "Unmapped") {
+  const mappedAssets = Array.isArray(post?.mappedAssets) ? post.mappedAssets : [];
+
+  if (!mappedAssets.length) {
+    return `<span class="subtle">${escapeHtml(emptyLabel)}</span>`;
+  }
+
+  return mappedAssets
+    .map((asset) => {
+      const safeAsset = escapeHtml(String(asset));
+      return `<button class="${buttonClass}" data-asset="${safeAsset}">${safeAsset}</button>`;
+    })
+    .join("");
+}
+
+function renderAssetMappingStatusTag(post, className = "tag tag-warning") {
+  const mapping = getAssetMappingInfo(post);
+
+  if (!mapping.requiresReview) {
+    return "";
+  }
+
+  return `<span class="${className}">${escapeHtml(mapping.label)}</span>`;
+}
+
+function renderAssetMappingNote(post, className = "mapping-note") {
+  const mapping = getAssetMappingInfo(post);
+
+  if (!mapping.requiresReview) {
+    return "";
+  }
+
+  return `<p class="${className}">${escapeHtml(mapping.note || "Ticker linkage is inferred; review the mapping before acting.")}</p>`;
+}
+
+function renderMappedAssetStack(post, buttonClass = "mini-chip") {
+  return `
+    <div class="mapping-stack">
+      <div class="chip-row mapping-chip-row">
+        ${renderMappedAssetButtons(post, buttonClass)}
+        ${renderAssetMappingStatusTag(post)}
+      </div>
+      ${renderAssetMappingNote(post)}
+    </div>
+  `;
+}
+
+function renderAssetMappingCell(post) {
+  const mappedAssets = Array.isArray(post?.mappedAssets) ? post.mappedAssets : [];
+  const mapping = getAssetMappingInfo(post);
+
+  return `
+    <div class="mapping-cell">
+      <span>${escapeHtml(mappedAssets.join(", ") || "Unmapped")}</span>
+      ${mapping.requiresReview ? `<span class="tag tag-warning mapping-inline-tag">${escapeHtml(mapping.label)}</span>` : ""}
+      ${
+        mapping.requiresReview
+          ? `<small class="mapping-note mapping-note-compact">${escapeHtml(mapping.note || "Ticker linkage is inferred; review the mapping before acting.")}</small>`
+          : ""
+      }
+      ${renderLikelyImpactInline(post)}
+    </div>
+  `;
+}
+
+function getLikelyImpacts(
+  post,
+  profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile
+) {
+  const likelyImpacts = Array.isArray(post?.likelyImpacts) ? post.likelyImpacts : [];
+  const normalizedBaseImpacts = likelyImpacts.length
+    ? likelyImpacts
+        .map((impact) => ({
+          asset: normalizeTicker(impact.asset),
+          score: Number(impact.score || 0),
+          directness: String(impact.directness || "Read-through").trim() || "Read-through",
+          impactDirection: String(impact.impactDirection || "Mixed").trim() || "Mixed",
+          reason: String(impact.reason || "").trim()
+        }))
+        .filter((impact) => impact.asset)
+    : (Array.isArray(post?.mappedAssets) ? post.mappedAssets : []).map((asset, index) => ({
+        asset: normalizeTicker(asset),
+        score: Math.max(0.42, 0.74 - index * 0.08),
+        directness: index === 0 ? "Direct" : "Read-through",
+        impactDirection: "Mixed",
+        reason: "Derived from the post's strict asset mapping."
+      }));
+  const trackedTickers = getTrackedAssetTickers(profile);
+  const trackedIndex = new Map(trackedTickers.map((ticker, index) => [ticker, index]));
+  const impactMap = new Map();
+
+  normalizedBaseImpacts.forEach((impact) => {
+    const ticker = normalizeTicker(impact.asset);
+
+    if (!ticker) {
+      return;
+    }
+
+    const normalizedImpact = {
+      asset: ticker,
+      score: Number(Math.max(0, Math.min(Number(impact.score || 0), 1)).toFixed(2)),
+      directness: String(impact.directness || "Read-through").trim() || "Read-through",
+      impactDirection: String(impact.impactDirection || "Mixed").trim() || "Mixed",
+      reason: String(impact.reason || "").trim()
+    };
+    const existing = impactMap.get(ticker);
+
+    if (!existing || normalizedImpact.score > existing.score) {
+      impactMap.set(ticker, normalizedImpact);
+    }
+  });
+
+  return [...impactMap.values()]
+    .sort(
+      (left, right) =>
+        (trackedIndex.has(left.asset) ? 0 : 1) - (trackedIndex.has(right.asset) ? 0 : 1) ||
+        right.score - left.score ||
+        (trackedIndex.get(left.asset) ?? 999) - (trackedIndex.get(right.asset) ?? 999) ||
+        left.asset.localeCompare(right.asset)
+    )
+    .slice(0, 8);
+}
+
+function renderLikelyImpactChip(impact) {
+  const safeAsset = escapeHtml(impact.asset);
+  const safeDirectness = escapeHtml(impact.directness || "Read-through");
+  const safeImpactDirection = escapeHtml(impact.impactDirection || "Mixed");
+  const safeReason = escapeHtml(impact.reason || "");
+
+  return `
+    <button class="impact-chip" data-asset="${safeAsset}" title="${safeReason}">
+      <strong>${safeAsset}</strong>
+      <span>${safeImpactDirection} · ${safeDirectness} · ${formatPercent(Math.max(0, Math.min(Number(impact.score || 0), 1)))}</span>
+    </button>
+  `;
+}
+
+function renderLikelyImpactSummary(post) {
+  const impacts = getLikelyImpacts(post);
+  const trackedTickers = getTrackedAssetTickers();
+  const trackedSet = new Set(trackedTickers);
+  const trackedImpacts = impacts.filter((impact) => trackedSet.has(impact.asset)).slice(0, 3);
+  const widerImpacts = (trackedTickers.length ? impacts.filter((impact) => !trackedSet.has(impact.asset)) : impacts).slice(0, 4);
+
+  if (!impacts.length) {
+    return `<div class="impact-stack"><p class="impact-empty">No likely impacts ranked for this post yet.</p></div>`;
+  }
+
+  return `
+    <div class="impact-stack">
+      ${
+        trackedTickers.length
+          ? `
+            <div class="impact-group">
+              <span class="impact-label">AI-ranked in your tracked universe</span>
+              <div class="chip-row impact-chip-row">
+                ${
+                  trackedImpacts.length
+                    ? trackedImpacts.map((impact) => renderLikelyImpactChip(impact)).join("")
+                    : '<span class="impact-empty">No current tracked names rank for this post yet.</span>'
+                }
+              </div>
+            </div>
+          `
+          : ""
+      }
+      <div class="impact-group">
+        <span class="impact-label">${trackedTickers.length ? "Wider AI-ranked impacts" : "AI-ranked impacted stocks"}</span>
+        <div class="chip-row impact-chip-row">
+          ${
+            widerImpacts.length
+              ? widerImpacts.map((impact) => renderLikelyImpactChip(impact)).join("")
+              : '<span class="impact-empty">No broader impacts ranked for this post.</span>'
+          }
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderLikelyImpactInline(post) {
+  const impacts = getLikelyImpacts(post);
+  const trackedTickers = getTrackedAssetTickers();
+  const trackedSet = new Set(trackedTickers);
+  const primaryImpacts = trackedTickers.length
+    ? impacts.filter((impact) => trackedSet.has(impact.asset)).slice(0, 3)
+    : impacts.slice(0, 3);
+  const fallbackImpacts = impacts.slice(0, 3);
+  const visibleImpacts = primaryImpacts.length ? primaryImpacts : fallbackImpacts;
+  const label = primaryImpacts.length && trackedTickers.length ? "Tracked impacts" : "Likely impacts";
+
+  if (!visibleImpacts.length) {
+    return "";
+  }
+
+  return `
+    <div class="impact-inline">
+      <strong class="impact-inline-label">${label}</strong>
+      <span>${escapeHtml(visibleImpacts.map((impact) => `${impact.asset} (${impact.impactDirection}, ${impact.directness})`).join(", "))}</span>
+    </div>
+  `;
+}
+
 function renderJsonBlock(value) {
   return `<pre class="code-block">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
 }
 
 function getSourceBeingEdited() {
   return getData().sources.find((source) => source.id === state.editingSourceId) || null;
+}
+
+function getResearchBeingEdited() {
+  return getResearchDossierById(state.editingResearchId);
 }
 
 function getLatestAdvisorAnswer() {
@@ -791,10 +1978,12 @@ function buildRunDecisionAnalytics(entries) {
 }
 
 function normalizeSelections() {
-  const { monitoredUniverse, sources } = getData();
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const watchedUniverse = getWatchedUniverse(profile);
+  const { sources } = getData();
 
-  if (!monitoredUniverse.some((asset) => asset.ticker === state.selectedAsset)) {
-    state.selectedAsset = monitoredUniverse[0]?.ticker || "";
+  if (!watchedUniverse.some((asset) => asset.ticker === state.selectedAsset)) {
+    state.selectedAsset = watchedUniverse[0]?.ticker || "";
   }
 
   if (!sources.some((source) => source.id === state.selectedSource)) {
@@ -846,15 +2035,15 @@ async function loadData({ refresh = false } = {}) {
     ]);
 
     if (!snapshotResponse.ok) {
-      throw new Error(`Snapshot request failed with ${snapshotResponse.status}`);
+      throw new Error(await parseError(snapshotResponse, `Snapshot request failed with ${snapshotResponse.status}`));
     }
 
     if (!tweetsResponse.ok) {
-      throw new Error(`Tweet feed request failed with ${tweetsResponse.status}`);
+      throw new Error(await parseError(tweetsResponse, `Tweet feed request failed with ${tweetsResponse.status}`));
     }
 
     if (!statusResponse.ok) {
-      throw new Error(`Store status request failed with ${statusResponse.status}`);
+      throw new Error(await parseError(statusResponse, `Store status request failed with ${statusResponse.status}`));
     }
 
     state.data = await snapshotResponse.json();
@@ -867,6 +2056,10 @@ async function loadData({ refresh = false } = {}) {
 
     if (state.editingSourceId && !getSourceBeingEdited()) {
       state.editingSourceId = "";
+    }
+
+    if (state.editingResearchId && !getResearchBeingEdited()) {
+      state.editingResearchId = "";
     }
 
     const deferredLoads = [];
@@ -925,6 +2118,12 @@ function setEditingSource(sourceId = "") {
   render();
 }
 
+function setEditingResearch(dossierId = "") {
+  state.editingResearchId = dossierId;
+  state.operatorNotice = "";
+  render();
+}
+
 async function runMutation(task, successMessage) {
   state.isMutating = true;
   state.error = "";
@@ -932,8 +2131,9 @@ async function runMutation(task, successMessage) {
   render();
 
   try {
-    await task();
-    state.operatorNotice = successMessage;
+    const result = await task();
+    state.operatorNotice =
+      typeof successMessage === "function" ? successMessage(result) : successMessage;
     await loadData({ refresh: true });
   } catch (error) {
     state.error = error instanceof Error ? error.message : "Operator action failed.";
@@ -1130,6 +2330,27 @@ async function importManualFeed(form) {
   }, payload.replaceExisting ? "Manual feed imported and replaced the current store." : "Manual feed appended.");
 }
 
+async function togglePostVerificationOverride(postId, enabled) {
+  await runMutation(async () => {
+    const response = await fetch(
+      `/api/operator/post-verification-overrides/${encodeURIComponent(postId)}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          enabled
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to update the fact-check override."));
+    }
+  }, enabled ? "Fact-check override saved and the pipeline was rerun." : "Fact-check override cleared and the pipeline was rerun.");
+}
+
 async function saveFinancialProfile(form) {
   state.isSavingProfile = true;
   state.advisorError = "";
@@ -1242,7 +2463,13 @@ async function submitSourceForm(form) {
 
     const result = await response.json();
     state.editingSourceId = result.source?.id || "";
-  }, editingSource ? "Source updated." : "Source created.");
+    return result;
+  }, (result) => {
+    const baseMessage = editingSource ? "Source updated." : "Source created.";
+    return result?.pipelineWarning
+      ? `${baseMessage} Live pipeline refresh is still degraded: ${result.pipelineWarning}`
+      : baseMessage;
+  });
 }
 
 async function deleteOperatorSource(sourceId) {
@@ -1258,7 +2485,116 @@ async function deleteOperatorSource(sourceId) {
     if (state.editingSourceId === sourceId) {
       state.editingSourceId = "";
     }
-  }, "Source deleted.");
+
+    return response.json();
+  }, (result) =>
+    result?.pipelineWarning
+      ? `Source deleted. Live pipeline refresh is still degraded: ${result.pipelineWarning}`
+      : "Source deleted.");
+}
+
+async function submitResearchForm(form) {
+  const formData = new FormData(form);
+  const editingResearch = getResearchBeingEdited();
+  const payload = {
+    title: String(formData.get("title") || "").trim(),
+    theme: String(formData.get("theme") || "").trim(),
+    assets: String(formData.get("assets") || "").trim(),
+    horizon: String(formData.get("horizon") || "").trim(),
+    thesis: String(formData.get("thesis") || "").trim(),
+    supportingEvidence: String(formData.get("supportingEvidence") || "").trim(),
+    contradictingEvidence: String(formData.get("contradictingEvidence") || "").trim(),
+    citations: String(formData.get("citations") || "").trim(),
+    edgeHypothesis: String(formData.get("edgeHypothesis") || "").trim(),
+    riskFactors: String(formData.get("riskFactors") || "").trim(),
+    sourceQualityScore: String(formData.get("sourceQualityScore") || "").trim(),
+    timelinessScore: String(formData.get("timelinessScore") || "").trim(),
+    status: String(formData.get("status") || "").trim() || "discovery"
+  };
+
+  await runMutation(async () => {
+    const response = await fetch(
+      editingResearch
+        ? `/api/operator/research/${encodeURIComponent(editingResearch.id)}`
+        : "/api/operator/research",
+      {
+        method: editingResearch ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        await parseError(
+          response,
+          editingResearch ? "Failed to update the research dossier." : "Failed to create the research dossier."
+        )
+      );
+    }
+
+    const result = await response.json();
+    state.editingResearchId = result.dossier?.id || "";
+  }, editingResearch ? "Research dossier updated." : "Research dossier captured.");
+}
+
+async function updateResearchStatus(dossierId, status) {
+  const actionLabel = status === "approved" ? "approved" : status === "validated" ? "validated" : status === "dismissed" ? "dismissed" : "updated";
+
+  await runMutation(async () => {
+    const response = await fetch(`/api/operator/research/${encodeURIComponent(dossierId)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        status
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to update the research dossier status."));
+    }
+  }, `Research dossier ${actionLabel}.`);
+}
+
+async function deleteOperatorResearch(dossierId) {
+  await runMutation(async () => {
+    const response = await fetch(`/api/operator/research/${encodeURIComponent(dossierId)}`, {
+      method: "DELETE"
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to delete the research dossier."));
+    }
+
+    if (state.editingResearchId === dossierId) {
+      state.editingResearchId = "";
+    }
+  }, "Research dossier deleted.");
+}
+
+async function updateDecisionReview(decisionId, status) {
+  const actionLabel =
+    status === "approved" ? "approved" : status === "dismissed" ? "dismissed" : "reset to proposed";
+
+  await runMutation(async () => {
+    const response = await fetch(`/api/operator/decision-reviews/${encodeURIComponent(decisionId)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        status
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to update the decision review."));
+    }
+  }, `Decision ${actionLabel}.`);
 }
 
 async function loadReplay({ postId = state.selectedReplayPostId, live = false, silent = false } = {}) {
@@ -1300,6 +2636,58 @@ async function loadReplay({ postId = state.selectedReplayPostId, live = false, s
     state.replayError = error instanceof Error ? error.message : "Failed to load extraction replay.";
   } finally {
     state.isReplayLoading = false;
+    render();
+  }
+}
+
+function buildTestDrivePayload(form) {
+  const formData = new FormData(form);
+
+  return {
+    sourceId: String(formData.get("testSourceId") || "").trim(),
+    sourceHandle: String(formData.get("testSourceHandle") || "").trim(),
+    sourceName: String(formData.get("testSourceName") || "").trim(),
+    sourceCategory: String(formData.get("testSourceCategory") || "").trim(),
+    allowedAssets: String(formData.get("testAllowedAssets") || "").trim(),
+    relevantSectors: String(formData.get("testRelevantSectors") || "").trim(),
+    rawText: String(formData.get("testRawText") || ""),
+    runLive: formData.get("testRunLive") === "on"
+  };
+}
+
+async function runTestDrive(form, { forceLive = null } = {}) {
+  const payload = buildTestDrivePayload(form);
+
+  if (forceLive != null) {
+    payload.runLive = forceLive;
+  }
+
+  state.testDraft = {
+    ...payload
+  };
+  state.testRunError = "";
+  state.testRunData = null;
+  state.isTestRunLoading = true;
+  render();
+
+  try {
+    const response = await fetch("/api/engine/test-drive", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, `Test run failed with ${response.status}`));
+    }
+
+    state.testRunData = await response.json();
+  } catch (error) {
+    state.testRunError = error instanceof Error ? error.message : "Failed to run the ad hoc test.";
+  } finally {
+    state.isTestRunLoading = false;
     render();
   }
 }
@@ -1435,6 +2823,21 @@ function attachListeners() {
     button.addEventListener("click", () => setActionFilter(button.dataset.actionFilter));
   });
 
+  document.querySelectorAll("[data-review-decision]").forEach((button) => {
+    button.addEventListener("click", () => {
+      updateDecisionReview(button.dataset.reviewDecision, button.dataset.reviewStatus);
+    });
+  });
+
+  document.querySelectorAll("[data-post-verification-override]").forEach((button) => {
+    button.addEventListener("click", () => {
+      togglePostVerificationOverride(
+        button.dataset.postVerificationOverride,
+        button.dataset.postVerificationEnabled === "1"
+      );
+    });
+  });
+
   document.querySelectorAll("[data-refresh]").forEach((button) => {
     button.addEventListener("click", () => loadData({ refresh: true }));
   });
@@ -1482,10 +2885,56 @@ function attachListeners() {
     });
   });
 
+  document.querySelectorAll("[data-edit-research]").forEach((button) => {
+    button.addEventListener("click", () => setEditingResearch(button.dataset.editResearch));
+  });
+
+  document.querySelectorAll("[data-cancel-research-edit]").forEach((button) => {
+    button.addEventListener("click", () => setEditingResearch(""));
+  });
+
+  document.querySelectorAll("[data-delete-research]").forEach((button) => {
+    button.addEventListener("click", () => deleteOperatorResearch(button.dataset.deleteResearch));
+  });
+
+  document.querySelectorAll("[data-research-status]").forEach((button) => {
+    button.addEventListener("click", () =>
+      updateResearchStatus(button.dataset.researchStatus, button.dataset.nextStatus)
+    );
+  });
+
+  document.querySelectorAll("[data-research-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitResearchForm(form);
+    });
+  });
+
   document.querySelectorAll("[data-manual-feed-form]").forEach((form) => {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       importManualFeed(form);
+    });
+  });
+
+  document.querySelectorAll("[data-test-drive-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      runTestDrive(form);
+    });
+  });
+
+  document.querySelectorAll("[data-rerun-test-live]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const form = document.querySelector("[data-test-drive-form]");
+
+      if (!form) {
+        return;
+      }
+
+      runTestDrive(form, {
+        forceLive: true
+      });
     });
   });
 
@@ -1650,6 +3099,21 @@ function renderStatusBanner() {
     `;
   }
 
+  const bootstrap = getData().runtime?.bootstrap || EMPTY_DATA.runtime.bootstrap;
+
+  if (bootstrap.status === "degraded" && bootstrap.lastError) {
+    return `
+      <section class="section-card status-banner">
+        <div>
+          <span class="eyebrow">Startup Warning</span>
+          <h3>Running on the last good snapshot</h3>
+          <p>${escapeHtml(bootstrap.lastError)}</p>
+        </div>
+        <button class="refresh-button" data-run-pipeline>Run pipeline</button>
+      </section>
+    `;
+  }
+
   if (state.isRefreshing) {
     return `
       <section class="section-card status-banner">
@@ -1730,11 +3194,15 @@ function renderNav() {
   const metadata = getData().metadata || EMPTY_DATA.metadata;
   const feedMode = getFeedMode();
   const setupState = buildSingleUserSetupState(profile);
+  const researchSummary = getResearchSummary();
+  const researchDossiers = getResearchDossiers();
   const trackedAssets = buildTrackedPortfolioAnalytics(profile).trackedAssets.length;
   const primaryItems = [
     ["dashboard", "Overview", trackedAssets || "0"],
     ["setup", "Portfolio", `${profile.holdings.length} holdings`],
+    ["research", "Research", `${researchSummary.dossierCount || researchDossiers.length} dossiers`],
     ["signals", "Signals", `${getRecentAnalysedPosts().length} posts`],
+    ["tests", "Tests", state.isTestRunLoading ? "Running" : state.testRunData ? "Ready" : "Lab"],
     ["advisor", "Advisor", getAdvisor().history.length || "0"],
     [isAdvancedView() ? state.view : "admin", "Operations", getHistory().runs.length || "0"]
   ];
@@ -1743,9 +3211,12 @@ function renderNav() {
   return `
     <header class="office-header">
       <div class="office-titlebar">
-        <div>
-          <p class="brand-kicker">Local investment desk</p>
-          <h1>X Ticker Investment</h1>
+        <div class="office-brand">
+          <img class="office-logo-lockup" src="/logo.svg" alt="X Ticker Investment" width="320" height="93" />
+          <div class="sr-only">
+            <p class="brand-kicker">Local investment desk</p>
+            <h1>X Ticker Investment</h1>
+          </div>
         </div>
         <div class="office-meta">
           <div class="office-meta-item">
@@ -1820,6 +3291,7 @@ function renderAdminPage() {
   const latestRun = history.runs[0] || null;
   const latestEval = evaluation.latestRun || evaluation.history[0] || null;
   const quickLinks = [
+    ["tests", "Tests"],
     ["logs", "Run history"],
     ["sources", "Sources"],
     ["assets", "Assets"],
@@ -1851,7 +3323,7 @@ function renderAdminPage() {
           <article class="office-metric">
             <span>Scheduler</span>
             <strong>${runtime.scheduler.active ? "Active" : "Off"}</strong>
-            <small>${runtime.scheduler.active ? `${runtime.scheduler.intervalMinutes} min` : "Manual only"}</small>
+            <small>${runtime.scheduler.active ? runtime.scheduler.scheduleDescription || "Scheduled" : "Manual only"}</small>
           </article>
           <article class="office-metric">
             <span>Feed mode</span>
@@ -2210,13 +3682,16 @@ function renderReplayInspector() {
                       </div>
                       <span class="pill">${replay.currentSnapshotPost?.clusterId || "pending"}</span>
                     </div>
-                    <p>${replay.rawPost.body}</p>
-                    <div class="tag-row">
-                      <span class="tag">${replay.currentSnapshotPost?.claimType || "Pending"}</span>
-                      <span class="tag">${replay.currentSnapshotPost?.direction || "Pending"}</span>
-                      <span class="tag">${replay.currentSnapshotPost?.actionable ? "Actionable" : "Filtered down"}</span>
-                    </div>
-                  </article>
+                  <p>${replay.rawPost.body}</p>
+                  <div class="tag-row">
+                    <span class="tag">${replay.currentSnapshotPost?.claimType || "Pending"}</span>
+                    <span class="tag">${replay.currentSnapshotPost?.direction || "Pending"}</span>
+                    <span class="tag">${replay.currentSnapshotPost?.actionable ? "Actionable" : "Filtered down"}</span>
+                    ${renderPostVerificationTag(replay.currentSnapshotPost || {})}
+                  </div>
+                  ${renderPostVerificationNote(replay.currentSnapshotPost || {})}
+                  ${renderPostVerificationControls(replay.currentSnapshotPost || {})}
+                </article>
                   <details open>
                     <summary>Current normalized output</summary>
                     ${renderJsonBlock(replay.currentSnapshotPost)}
@@ -2264,6 +3739,452 @@ function renderReplayInspector() {
         </div>
       </div>
     </section>
+  `;
+}
+
+function buildTestTraceItems(testRun) {
+  const replay = testRun?.replay || {};
+  const impactReplay = testRun?.impactReplay || {};
+  const source = testRun?.source || {};
+  const selectedNormalized =
+    testRun?.selectedNormalized || testRun?.liveNormalized || testRun?.cachedNormalized || testRun?.heuristicBaseline || null;
+  const mappedAssets = Array.isArray(selectedNormalized?.mappedAssets) ? selectedNormalized.mappedAssets : [];
+  const likelyImpacts = getLikelyImpacts(selectedNormalized || testRun?.rawPost || {});
+  const liveStage = replay.liveRun
+    ? replay.liveRun.ok
+      ? {
+          status: "success",
+          summary: "The model returned a one-off live extraction for this test input."
+        }
+      : {
+          status: "warning",
+          summary: replay.liveRun.error || "The live extraction request failed."
+        }
+    : replay.validationReady?.liveEligible
+      ? {
+          status: "neutral",
+          summary: "Live extraction was skipped for this run."
+        }
+        : {
+            status: "neutral",
+            summary: "The extractor is not in model-backed mode, so only heuristic analysis ran."
+          };
+  const impactStage = impactReplay.liveRun
+    ? impactReplay.liveRun.ok
+      ? {
+          status: "success",
+          summary: "The impact mapper ranked likely affected names from the tracked universe."
+        }
+      : {
+          status: "warning",
+          summary: impactReplay.liveRun.error || "The live impact-mapping request failed."
+        }
+    : impactReplay.validationReady?.liveEligible
+      ? {
+          status: "neutral",
+          summary: "Live impact mapping was skipped for this run."
+        }
+        : {
+            status: "neutral",
+            summary: "The impact mapper is not in hosted-model mode, so no AI-ranked impacts were generated."
+          };
+  const impactCacheStage = impactReplay.cache?.hit
+    ? {
+        status: "success",
+        summary: "A cached impact-ranking result already existed for this normalized post and watched-universe context."
+      }
+    : {
+        status: "neutral",
+        summary: "No cached impact-ranking result matched this test input."
+      };
+
+  return [
+    {
+      label: "Input staged",
+      status: "success",
+      summary: `${source.handle || "Unknown source"} with ${(source.allowedAssets || []).length || 0} allowed assets and ${String(testRun?.rawPost?.body || "").length} characters.`
+    },
+    {
+      label: "Heuristic baseline",
+      status: "success",
+      summary: `${testRun?.heuristicBaseline?.claimType || "Pending"} -> ${testRun?.heuristicBaseline?.clusterId || "pending"} (${(testRun?.heuristicBaseline?.mappedAssets || []).join(", ") || "Unmapped"}).`
+    },
+    {
+      label: "Prompt request",
+      status: "success",
+      summary: `${replay.config?.activeMode || "heuristic"} · ${replay.config?.model || "No hosted model"} · ${replay.validationReady?.exampleCount || 0} calibration examples.`
+    },
+    {
+      label: "Cache lookup",
+      status: replay.cache?.hit ? "success" : "neutral",
+      summary: replay.cache?.hit
+        ? "A cached extraction already existed for the same prompt/model fingerprint."
+        : "No cached extraction matched this test input."
+    },
+    {
+      label: "Live extraction",
+      status: liveStage.status,
+      summary: liveStage.summary
+    },
+    {
+      label: "Normalized output",
+      status: "success",
+      summary: `${selectedNormalized?.claimType || "Pending"} · ${selectedNormalized?.direction || "Pending"} · ${selectedNormalized?.clusterId || "pending"}`
+    },
+    {
+      label: "Verification gate",
+      status: getPostVerificationInfo(selectedNormalized || {}).blocksActionability
+        ? "warning"
+        : getPostVerificationInfo(selectedNormalized || {}).status === "trusted"
+          ? "neutral"
+          : "success",
+      summary:
+        getPostVerificationInfo(selectedNormalized || {}).note ||
+        "This signal did not need an extra reliability gate."
+    },
+    {
+      label: "Asset mapping",
+      status: getAssetMappingInfo(selectedNormalized || {}).requiresReview ? "warning" : "success",
+      summary: mappedAssets.length
+        ? `${mappedAssets.join(", ")} · ${getAssetMappingInfo(selectedNormalized || {}).label}`
+        : "Unmapped after normalization."
+    },
+    {
+      label: "Impact request",
+      status: impactReplay.validationReady?.liveEligible ? "success" : "neutral",
+      summary: `${impactReplay.config?.activeMode || "disabled"} · ${impactReplay.config?.model || "No hosted model"} · ${impactReplay.validationReady?.candidateCount || 0} candidate assets.`
+    },
+    {
+      label: "Impact cache",
+      status: impactCacheStage.status,
+      summary: impactCacheStage.summary
+    },
+    {
+      label: "Impact mapping",
+      status: impactStage.status,
+      summary: impactStage.summary
+    },
+    {
+      label: "Likely impacts",
+      status: likelyImpacts.length ? "success" : "neutral",
+      summary: likelyImpacts.length
+        ? likelyImpacts
+            .slice(0, 3)
+            .map((impact) => `${impact.asset} (${impact.impactDirection}, ${impact.directness})`)
+            .join(", ")
+        : "No likely impacted stocks were ranked for this input."
+    }
+  ];
+}
+
+function renderTestTraceGrid(testRun) {
+  const stages = buildTestTraceItems(testRun);
+
+  return `
+    <div class="test-stage-grid">
+      ${stages
+        .map(
+          (stage) => `
+            <article class="test-stage test-stage-${stage.status}">
+              <div class="test-stage-head">
+                <strong>${escapeHtml(stage.label)}</strong>
+                <span class="pill pill-muted">${escapeHtml(formatEnumLabel(stage.status))}</span>
+              </div>
+              <p>${escapeHtml(stage.summary)}</p>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderTestOutputCard(testRun) {
+  const selectedNormalized =
+    testRun?.selectedNormalized || testRun?.liveNormalized || testRun?.cachedNormalized || testRun?.heuristicBaseline || null;
+
+  if (!selectedNormalized) {
+    return `
+      <article class="status-inline">
+        <strong>No analysis result yet</strong>
+        <p>Run the test to see normalized output, mapped assets, and likely impacts.</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="operator-card">
+      <div class="operator-card-head">
+        <div>
+          <strong>${escapeHtml(testRun?.source?.handle || testRun?.rawPost?.sourceId || "@testbench")}</strong>
+          <span>${escapeHtml(testRun?.rawPost?.createdAt || testRun?.generatedAt || "")}</span>
+        </div>
+        <span class="pill">${escapeHtml(selectedNormalized.clusterId || "pending")}</span>
+      </div>
+      <p>${escapeHtml(testRun?.rawPost?.body || "")}</p>
+      <div class="tag-row">
+        <span class="tag">${escapeHtml(selectedNormalized.claimType || "Pending")}</span>
+        <span class="tag">${escapeHtml(selectedNormalized.direction || "Pending")}</span>
+        <span class="tag">${selectedNormalized.actionable ? "Actionable" : "Filtered down"}</span>
+        ${renderPostVerificationTag(selectedNormalized)}
+        <span class="tag">${formatPercent(selectedNormalized.confidence || 0)}</span>
+      </div>
+      ${renderPostVerificationNote(selectedNormalized)}
+      <div class="tweet-analysis">
+        <div class="tweet-analysis-block">
+          <span>Mapped assets</span>
+          ${renderMappedAssetStack(selectedNormalized)}
+        </div>
+        <div class="tweet-analysis-block">
+          <span>Likely impacted stocks</span>
+          ${renderLikelyImpactSummary(selectedNormalized)}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderTestsPage() {
+  const extractor = getEngine().extractor || EMPTY_DATA.engine.extractor;
+  const draft = state.testDraft || DEFAULT_TEST_DRAFT;
+  const testRun = state.testRunData;
+  const sourceOptions = getData().sources || [];
+
+  return `
+    <main class="office-content">
+      ${renderStatusBanner()}
+      ${renderOperatorNotice()}
+      <section class="office-panel office-summary-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Tests</span>
+            <h2>Single-tweet lab with full analysis trace</h2>
+            <p class="section-copy">Paste one tweet or note, run an ad hoc analysis, and inspect the chain from request envelope through normalized output without polluting the live feed.</p>
+          </div>
+          <div class="office-inline-meta">
+            <span>${escapeHtml(extractor.activeMode || "heuristic")}</span>
+            <span>${escapeHtml(extractor.model || "No hosted model")}</span>
+          </div>
+        </div>
+        <div class="office-summary-grid">
+          <article class="office-metric">
+            <span>Extractor mode</span>
+            <strong>${escapeHtml(formatEnumLabel(extractor.activeMode || "heuristic"))}</strong>
+            <small>${escapeHtml(extractor.provider || "local rules")}</small>
+          </article>
+          <article class="office-metric">
+            <span>Model</span>
+            <strong>${escapeHtml(extractor.model || "Heuristic only")}</strong>
+            <small>${escapeHtml(extractor.promptVersion || "No prompt bundle")}</small>
+          </article>
+          <article class="office-metric">
+            <span>Last test</span>
+            <strong>${testRun?.source?.handle ? escapeHtml(testRun.source.handle) : "Pending"}</strong>
+            <small>${testRun?.generatedAt ? formatGeneratedAt(testRun.generatedAt) : "Run the first ad hoc test"}</small>
+          </article>
+          <article class="office-metric">
+            <span>Impact mapper</span>
+            <strong>${
+              testRun?.impactReplay?.liveRun
+                ? testRun.impactReplay.liveRun.ok
+                  ? "Completed"
+                  : "Failed"
+                : testRun?.impactReplay?.validationReady?.liveEligible
+                  ? "Available"
+                  : "Off"
+            }</strong>
+            <small>${
+              testRun?.impactReplay?.cache?.hit
+                ? "Cached ranking available"
+                : testRun?.impactReplay?.config?.model
+                  ? `${testRun.impactReplay.config.model} · ${testRun.impactReplay.validationReady?.candidateCount || 0} candidates`
+                  : "No hosted impact mapper configured"
+            }</small>
+          </article>
+          <article class="office-metric">
+            <span>Impact cache</span>
+            <strong>${testRun?.impactReplay?.cache?.hit ? "Hit" : "Miss"}</strong>
+            <small>${
+              testRun?.impactReplay?.cache?.entry?.cachedAt
+                ? formatGeneratedAt(testRun.impactReplay.cache.entry.cachedAt)
+                : testRun?.impactReplay?.config?.model
+                  ? "No cached ranking yet"
+                  : "No hosted impact mapper configured"
+            }</small>
+          </article>
+        </div>
+      </section>
+      <section class="section-card">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Ad hoc test</span>
+            <h3>Paste one tweet and inspect the chain</h3>
+          </div>
+          <div class="office-form-actions">
+            <button class="mini-chip" type="button" data-rerun-test-live ${extractor.activeMode === "openai" && !state.isTestRunLoading ? "" : "disabled"}>Re-run live extraction</button>
+            <button class="mini-chip" data-view="signals">Open signals</button>
+          </div>
+        </div>
+        <div class="replay-shell test-shell">
+          <section class="office-panel">
+            <form class="operator-form office-form" data-test-drive-form>
+              <input type="hidden" name="testSourceId" value="${escapeHtml(draft.sourceId || "")}" />
+              <div class="field-grid">
+                <label class="form-field">
+                  <span>Source handle</span>
+                  <input name="testSourceHandle" list="test-source-handle-list" value="${escapeHtml(draft.sourceHandle || "@testbench")}" />
+                  <small class="subtle">If this matches an existing monitored source, its metadata is reused automatically.</small>
+                </label>
+                <label class="form-field">
+                  <span>Source name</span>
+                  <input name="testSourceName" value="${escapeHtml(draft.sourceName || "")}" />
+                </label>
+                <label class="form-field">
+                  <span>Category</span>
+                  <input name="testSourceCategory" value="${escapeHtml(draft.sourceCategory || "")}" />
+                </label>
+                <label class="form-field">
+                  <span>Allowed assets override</span>
+                  <input name="testAllowedAssets" placeholder="NVDA, AMD, IBM" value="${escapeHtml(draft.allowedAssets || "")}" />
+                </label>
+              </div>
+              <label class="form-field">
+                <span>Relevant sectors override</span>
+                <input name="testRelevantSectors" placeholder="AI, semis, public sector, software" value="${escapeHtml(draft.relevantSectors || "")}" />
+              </label>
+              <label class="form-field">
+                <span>Tweet or note</span>
+                <textarea
+                  name="testRawText"
+                  rows="10"
+                  placeholder="US government AI procurement talk is moving faster than expected. If this turns into real operating language, which names should I watch?"
+                >${escapeHtml(draft.rawText || "")}</textarea>
+              </label>
+              <label class="checkbox-field">
+                <input type="checkbox" name="testRunLive" ${draft.runLive ? "checked" : ""} />
+                <span>Run live model extraction when available</span>
+              </label>
+              <div class="office-form-actions">
+                <button class="refresh-button" type="submit" ${state.isTestRunLoading ? "disabled" : ""}>
+                  ${state.isTestRunLoading ? "Analyzing..." : "Run analysis"}
+                </button>
+                <button class="mini-chip" type="button" data-view="dashboard">Back to overview</button>
+              </div>
+              <datalist id="test-source-handle-list">
+                ${sourceOptions.map((source) => `<option value="${escapeHtml(source.handle)}">${escapeHtml(source.name || source.handle)}</option>`).join("")}
+              </datalist>
+            </form>
+          </section>
+          <section class="office-panel replay-panel">
+            ${
+              state.testRunError
+                ? `
+                  <article class="status-inline status-inline-error">
+                    <strong>Test error</strong>
+                    <p>${escapeHtml(state.testRunError)}</p>
+                  </article>
+                `
+                : ""
+            }
+            ${
+              state.isTestRunLoading
+                ? `
+                  <article class="status-inline">
+                    <strong>Running ad hoc analysis</strong>
+                    <p>The lab is building the extractor request, checking cache, and normalizing the single-post output now.</p>
+                  </article>
+                `
+                : ""
+            }
+            ${testRun ? renderTestTraceGrid(testRun) : ""}
+            ${renderTestOutputCard(testRun)}
+            ${
+              testRun
+                ? `
+                  <details open>
+                    <summary>Selected normalized output</summary>
+                    ${renderJsonBlock(testRun.selectedNormalized)}
+                  </details>
+                  <details>
+                    <summary>Heuristic baseline</summary>
+                    ${renderJsonBlock(testRun.heuristicBaseline)}
+                  </details>
+                  <details>
+                    <summary>Prompt guide and validation focus</summary>
+                    ${renderJsonBlock(testRun.replay.promptGuide)}
+                  </details>
+                  <details>
+                    <summary>Extraction request envelope</summary>
+                    ${renderJsonBlock(testRun.replay.requestEnvelope)}
+                  </details>
+                  <details>
+                    <summary>Cached extraction payload</summary>
+                    ${
+                      testRun.replay.cache.hit
+                        ? renderJsonBlock(testRun.replay.cache.entry)
+                        : '<article class="status-inline"><strong>No cached extraction</strong><p>This exact input has not been cached for the current prompt/model fingerprint yet.</p></article>'
+                    }
+                  </details>
+                  <details>
+                    <summary>Cached normalized output</summary>
+                    ${
+                      testRun.cachedNormalized
+                        ? renderJsonBlock(testRun.cachedNormalized)
+                        : '<article class="status-inline"><strong>No cached normalized output</strong><p>The cache did not contain a model extraction for this test case.</p></article>'
+                    }
+                  </details>
+                  <details>
+                    <summary>One-off live run</summary>
+                    ${
+                      testRun.replay.liveRun
+                        ? renderJsonBlock(testRun.replay.liveRun)
+                        : `<article class="status-inline"><strong>Live run not executed</strong><p>${testRun.replay.validationReady?.liveEligible ? "Enable the checkbox or use Re-run live extraction to force a one-off model call." : "The current extractor is not in hosted-model mode."}</p></article>`
+                    }
+                  </details>
+                  <details>
+                    <summary>Live normalized output</summary>
+                    ${
+                      testRun.liveNormalized
+                        ? renderJsonBlock(testRun.liveNormalized)
+                        : '<article class="status-inline"><strong>No live normalized output</strong><p>The selected output came from cache or heuristic normalization for this run.</p></article>'
+                    }
+                  </details>
+                  <details>
+                    <summary>Impact-mapping prompt guide</summary>
+                    ${renderJsonBlock(testRun.impactReplay.promptGuide)}
+                  </details>
+                  <details>
+                    <summary>Impact-mapping request envelope</summary>
+                    ${renderJsonBlock(testRun.impactReplay.requestEnvelope)}
+                  </details>
+                  <details>
+                    <summary>Impact-mapping cache entry</summary>
+                    ${
+                      testRun.impactReplay.cache?.hit
+                        ? renderJsonBlock(testRun.impactReplay.cache.entry)
+                        : '<article class="status-inline"><strong>No cached impact ranking</strong><p>This normalized post and watched-universe context have not been cached for the current model prompt yet.</p></article>'
+                    }
+                  </details>
+                  <details>
+                    <summary>Impact-mapping live run</summary>
+                    ${
+                      testRun.impactReplay.liveRun
+                        ? renderJsonBlock(testRun.impactReplay.liveRun)
+                        : `<article class="status-inline"><strong>No live impact-mapping run</strong><p>${testRun.impactReplay.validationReady?.liveEligible ? "Enable the checkbox or rerun the analysis to force a live impact-mapping call." : "The current impact mapper is not in hosted-model mode."}</p></article>`
+                    }
+                  </details>
+                `
+                : `
+                  <article class="status-inline">
+                    <strong>Paste one tweet to start</strong>
+                    <p>This lab keeps the analysis separate from the live feed while showing the same extraction and normalization path the app would use downstream.</p>
+                  </article>
+                `
+            }
+          </section>
+        </div>
+      </section>
+    </main>
   `;
 }
 
@@ -2373,6 +4294,7 @@ function renderDecisionCards() {
                       <span>${decision.horizon}</span>
                       <span>${formatPercent(decision.confidence)}</span>
                     </div>
+                    ${renderDecisionMathSummary(getDecisionMath(decision))}
                     <p>${decision.rationale[0]}</p>
                     <details>
                       <summary>Full reasoning trace</summary>
@@ -2488,8 +4410,14 @@ function renderSignalFeed() {
                   <div class="tag-row">
                     <span class="tag">${post.claimType}</span>
                     <span class="tag">${post.actionable ? "Actionable" : "Not actionable"}</span>
-                    ${post.mappedAssets.map((asset) => `<button class="tag tag-button" data-asset="${asset}">${asset}</button>`).join("")}
+                    ${renderPostVerificationTag(post)}
+                    ${renderMappedAssetButtons(post, "tag tag-button")}
+                    ${renderAssetMappingStatusTag(post)}
                   </div>
+                  ${renderPostVerificationNote(post)}
+                  ${renderPostVerificationControls(post)}
+                  ${renderAssetMappingNote(post)}
+                  ${renderLikelyImpactSummary(post)}
                 </article>
               `;
             })
@@ -2560,8 +4488,11 @@ function renderAnalysedTweetsWindow() {
                           <span class="tag">${post.claimType}</span>
                           <span class="tag">${post.direction}</span>
                           <span class="tag">${post.actionable ? "Actionable" : "Filtered down"}</span>
+                          ${renderPostVerificationTag(post)}
                           <span class="tag">${formatPercent(post.confidence)}</span>
                         </div>
+                        ${renderPostVerificationNote(post)}
+                        ${renderPostVerificationControls(post)}
                         <div class="tweet-analysis">
                           <div class="tweet-analysis-block">
                             <span>Cluster</span>
@@ -2569,11 +4500,11 @@ function renderAnalysedTweetsWindow() {
                           </div>
                           <div class="tweet-analysis-block">
                             <span>Mapped assets</span>
-                            <div class="chip-row">
-                              ${post.mappedAssets
-                                .map((asset) => `<button class="mini-chip" data-asset="${asset}">${asset}</button>`)
-                                .join("")}
-                            </div>
+                            ${renderMappedAssetStack(post)}
+                          </div>
+                          <div class="tweet-analysis-block">
+                            <span>Likely impacted stocks</span>
+                            ${renderLikelyImpactSummary(post)}
                           </div>
                         </div>
                       </article>
@@ -2595,6 +4526,7 @@ function renderAnalysedTweetsWindow() {
 
 function renderDashboard() {
   const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const watchedUniverse = getWatchedUniverse(profile);
   const setupState = buildSingleUserSetupState(profile);
   const latestAnswer = getLatestAdvisorAnswer();
   const feedMode = getFeedMode();
@@ -2602,24 +4534,36 @@ function renderDashboard() {
   const cashSummary = buildProfileCashSummary(profile);
   const { trackedAssets, actionableAssets, urgentAssets, priorityAssets } = buildTrackedPortfolioAnalytics(profile);
   const recentSignals = sortPostsByCreatedAt(
-    getData().posts.filter((post) =>
-      (post.mappedAssets || []).some((asset) => trackedTickers.includes(asset))
-    )
+    getData().posts.filter((post) => getPostExposureTickers(post, profile).some((asset) => trackedTickers.includes(asset)))
   ).slice(0, 3);
   const globalFocusItems = getData().decisions.slice(0, 4).map((decision) => ({
     ticker: decision.asset,
-    asset: getData().monitoredUniverse.find((item) => item.ticker === decision.asset) || null,
+    asset: watchedUniverse.find((item) => item.ticker === decision.asset) || null,
     holding: null,
     decision,
     relatedPosts: sortPostsByCreatedAt(
-      getData().posts.filter((post) => (post.mappedAssets || []).includes(decision.asset))
+      getData().posts.filter((post) => getPostExposureTickers(post, profile).includes(decision.asset))
     ).slice(0, 2)
   }));
   const focusItems = (priorityAssets.length ? priorityAssets : globalFocusItems).slice(0, 4);
-  const focusRows = focusItems.length
+  const reviewSummary = getReviewSummary();
+  const researchSummary = getResearchSummary();
+  const researchDossiers = getResearchDossiers();
+  const researchCandidateCount =
+    researchSummary.candidateCount || researchDossiers.filter((dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate").length;
+  const researchApprovedCount =
+    researchSummary.approvedCount || researchDossiers.filter((dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "approved").length;
+  const featuredResearch = researchDossiers.find(
+    (dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate"
+  ) || researchDossiers[0] || null;
+  const reviewQueue = getDecisionReviewQueue().slice(0, 4);
+  const nextReviewItem = reviewQueue.find((item) => item.reviewStatus === "proposed") || null;
+  const fallbackRows = focusItems.length
     ? focusItems
         .map((item) => {
           const decision = item.decision;
+          const decisionReview = getCurrentDecisionReview(item.ticker);
+          const linkedResearch = getResearchForAsset(item.ticker, decision);
           const description =
             decision?.rationale?.[0] ||
             item.asset?.thesis ||
@@ -2631,16 +4575,42 @@ function renderDashboard() {
               <td>${decision?.action || "WATCH"}</td>
               <td>${decision ? formatPercent(decision.confidence || 0) : "Pending"}</td>
               <td>${item.relatedPosts.length}</td>
-              <td>${description}</td>
+              <td>${escapeHtml(description)}${decision ? renderDecisionMathSummary(getDecisionMath(decision)) : ""}</td>
+              <td>${decisionReview && isResearchEligibleForReview(linkedResearch) ? renderDecisionReviewTag(decisionReview.reviewStatus) : `<span class="subtle">${isResearchEligibleForReview(linkedResearch) ? "No review needed" : "Research first"}</span>`}</td>
+              <td>${decisionReview ? renderDecisionReviewGate(decisionReview.id, decisionReview.reviewStatus, decision, linkedResearch) : `<span class="subtle">Nothing queued.</span>`}</td>
             </tr>
           `;
         })
         .join("")
     : `
       <tr>
-        <td colspan="5">No focus list yet. Save a watchlist or holdings first.</td>
+        <td colspan="7">No focus list yet. Save a watchlist or holdings first.</td>
       </tr>
     `;
+  const focusRows = reviewQueue.length
+    ? reviewQueue
+        .map(
+          (item) => `
+            <tr>
+              <td><button class="inline-link" data-asset="${item.asset}">${item.asset}</button></td>
+              <td>${item.action}</td>
+              <td>${formatPercent(item.confidence || 0)}</td>
+              <td>${item.relatedPostCount}</td>
+              <td>${item.summary || "No rationale captured."}${renderDecisionMathSummary(getDecisionMath(item))}</td>
+              <td>
+                ${renderDecisionReviewTag(item.reviewStatus)}
+                ${
+                  item.reviewedAt
+                    ? `<div class="office-review-meta">${formatGeneratedAt(item.reviewedAt)}</div>`
+                    : `<div class="office-review-meta">Pending operator decision</div>`
+                }
+              </td>
+              <td>${renderDecisionReviewGate(item.id, item.reviewStatus, item, item.linkedResearch)}</td>
+            </tr>
+          `
+        )
+        .join("")
+    : fallbackRows;
   const signalRows = (recentSignals.length ? recentSignals : getRecentAnalysedPosts().slice(0, 3)).length
     ? (recentSignals.length ? recentSignals : getRecentAnalysedPosts().slice(0, 3))
         .map((post) => {
@@ -2650,7 +4620,7 @@ function renderDashboard() {
             <tr>
               <td>${source?.handle || post.sourceId}</td>
               <td>${formatGeneratedAt(post.createdAt)}</td>
-              <td>${(post.mappedAssets || []).join(", ") || "Unmapped"}</td>
+              <td>${renderAssetMappingCell(post)}</td>
               <td>${post.body}</td>
             </tr>
           `;
@@ -2664,15 +4634,22 @@ function renderDashboard() {
   const nextAction =
     !setupState.hasDecisionFrame || !setupState.hasPortfolioContext
       ? "Complete the Portfolio tab so the brief can focus on your real positions."
-      : !setupState.hasRealSignalInput
-        ? "Use the Signals tab to import a few real posts before trusting the queue."
-        : urgentAssets.length
-          ? `Review ${urgentAssets[0]?.ticker || "the first urgent asset"} first.`
-          : "The setup is usable. Check the queue and ask targeted questions in Advisor.";
+      : !researchSummary.dossierCount && !researchDossiers.length && getData().decisions.length
+        ? "Capture a research dossier before treating any fresh decision as actionable."
+      : researchSummary.dossierCount || researchDossiers.length
+        ? `Review ${escapeHtml(getResearchDossierHeadline(featuredResearch, "the lead research dossier"))} before approving the queue.`
+        : reviewSummary.proposedCount
+          ? `Approve or dismiss ${nextReviewItem?.asset || "the top queued decision"} first.`
+          : !setupState.hasRealSignalInput
+            ? "Use the Signals tab to import a few real posts before trusting the queue."
+            : urgentAssets.length
+              ? `Review ${urgentAssets[0]?.ticker || "the first urgent asset"} first.`
+              : "The setup is usable. Check the queue and ask targeted questions in Advisor.";
 
   return `
     <main class="office-content">
       ${renderStatusBanner()}
+      ${renderOperatorNotice()}
       <section class="office-panel office-summary-panel">
         <div class="office-panel-head">
           <div>
@@ -2692,9 +4669,9 @@ function renderDashboard() {
             <small>${getRecentAnalysedPosts().length} recent posts in scope</small>
           </article>
           <article class="office-metric">
-            <span>Active calls</span>
-            <strong>${actionableAssets.length}</strong>
-            <small>${urgentAssets.length} urgent and ${getData().decisions.length} total decisions</small>
+            <span>Pending approvals</span>
+            <strong>${reviewSummary.proposedCount}</strong>
+            <small>${reviewSummary.reviewedCount} reviewed and ${getData().decisions.length} total decisions</small>
           </article>
           <article class="office-metric">
             <span>Safety buffer</span>
@@ -2706,13 +4683,57 @@ function renderDashboard() {
           <span>Next action</span>
           <strong>${nextAction}</strong>
         </div>
+        <div class="office-research-callout">
+          <div>
+            <span class="eyebrow">Research before approval</span>
+            <h3>${featuredResearch ? escapeHtml(getResearchDossierHeadline(featuredResearch)) : "No research dossiers yet"}</h3>
+            <p>${featuredResearch ? escapeHtml(featuredResearch.thesis || featuredResearch.summary || "Inspect the thesis packet before the candidate gets promoted.") : "When the app-data payload exposes a research block, the lead dossier will appear here."}</p>
+          </div>
+          <div class="office-research-callout-meta">
+            ${featuredResearch ? renderLifecyclePill(featuredResearch.status || featuredResearch.stage) : `<span class="pill pill-muted">Discovery</span>`}
+            <span class="pill pill-muted">${researchSummary.dossierCount || researchDossiers.length} dossiers</span>
+            <span class="pill pill-muted">${researchApprovedCount} approved</span>
+          </div>
+          <button class="mini-chip" data-view="research">Open research</button>
+        </div>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Research intake</span>
+            <h3>Evidence chain before the queue</h3>
+          </div>
+          <button class="mini-chip" data-view="research">Open research view</button>
+        </div>
+        <div class="research-dashboard-grid">
+          <article class="research-dashboard-card">
+            <span>Candidate packets</span>
+            <strong>${researchCandidateCount}</strong>
+            <p>Theses waiting for a human decision or deeper validation.</p>
+          </article>
+          <article class="research-dashboard-card">
+            <span>Approved packets</span>
+            <strong>${researchApprovedCount}</strong>
+            <p>Evidence already cleared to shape recommendations downstream.</p>
+          </article>
+          <article class="research-dashboard-card">
+            <span>Quality / timeliness</span>
+            <strong>${formatDecisionMathValue(researchSummary.averageSourceQualityScore, { probability: true })}</strong>
+            <p>${researchSummary.averageTimelinessScore != null ? `Timeliness ${formatDecisionMathValue(researchSummary.averageTimelinessScore, { probability: true })}` : "Timeliness pending from the research block."}</p>
+          </article>
+          <article class="research-dashboard-card">
+            <span>Lifecycle focus</span>
+            <strong>${featuredResearch ? renderLifecyclePill(featuredResearch.status || featuredResearch.stage) : "Discovery"}</strong>
+            <p>${featuredResearch ? escapeHtml(featuredResearch.summary || featuredResearch.thesis || "Start with the lead thesis packet.") : "Research, then candidate review, then approval."}</p>
+          </article>
+        </div>
       </section>
       <section class="office-grid office-grid-two">
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Priority queue</span>
-              <h3>What to review first</h3>
+              <span class="eyebrow">Approval queue</span>
+              <h3>What to approve or dismiss first</h3>
             </div>
             <button class="mini-chip" data-view="advisor">Open advisor</button>
           </div>
@@ -2724,6 +4745,8 @@ function renderDashboard() {
                 <th>Confidence</th>
                 <th>Posts</th>
                 <th>Reason</th>
+                <th>Status</th>
+                <th>Review</th>
               </tr>
             </thead>
             <tbody>${focusRows}</tbody>
@@ -2801,20 +4824,82 @@ function renderDashboard() {
 
 function renderAssetDecision(asset, decision) {
   if (!decision) {
+    const noDecisionCopy = asset.isCurated
+      ? "This asset is in the curated universe, but the current snapshot did not generate a live BUY, HOLD, or SELL call."
+      : asset.isTracked
+        ? "This tracked asset is in your personal watched universe. It can still appear in likely-impact ranking, but it will not receive a live BUY, HOLD, or SELL call until you add explicit research coverage or promote it into the curated universe."
+        : "This asset is not part of the active decision set yet.";
+
     return `
       <article class="section-card nested-card">
         <span class="eyebrow">Decision summary</span>
         <h3>No active recommendation for ${asset.ticker}</h3>
-        <p>This asset is in the curated universe, but the current snapshot did not generate a live BUY, HOLD, or SELL call.</p>
+        <p>${noDecisionCopy}</p>
       </article>
     `;
   }
+
+  const decisionReview = getCurrentDecisionReview(asset.ticker);
+  const decisionMath = getDecisionMath(decision);
+  const linkedResearch = getResearchForAsset(asset.ticker, decision);
+  const researchStatus = normalizeResearchStatus(linkedResearch?.status || linkedResearch?.stage);
+  const researchEligibleForReview =
+    decision?.researchEligibleForReview != null
+      ? Boolean(decision.researchEligibleForReview)
+      : isResearchEligibleForReview(linkedResearch);
+  const lifecycleLabel = decisionReview
+    ? decisionReview.reviewStatus === "approved"
+      ? "Approved"
+      : decisionReview.reviewStatus === "dismissed"
+        ? "Dismissed"
+        : "Candidate"
+    : "Informational";
 
   return `
     <article class="section-card nested-card">
       <span class="eyebrow">Decision summary</span>
       <h3>${decision.rationale[0]}</h3>
       <p>${decision.whyNot[0]}</p>
+      <div class="research-lifecycle-strip">
+        <div class="research-lifecycle-step is-active">
+          <span>Research</span>
+          <strong>${linkedResearch ? formatEnumLabel(researchStatus) : "Missing"}</strong>
+        </div>
+        <div class="research-lifecycle-step ${researchEligibleForReview && (decisionReview?.reviewStatus === "proposed" || !decisionReview) ? "is-active" : ""}">
+          <span>Candidate</span>
+          <strong>${researchEligibleForReview ? lifecycleLabel : "Blocked"}</strong>
+        </div>
+        <div class="research-lifecycle-step ${(decisionReview?.reviewStatus === "approved" || isResearchApproved(linkedResearch)) ? "is-active" : ""}">
+          <span>Approved</span>
+          <strong>${decisionReview?.reviewStatus === "approved" && isResearchApproved(linkedResearch) ? "Eligible" : "Locked"}</strong>
+        </div>
+      </div>
+      <div class="office-review-strip">
+        <div>
+          <span class="eyebrow">Operator review</span>
+          <div class="office-review-status">
+            ${
+              decisionReview && researchEligibleForReview
+                ? renderDecisionReviewTag(decisionReview.reviewStatus)
+                : `<span class="subtle">${researchEligibleForReview ? "No explicit review required" : "Research gating active"}</span>`
+            }
+            <strong>${
+              !researchEligibleForReview
+                ? getResearchBlockingReason(decision, linkedResearch)
+                : decisionReview?.reviewedAt
+                ? `Updated ${formatGeneratedAt(decisionReview.reviewedAt)}`
+                : decisionReview
+                  ? "Still awaiting review"
+                  : "This decision is informational unless it re-enters the approval queue."
+            }</strong>
+          </div>
+        </div>
+        ${renderDecisionReviewGate(decisionReview?.id || "", decisionReview?.reviewStatus || "proposed", decision, linkedResearch)}
+      </div>
+      <div class="research-linked-grid">
+        ${renderLinkedResearchCard(linkedResearch, decision)}
+      </div>
+      ${renderDecisionMathBlock(decisionMath)}
       <details open>
         <summary>Full reasoning trace</summary>
         <div class="details-stack">
@@ -2836,18 +4921,272 @@ function renderAssetDecision(asset, decision) {
   `;
 }
 
+function renderResearchView() {
+  const dossiers = getResearchDossiers();
+  const summary = getResearchSummary();
+  const scorecards = getResearchScorecards();
+  const lifecycleCounts = getResearchLifecycleCounts(dossiers);
+  const featuredDossier = dossiers.find((dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate") || dossiers[0] || null;
+  const editingResearch = getResearchBeingEdited();
+  const researchIntro =
+    featuredDossier?.thesis ||
+    featuredDossier?.summary ||
+    "Collect thesis evidence here before it becomes a candidate recommendation.";
+
+  return `
+    <main class="office-content research-content">
+      ${renderStatusBanner()}
+      ${renderOperatorNotice()}
+      <section class="office-panel office-summary-panel research-hero">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Research first</span>
+            <h2>Dossiers before candidate approval</h2>
+            <p class="section-copy">This view makes the upstream work explicit: thesis evidence, source quality, and conservative math before a decision gets promoted.</p>
+          </div>
+          <button class="mini-chip" data-view="dashboard">Back to overview</button>
+        </div>
+        <div class="office-summary-grid research-summary-grid">
+          <article class="office-metric">
+            <span>Dossiers</span>
+            <strong>${summary.dossierCount || lifecycleCounts.totalCount}</strong>
+            <small>${summary.totalCount || lifecycleCounts.totalCount} total research packets</small>
+          </article>
+          <article class="office-metric">
+            <span>Candidate theses</span>
+            <strong>${summary.candidateCount ?? lifecycleCounts.candidateCount}</strong>
+            <small>Waiting for approval or dismissal</small>
+          </article>
+          <article class="office-metric">
+            <span>Approved theses</span>
+            <strong>${summary.approvedCount ?? lifecycleCounts.approvedCount}</strong>
+            <small>Allowed to inform the downstream book</small>
+          </article>
+          <article class="office-metric">
+            <span>Research quality</span>
+            <strong>${formatDecisionMathValue(summary.averageSourceQualityScore, { probability: true })}</strong>
+            <small>Avg source quality across the dossier set</small>
+          </article>
+        </div>
+        <div class="research-intro-panel">
+          <div>
+            <span class="eyebrow">Featured thesis</span>
+            <h3>${escapeHtml(getResearchDossierHeadline(featuredDossier, "No dossier yet"))}</h3>
+            <p>${escapeHtml(researchIntro)}</p>
+          </div>
+          <div class="research-intro-pills">
+            ${featuredDossier ? renderLifecyclePill(featuredDossier.status || featuredDossier.stage) : `<span class="pill pill-muted">Discovery</span>`}
+            <span class="pill pill-muted">${summary.activeThemeCount || scorecards.length || 0} themes</span>
+            <span class="pill pill-muted">${summary.averageTimelinessScore != null ? `Timeliness ${formatDecisionMathValue(summary.averageTimelinessScore, { probability: true })}` : "Timeliness pending"}</span>
+          </div>
+        </div>
+      </section>
+      <section class="office-grid office-grid-two research-grid">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Manual intake</span>
+              <h3>${editingResearch ? "Edit dossier" : "Capture a research dossier"}</h3>
+            </div>
+            ${
+              editingResearch
+                ? `<button class="mini-chip" type="button" data-cancel-research-edit>New dossier</button>`
+                : `<button class="mini-chip" data-view="signals">Open signals</button>`
+            }
+          </div>
+          <form class="operator-form office-form" data-research-form>
+            <div class="field-grid">
+              <label class="form-field">
+                <span>Title</span>
+                <input name="title" value="${escapeHtml(editingResearch?.title || "")}" placeholder="AI capex broadening" />
+              </label>
+              <label class="form-field">
+                <span>Theme</span>
+                <input name="theme" value="${escapeHtml(editingResearch?.theme || "")}" placeholder="AI, semis, macro, crypto" />
+              </label>
+              <label class="form-field">
+                <span>Assets</span>
+                <input name="assets" value="${escapeHtml(getResearchDossierAssets(editingResearch).join(", "))}" placeholder="NVDA, SOXX, BTC" />
+              </label>
+              <label class="form-field">
+                <span>Horizon</span>
+                <input name="horizon" value="${escapeHtml(editingResearch?.horizon || "")}" placeholder="3-8 weeks" />
+              </label>
+            </div>
+            <label class="form-field">
+              <span>Thesis</span>
+              <textarea name="thesis" rows="4" placeholder="State the thesis in one clear paragraph.">${escapeHtml(editingResearch?.thesis || "")}</textarea>
+            </label>
+            <label class="form-field">
+              <span>Supporting evidence</span>
+              <textarea name="supportingEvidence" rows="4" placeholder="One item per line">${escapeHtml(getResearchEvidenceList(editingResearch, "supportingEvidence").map(formatEvidenceItem).join("\n"))}</textarea>
+            </label>
+            <label class="form-field">
+              <span>Contradicting evidence</span>
+              <textarea name="contradictingEvidence" rows="4" placeholder="One item per line">${escapeHtml(getResearchEvidenceList(editingResearch, "contradictingEvidence").map(formatEvidenceItem).join("\n"))}</textarea>
+            </label>
+            <label class="form-field">
+              <span>Citations</span>
+              <textarea name="citations" rows="3" placeholder="One source per line">${escapeHtml(getResearchEvidenceList(editingResearch, "citations").map(formatEvidenceItem).join("\n"))}</textarea>
+            </label>
+            <div class="field-grid">
+              <label class="form-field">
+                <span>Source quality</span>
+                <input name="sourceQualityScore" type="number" min="0" max="1" step="0.01" value="${escapeHtml(String(editingResearch?.sourceQualityScore ?? ""))}" placeholder="0.65" />
+              </label>
+              <label class="form-field">
+                <span>Timeliness</span>
+                <input name="timelinessScore" type="number" min="0" max="1" step="0.01" value="${escapeHtml(String(editingResearch?.timelinessScore ?? ""))}" placeholder="0.72" />
+              </label>
+              <label class="form-field">
+                <span>Status</span>
+                <select name="status">
+                  ${["discovery", "candidate", "validated", "approved", "dismissed", "expired", "archived"]
+                    .map((status) => `<option value="${status}" ${normalizeResearchStatus(editingResearch?.status || editingResearch?.stage || "discovery") === status ? "selected" : ""}>${formatEnumLabel(status)}</option>`)
+                    .join("")}
+                </select>
+              </label>
+            </div>
+            <label class="form-field">
+              <span>Edge hypothesis</span>
+              <textarea name="edgeHypothesis" rows="3" placeholder="Why might the market be underpricing or overpricing this thesis?">${escapeHtml(editingResearch?.edgeHypothesis || "")}</textarea>
+            </label>
+            <label class="form-field">
+              <span>Risk factors</span>
+              <input name="riskFactors" value="${escapeHtml((editingResearch?.riskFactors || []).map(formatEvidenceItem).join(", "))}" placeholder="Demand fade, policy risk, valuation stretch" />
+            </label>
+            <div class="office-form-actions">
+              <button class="refresh-button" type="submit" ${state.isMutating ? "disabled" : ""}>
+                ${state.isMutating ? "Saving..." : editingResearch ? "Save dossier" : "Create dossier"}
+              </button>
+              <button class="mini-chip" type="button" data-view="dashboard">Back to overview</button>
+            </div>
+          </form>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Promotion rules</span>
+              <h3>What must be true before approval</h3>
+            </div>
+          </div>
+          <div class="office-checklist">
+            <div class="office-checklist-row is-complete">
+              <strong>Discovery can be quick</strong>
+              <span>Capture</span>
+              <p>Drafts can be rough notes, pasted research, or early theses.</p>
+            </div>
+            <div class="office-checklist-row">
+              <strong>Validation needs evidence</strong>
+              <span>Gate</span>
+              <p>To validate, the dossier must have assets, horizon, supporting evidence, contradicting evidence, and citations.</p>
+            </div>
+            <div class="office-checklist-row">
+              <strong>Approval unlocks actioning</strong>
+              <span>Guardrail</span>
+              <p>Advisor and queue flows stay conservative until the thesis is explicitly approved.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+      <section class="office-grid office-grid-two research-grid">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Lifecycle</span>
+              <h3>Research to candidate flow</h3>
+            </div>
+          </div>
+          ${renderResearchLifecycleBoard(dossiers)}
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Scorecards</span>
+              <h3>Source and theme signal quality</h3>
+            </div>
+          </div>
+          <div class="research-scorecard-grid">
+            ${
+              scorecards.length
+                ? scorecards
+                    .map((scorecard) => {
+                      const score = scorecard?.score ?? scorecard?.value ?? scorecard?.sourceQualityScore ?? scorecard?.timelinessScore;
+                      const label = scorecard?.title || scorecard?.theme || scorecard?.source || scorecard?.name || "Scorecard";
+                      const supporting = scorecard?.supportingEvidenceCount ?? scorecard?.supportingCount ?? scorecard?.sampleCount;
+                      const contrarian = scorecard?.contradictingEvidenceCount ?? scorecard?.contradictingCount ?? scorecard?.negativeCount;
+
+                      return `
+                        <article class="research-scorecard">
+                          <div class="decision-topline">
+                            <strong>${escapeHtml(String(label))}</strong>
+                            <span class="tag">${formatDecisionMathValue(score, { probability: true })}</span>
+                          </div>
+                          <p>${escapeHtml(scorecard?.summary || scorecard?.body || scorecard?.notes || "No scorecard summary provided.")}</p>
+                          <div class="research-scorecard-meta">
+                            <span class="tag">${supporting != null ? `${supporting} supportive` : "Supportive count pending"}</span>
+                            <span class="tag">${contrarian != null ? `${contrarian} conflicting` : "Conflicting count pending"}</span>
+                          </div>
+                        </article>
+                      `;
+                    })
+                    .join("")
+                : `
+                  <article class="status-inline">
+                    <strong>No scorecards yet</strong>
+                    <p>The research block can publish source and theme scorecards here once they are available.</p>
+                  </article>
+                `
+            }
+          </div>
+        </section>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Dossiers</span>
+            <h3>Evidence before decisioning</h3>
+          </div>
+          <div class="office-form-actions">
+            <button class="mini-chip" data-view="signals">Open signals</button>
+            <button class="mini-chip" data-view="assets">Open assets</button>
+          </div>
+        </div>
+        ${
+          dossiers.length
+            ? `
+              <div class="research-dossier-grid">
+                ${dossiers.map((dossier) => renderResearchDossierCard(dossier)).join("")}
+              </div>
+            `
+            : `
+              <article class="status-inline">
+                <strong>No dossiers yet</strong>
+                <p>When the app-data payload exposes a research dossier list, the evidence trail will appear here.</p>
+              </article>
+            `
+        }
+      </section>
+    </main>
+  `;
+}
+
 function renderAssetsView() {
-  const { monitoredUniverse } = getData();
-  const asset = monitoredUniverse.find((item) => item.ticker === state.selectedAsset);
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const watchedUniverse = getWatchedUniverse(profile);
+  const asset = watchedUniverse.find((item) => item.ticker === state.selectedAsset);
 
   if (!asset) {
     return renderEmptyState(
-      "The tradable universe has not loaded yet.",
-      "Once the API responds, the focused AI, tech, ETF, and crypto list will appear here."
+      "The watched universe has not loaded yet.",
+      "Once the API responds, the curated universe plus your portfolio and watchlist will appear here."
     );
   }
 
   const decision = getDecisionByAsset(asset.ticker);
+  const relatedResearch = getResearchDossiers().filter((dossier) =>
+    getResearchDossierAssets(dossier).includes(asset.ticker)
+  );
   const relatedClusters = decision?.clusterIds?.length
     ? decision.clusterIds.map((clusterId) => getCluster(clusterId)).filter(Boolean)
     : getData().clusters.filter((cluster) => cluster.mappedAssets.includes(asset.ticker));
@@ -2855,23 +5194,29 @@ function renderAssetsView() {
   return `
     <main class="content-shell">
       ${renderStatusBanner()}
+      ${renderOperatorNotice()}
       <section class="section-card asset-shell">
         <div class="asset-rail">
           <div class="section-header compact">
             <div>
-              <span class="eyebrow">Tradable universe</span>
-              <h3>Focused tech, AI, and crypto list</h3>
+              <span class="eyebrow">Watched universe</span>
+              <h3>Curated universe plus your saved portfolio and watchlist</h3>
             </div>
           </div>
           <div class="asset-list">
-            ${monitoredUniverse
+            ${watchedUniverse
               .map((item) => {
                 const itemDecision = getDecisionByAsset(item.ticker);
+                const itemLabel = item.isTracked
+                  ? item.bucket && item.bucket !== item.trackingLabel
+                    ? `${item.trackingLabel} · ${item.bucket}`
+                    : item.trackingLabel || item.bucket
+                  : item.bucket;
                 return `
                   <button class="asset-item ${state.selectedAsset === item.ticker ? "is-selected" : ""}" data-asset="${item.ticker}">
                     <div>
                       <strong>${item.ticker}</strong>
-                      <span>${item.bucket}</span>
+                      <span>${escapeHtml(itemLabel)}</span>
                     </div>
                     <span class="decision-badge decision-${(itemDecision?.action || "hold").toLowerCase()}">${itemDecision?.action || "WATCH"}</span>
                   </button>
@@ -2883,9 +5228,20 @@ function renderAssetsView() {
         <div class="asset-panel">
           <div class="asset-header">
             <div>
-              <span class="eyebrow">${asset.type}</span>
-              <h2>${asset.name} <span class="muted">${asset.ticker}</span></h2>
-              <p>${asset.thesis}</p>
+              <span class="eyebrow">${escapeHtml(asset.type)}</span>
+              <h2>${escapeHtml(asset.name)} <span class="muted">${asset.ticker}</span></h2>
+              <p>${escapeHtml(asset.thesis)}</p>
+              ${
+                asset.isTracked
+                  ? `
+                    <div class="chip-row">
+                      <span class="pill pill-muted">${escapeHtml(asset.trackingLabel)}</span>
+                      ${!asset.isCurated ? '<span class="pill pill-muted">Personal asset</span>' : ""}
+                      ${!asset.isCurated && !asset.personalNotes && !asset.personalCategory ? '<span class="pill pill-muted">Add notes to sharpen impact matching</span>' : ""}
+                    </div>
+                  `
+                  : ""
+              }
             </div>
             <div class="asset-highlight">
               <span class="decision-badge decision-${(decision?.action || "hold").toLowerCase()}">${decision?.action || "WATCH"}</span>
@@ -2920,6 +5276,35 @@ function renderAssetsView() {
                 }
               </div>
               <p class="subtle">Risk flag: ${asset.riskFlag}</p>
+            </article>
+            <article class="section-card nested-card full-span">
+              <span class="eyebrow">Research context</span>
+              <h3>Evidence packets tied to ${asset.ticker}</h3>
+              ${
+                relatedResearch.length
+                  ? `
+                    <div class="research-linked-grid">
+                      ${relatedResearch
+                        .slice(0, 3)
+                        .map(
+                          (dossier) => `
+                            <article class="research-linked-card">
+                              <div class="decision-topline">
+                                <strong>${escapeHtml(getResearchDossierHeadline(dossier))}</strong>
+                                ${renderLifecyclePill(dossier.status || dossier.stage)}
+                              </div>
+                              <p>${escapeHtml(dossier.thesis || dossier.summary || "No thesis summary provided.")}</p>
+                              <div class="chip-row">
+                                <button class="mini-chip" data-view="research">Open research</button>
+                              </div>
+                            </article>
+                          `
+                        )
+                        .join("")}
+                    </div>
+                  `
+                  : `<p class="subtle">No linked research dossier is present in the current payload.</p>`
+              }
             </article>
             <article class="section-card nested-card full-span">
               <span class="eyebrow">Linked event clusters</span>
@@ -3496,7 +5881,7 @@ function renderSignalsPage() {
                           <td>${source?.handle || post.sourceId}</td>
                           <td>${formatGeneratedAt(post.createdAt)}</td>
                           <td>${post.claimType || "Unknown"}</td>
-                          <td>${(post.mappedAssets || []).join(", ") || "Unmapped"}</td>
+                          <td>${renderAssetMappingCell(post)}</td>
                           <td>${post.body}</td>
                         </tr>
                       `;
@@ -3512,20 +5897,25 @@ function renderSignalsPage() {
 }
 
 function renderAdvisorView() {
-  const { monitoredUniverse } = getData();
   const advisor = getAdvisor();
   const profile = advisor.financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const watchedUniverse = getWatchedUniverse(profile);
   const latestAnswer = getLatestAdvisorAnswer();
   const setupState = buildSingleUserSetupState(profile);
   const trackedTickers = getTrackedAssetTickers(profile);
   const suggestedTickers = trackedTickers.length
     ? trackedTickers
-    : monitoredUniverse.slice(0, 6).map((asset) => asset.ticker);
+    : watchedUniverse.slice(0, 6).map((asset) => asset.ticker);
   const relatedSignals = sortPostsByCreatedAt(
-    getData().posts.filter((post) => (post.mappedAssets || []).some((asset) => suggestedTickers.includes(asset)))
+    getData().posts.filter((post) => getPostExposureTickers(post, profile).some((asset) => suggestedTickers.includes(asset)))
   ).slice(0, 4);
   const canAsk = Boolean(suggestedTickers.length && setupState.hasDecisionFrame);
   const cashSummary = buildProfileCashSummary(profile);
+  const advisorFocusTicker = latestAnswer?.assetTicker || suggestedTickers[0] || "";
+  const advisorFocusDecision = advisorFocusTicker ? getDecisionByAsset(advisorFocusTicker) : null;
+  const advisorFocusResearch = advisorFocusTicker
+    ? getResearchForAsset(advisorFocusTicker, advisorFocusDecision)
+    : null;
 
   return `
     <main class="office-content">
@@ -3609,10 +5999,10 @@ function renderAdvisorView() {
               <span>Asset</span>
               <input name="assetTicker" list="advisor-asset-list" value="${escapeHtml(latestAnswer?.assetTicker || suggestedTickers[0] || "")}" placeholder="BTC, NVDA, VTI..." />
               <datalist id="advisor-asset-list">
-                ${monitoredUniverse
+                ${watchedUniverse
                   .map(
                     (asset) => `
-                    <option value="${asset.ticker}">${asset.name}</option>
+                    <option value="${asset.ticker}">${escapeHtml(asset.name)}</option>
                   `
                   )
                   .join("")}
@@ -3629,6 +6019,17 @@ function renderAdvisorView() {
               <button class="mini-chip" type="button" data-view="setup">Open portfolio</button>
             </div>
           </form>
+          ${
+            advisorFocusTicker
+              ? `
+                <div class="research-linked-grid">
+                  ${renderLinkedResearchCard(advisorFocusResearch, advisorFocusDecision, {
+                    includeActions: true
+                  })}
+                </div>
+              `
+              : ""
+          }
         </section>
         <section class="office-panel">
           <div class="office-panel-head">
@@ -3732,7 +6133,7 @@ function renderAdvisorView() {
                         <tr>
                           <td>${source?.handle || post.sourceId}</td>
                           <td>${formatGeneratedAt(post.createdAt)}</td>
-                          <td>${(post.mappedAssets || []).join(", ") || "Unmapped"}</td>
+                          <td>${renderAssetMappingCell(post)}</td>
                           <td>${post.body}</td>
                         </tr>
                       `;
@@ -3750,6 +6151,7 @@ function renderAdvisorView() {
 function renderSourceCards() {
   const { sources } = getData();
   const source = getSource(state.selectedSource);
+  const editingSource = getSourceBeingEdited();
 
   if (!source) {
     return renderEmptyState(
@@ -3759,6 +6161,19 @@ function renderSourceCards() {
   }
 
   const sourcePosts = getPostsForSource(source.id);
+  const sourceReliability = getSourceReliabilityInfo(source);
+  const sourceDraft = editingSource || {
+    handle: "",
+    name: "",
+    category: "",
+    baselineReliability: 0.6,
+    preferredHorizon: "",
+    policyTemplate: "",
+    relevantSectors: [],
+    allowedAssets: [],
+    specialHandling: "",
+    tone: ""
+  };
 
   return `
     <main class="content-shell">
@@ -3773,17 +6188,19 @@ function renderSourceCards() {
           </div>
           <div class="source-list">
             ${sources
-              .map(
-                (item) => `
+              .map((item) => {
+                const reliability = getSourceReliabilityInfo(item);
+
+                return `
                 <button class="source-item ${state.selectedSource === item.id ? "is-selected" : ""}" data-source="${item.id}">
                   <div>
                     <strong>${item.handle}</strong>
                     <span>${item.category}</span>
                   </div>
-                  <small>${formatPercent(item.baselineReliability)}</small>
+                  <small>${formatPercent(reliability.score)} · ${escapeHtml(reliability.label)}</small>
                 </button>
-              `
-              )
+              `;
+              })
               .join("")}
           </div>
         </div>
@@ -3796,8 +6213,8 @@ function renderSourceCards() {
             </div>
             <div class="asset-highlight">
               <span class="pill">${source.preferredHorizon}</span>
-              <strong>${formatPercent(source.baselineReliability)}</strong>
-              <span>${source.tone}</span>
+              <strong>${formatPercent(sourceReliability.score)}</strong>
+              <span>${escapeHtml(sourceReliability.label)}</span>
             </div>
           </div>
           <div class="asset-grid">
@@ -3808,6 +6225,14 @@ function renderSourceCards() {
                 <div class="context-item">
                   <span>Relevant sectors</span>
                   <strong>${source.relevantSectors.join(", ")}</strong>
+                </div>
+                <div class="context-item">
+                  <span>Reliability</span>
+                  <strong>${escapeHtml(sourceReliability.label)}</strong>
+                </div>
+                <div class="context-item">
+                  <span>Operator guidance</span>
+                  <strong>${escapeHtml(sourceReliability.operatorGuidance)}</strong>
                 </div>
                 <div class="context-item">
                   <span>Allowed assets</span>
@@ -3835,13 +6260,81 @@ function renderSourceCards() {
                       <div class="tag-row">
                         <span class="tag">${post.direction}</span>
                         <span class="tag">${post.explicitness}</span>
-                        ${post.mappedAssets.map((assetCode) => `<button class="tag tag-button" data-asset="${assetCode}">${assetCode}</button>`).join("")}
+                        ${renderMappedAssetButtons(post, "tag tag-button")}
+                        ${renderAssetMappingStatusTag(post)}
                       </div>
+                      ${renderAssetMappingNote(post)}
+                      ${renderLikelyImpactSummary(post)}
                     </article>
                   `
                   )
                   .join("")}
               </div>
+            </article>
+            <article class="section-card nested-card full-span">
+              <div class="section-header compact">
+                <div>
+                  <span class="eyebrow">Manage registry</span>
+                  <h3>${editingSource ? `Editing ${escapeHtml(editingSource.handle)}` : "Add or update followed accounts"}</h3>
+                </div>
+                <div class="office-form-actions">
+                  <button class="mini-chip" type="button" data-edit-source="${escapeHtml(source.id)}">Load selected source</button>
+                  <button class="mini-chip" type="button" data-new-source>Blank new source</button>
+                  ${editingSource ? `<button class="mini-chip" type="button" data-delete-source="${escapeHtml(editingSource.id)}">Delete</button>` : ""}
+                </div>
+              </div>
+              <form class="operator-form office-form" data-source-form>
+                <div class="field-grid">
+                  <label>
+                    <span>Handle</span>
+                    <input name="handle" value="${escapeHtml(sourceDraft.handle || "")}" placeholder="@newsource" required />
+                  </label>
+                  <label>
+                    <span>Name</span>
+                    <input name="name" value="${escapeHtml(sourceDraft.name || "")}" placeholder="Readable source name" required />
+                  </label>
+                  <label>
+                    <span>Category</span>
+                    <input name="category" value="${escapeHtml(sourceDraft.category || "")}" placeholder="Institution / Policy" />
+                  </label>
+                  <label>
+                    <span>Reliability</span>
+                    <input name="baselineReliability" type="number" min="0" max="0.99" step="0.01" value="${escapeHtml(String(sourceDraft.baselineReliability ?? 0.6))}" />
+                  </label>
+                  <label>
+                    <span>Preferred horizon</span>
+                    <input name="preferredHorizon" value="${escapeHtml(sourceDraft.preferredHorizon || "")}" placeholder="1-5 days" />
+                  </label>
+                  <label>
+                    <span>Tone</span>
+                    <input name="tone" value="${escapeHtml(sourceDraft.tone || "")}" placeholder="Measured" />
+                  </label>
+                </div>
+                <div class="field-grid">
+                  <label>
+                    <span>Policy template</span>
+                    <input name="policyTemplate" value="${escapeHtml(sourceDraft.policyTemplate || "")}" placeholder="How this source should be interpreted" />
+                  </label>
+                  <label>
+                    <span>Relevant sectors</span>
+                    <input name="relevantSectors" value="${escapeHtml((sourceDraft.relevantSectors || []).join(", "))}" placeholder="Policy, semis, macro" />
+                  </label>
+                  <label>
+                    <span>Allowed assets</span>
+                    <input name="allowedAssets" value="${escapeHtml((sourceDraft.allowedAssets || []).join(", "))}" placeholder="NVDA, AMD, SOXX" />
+                  </label>
+                </div>
+                <label>
+                  <span>Special handling</span>
+                  <textarea name="specialHandling" rows="3" placeholder="How strict should the fact-check / corroboration behavior be for this source?">${escapeHtml(sourceDraft.specialHandling || "")}</textarea>
+                </label>
+                <div class="office-form-actions">
+                  <button class="refresh-button" type="submit" ${state.isMutating ? "disabled" : ""}>
+                    ${state.isMutating ? "Saving..." : editingSource ? "Save source" : "Create source"}
+                  </button>
+                  ${editingSource ? `<button class="mini-chip" type="button" data-new-source>New source</button>` : `<button class="mini-chip" type="button" data-edit-source="${escapeHtml(source.id)}">Edit selected source</button>`}
+                </div>
+              </form>
             </article>
           </div>
         </div>
@@ -3901,7 +6394,7 @@ function renderLogs() {
         <article class="stat-card">
           <span class="eyebrow">Latest eval</span>
           <strong>${latestEval ? formatScorePercent(latestEval.summary.averageScore) : "Pending"}</strong>
-          <p>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount} exact matches using ${latestEval.extractor.activeMode}, plus ${latestEval.summary.scenarioExactMatchCount || 0}/${latestEval.summary.scenarioCaseCount || 0} scenario passes.` : "Run the eval harness from Operator to populate regression history."}</p>
+          <p>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount} exact matches using ${getEvalMode(latestEval)}, plus ${latestEval.summary.scenarioExactMatchCount || 0}/${latestEval.summary.scenarioCaseCount || 0} scenario passes.` : "Run the eval harness from Operator to populate regression history."}</p>
         </article>
         <article class="stat-card">
           <span class="eyebrow">Prompt version</span>
@@ -4056,6 +6549,7 @@ function renderLogs() {
                   <div class="tag-row">
                     <span class="tag">${formatScorePercent(entry.confidence)}</span>
                     <span class="tag">${entry.vetoed ? "Policy-adjusted" : "Direct output"}</span>
+                    ${entry.reviewStatus ? renderDecisionReviewTag(entry.reviewStatus) : ""}
                     <span class="tag">${formatEnumLabel(entry.outcomeState || "open")}</span>
                     <span class="tag">${formatSignedReturn(entry.returnSinceDecision)}</span>
                     <span class="tag">${formatShortId(entry.runId)}</span>
@@ -4129,7 +6623,7 @@ function renderLogs() {
                     </article>
                     <article class="context-item">
                       <span>Extractor mode</span>
-                      <strong>${selectedEval.extractor.activeMode}</strong>
+                      <strong>${getEvalMode(selectedEval)}</strong>
                     </article>
                     <article class="context-item">
                       <span>Validation mode</span>
@@ -4305,12 +6799,20 @@ function renderContent() {
     return renderAssetsView();
   }
 
+  if (state.view === "research") {
+    return renderResearchView();
+  }
+
   if (state.view === "setup") {
     return renderSetupPage();
   }
 
   if (state.view === "signals") {
     return renderSignalsPage();
+  }
+
+  if (state.view === "tests") {
+    return renderTestsPage();
   }
 
   if (state.view === "advisor") {

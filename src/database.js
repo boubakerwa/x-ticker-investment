@@ -57,6 +57,38 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_extraction_cache_post_id
       ON extraction_cache(post_id);
 
+    CREATE TABLE IF NOT EXISTS impact_mapping_cache (
+      fingerprint TEXT PRIMARY KEY,
+      prompt_version TEXT NOT NULL,
+      model TEXT NOT NULL,
+      post_id TEXT,
+      source_id TEXT,
+      cached_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_impact_mapping_cache_post_id
+      ON impact_mapping_cache(post_id);
+
+    CREATE TABLE IF NOT EXISTS post_verification_overrides (
+      post_id TEXT PRIMARY KEY,
+      updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_post_verification_overrides_updated_at
+      ON post_verification_overrides(updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS x_user_cache (
+      handle TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_x_user_cache_updated_at
+      ON x_user_cache(updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS pipeline_runs (
       id TEXT PRIMARY KEY,
       generated_at TEXT NOT NULL,
@@ -85,6 +117,45 @@ function initializeSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_decision_history_asset
       ON decision_history(asset);
+
+    CREATE TABLE IF NOT EXISTS decision_reviews (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      asset TEXT NOT NULL,
+      status TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      reviewed_at TEXT,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_decision_reviews_updated_at
+      ON decision_reviews(updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_decision_reviews_status
+      ON decision_reviews(status);
+
+    CREATE INDEX IF NOT EXISTS idx_decision_reviews_asset
+      ON decision_reviews(asset);
+
+    CREATE TABLE IF NOT EXISTS research_dossiers (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      title TEXT NOT NULL,
+      theme TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_research_dossiers_updated_at
+      ON research_dossiers(updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_research_dossiers_status
+      ON research_dossiers(status);
+
+    CREATE INDEX IF NOT EXISTS idx_research_dossiers_theme
+      ON research_dossiers(theme);
 
     CREATE TABLE IF NOT EXISTS eval_runs (
       id TEXT PRIMARY KEY,

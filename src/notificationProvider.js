@@ -39,11 +39,11 @@ export function getSafeNotificationConfig() {
   };
 }
 
-function escapeTelegram(value) {
+export function escapeTelegram(value) {
   return String(value).replace(/([_*\[\]()~`>#+\-=|{}.!])/g, "\\$1");
 }
 
-function formatTelegramMessage(message) {
+export function formatTelegramMessage(message) {
   const lines = [];
 
   if (message.title) {
@@ -74,30 +74,53 @@ function formatTelegramMessage(message) {
   return lines.join("\n");
 }
 
-async function sendTelegramMessage(message, config) {
+export async function callTelegramApi(method, payload, config = getNotificationConfig()) {
+  if (!config.telegramBotToken) {
+    throw new Error("Telegram bot token is not configured.");
+  }
+
   const response = await fetch(
-    `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/sendMessage`,
+    `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8"
       },
-      body: JSON.stringify({
-        chat_id: config.telegramChatId,
-        text: formatTelegramMessage(message),
-        parse_mode: "MarkdownV2",
-        disable_web_page_preview: true
-      })
+      body: JSON.stringify(payload)
     }
   );
 
-  const payload = await response.json().catch(() => ({}));
+  const responsePayload = await response.json().catch(() => ({}));
 
-  if (!response.ok || payload.ok === false) {
-    throw new Error(payload.description || `Telegram request failed with status ${response.status}.`);
+  if (!response.ok || responsePayload.ok === false) {
+    throw new Error(responsePayload.description || `Telegram request failed with status ${response.status}.`);
   }
 
-  return payload;
+  return responsePayload;
+}
+
+export async function sendTelegramTextMessage({
+  chatId,
+  message,
+  config = getNotificationConfig(),
+  disableWebPreview = true
+} = {}) {
+  const resolvedChatId = String(chatId || config.telegramChatId || "").trim();
+
+  if (!resolvedChatId) {
+    throw new Error("Telegram chat id is not configured.");
+  }
+
+  return callTelegramApi(
+    "sendMessage",
+    {
+      chat_id: resolvedChatId,
+      text: typeof message === "string" ? message : formatTelegramMessage(message),
+      parse_mode: "MarkdownV2",
+      disable_web_page_preview: disableWebPreview
+    },
+    config
+  );
 }
 
 export async function sendNotification({ eventType, message, payload = {} }) {
@@ -122,7 +145,10 @@ export async function sendNotification({ eventType, message, payload = {} }) {
   }
 
   try {
-    const providerResponse = await sendTelegramMessage(message, config);
+    const providerResponse = await sendTelegramTextMessage({
+      message,
+      config
+    });
     return markNotificationDelivered(event.id, {
       payload: {
         ...event.payload,

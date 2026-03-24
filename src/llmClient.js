@@ -65,6 +65,10 @@ export function resolveLlmConfig({
   };
 }
 
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function requestStructuredResponse({
   config,
   instructions,
@@ -72,55 +76,74 @@ export async function requestStructuredResponse({
   schema,
   schemaName,
   emptyOutputMessage,
-  requestErrorMessage
+  requestErrorMessage,
+  maxRetries = 0,
+  baseDelayMs = 500,
+  shouldRetry = null
 }) {
-  const headers = {
-    "Content-Type": "application/json; charset=utf-8"
-  };
+  let attempt = 0;
 
-  if (config.apiKey) {
-    headers.Authorization = `Bearer ${config.apiKey}`;
-  }
+  while (true) {
+    try {
+      const headers = {
+        "Content-Type": "application/json; charset=utf-8"
+      };
 
-  const response = await fetch(`${config.baseUrl}/responses`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: config.model,
-      store: false,
-      instructions,
-      input: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: inputText
-            }
-          ]
-        }
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: schemaName,
-          strict: true,
-          schema
-        }
+      if (config.apiKey) {
+        headers.Authorization = `Bearer ${config.apiKey}`;
       }
-    })
-  });
 
-  const payload = await response.json().catch(() => ({}));
+      const response = await fetch(`${config.baseUrl}/responses`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: config.model,
+          store: false,
+          instructions,
+          input: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "input_text",
+                  text: inputText
+                }
+              ]
+            }
+          ],
+          text: {
+            format: {
+              type: "json_schema",
+              name: schemaName,
+              strict: true,
+              schema
+            }
+          }
+        })
+      });
 
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || requestErrorMessage || `Model request failed with ${response.status}.`);
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload?.error?.message || requestErrorMessage || `Model request failed with ${response.status}.`);
+      }
+
+      const outputText = extractStructuredOutputText(payload, emptyOutputMessage);
+
+      return {
+        payload,
+        outputText
+      };
+    } catch (error) {
+      const retryable = typeof shouldRetry === "function" ? shouldRetry(error) : false;
+
+      if (!retryable || attempt >= maxRetries) {
+        throw error;
+      }
+
+      const delayMs = baseDelayMs * 2 ** attempt;
+      attempt += 1;
+      await sleep(delayMs);
+    }
   }
-
-  const outputText = extractStructuredOutputText(payload, emptyOutputMessage);
-
-  return {
-    payload,
-    outputText
-  };
 }

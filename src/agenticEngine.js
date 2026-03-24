@@ -1,6 +1,9 @@
 import { monitoredUniverse, clusters as seedClusters } from "./data.js";
 import { formatBerlinTimestamp } from "./fakeTweetGenerator.js";
 import { extractClaimsForPosts } from "./modelClaimExtractor.js";
+import { rankLikelyImpactsForPosts } from "./modelImpactMapper.js";
+import { readPostVerificationOverrides } from "./postVerificationStore.js";
+import { buildSourceReliability } from "./sourceStore.js";
 
 const seedClusterMap = new Map(seedClusters.map((cluster) => [cluster.id, cluster]));
 const universeTickers = monitoredUniverse.map((asset) => asset.ticker);
@@ -323,14 +326,28 @@ const operationalPolicyKeywords = [
 ];
 
 const assetKeywordMap = {
-  NVDA: ["nvda", "nvidia", "accelerator", "gpu", "gpus", "compute"],
-  AMD: ["amd"],
-  TSM: ["tsm", "foundry", "odm", "assembly", "manufacturing"],
-  MSFT: ["msft", "microsoft", "copilot", "enterprise", "workflow"],
-  META: ["meta", "llama", "ads", "consumer ai"],
-  SOXX: ["semi", "semis", "semiconductor", "semiconductors", "supply chain"],
-  QQQ: ["qqq", "broad tech", "growth", "software"],
-  BTC: ["btc", "bitcoin", "crypto", "spot", "perp", "perps", "derivatives"]
+  NVDA: ["nvda", "nvidia", "blackwell", "accelerator", "accelerators", "gpu", "gpus", "compute"],
+  AMD: ["amd", "instinct", "mi300", "mi350"],
+  TSM: ["tsm", "tsmc", "foundry", "advanced packaging", "packaging", "wafer", "assembly", "manufacturing"],
+  MSFT: ["msft", "microsoft", "copilot", "azure", "m365", "seat expansion", "workflow adoption"],
+  META: ["meta", "llama", "instagram", "whatsapp", "ads", "ad stack"],
+  SOXX: ["soxx", "semi", "semis", "semiconductor", "semiconductors", "supply chain"],
+  QQQ: ["qqq", "nasdaq", "broad tech"],
+  BTC: ["btc", "bitcoin", "spot bitcoin", "spot btc", "crypto", "perp", "perps", "derivatives"]
+};
+
+const broadProxyKeywordMap = {
+  QQQ: [
+    "growth leadership",
+    "growth rotation",
+    "broad growth",
+    "broad software",
+    "software",
+    "risk appetite",
+    "rates scare",
+    "valuation-sensitive"
+  ],
+  SOXX: ["semi", "semis", "semiconductor", "semiconductors", "supply chain", "chip", "chips"]
 };
 
 const assetWeightByCluster = {
@@ -412,6 +429,253 @@ function getSourceProfile(source) {
     ...sourceDefaults,
     ...(source || {})
   };
+}
+
+function getSourceReliability(source) {
+  if (source?.reliability?.tier && source?.reliability?.label) {
+    return source.reliability;
+  }
+
+  return buildSourceReliability(source?.baselineReliability ?? sourceDefaults.baselineReliability);
+}
+
+function getVerificationRequirementForTier(tier) {
+  if (tier === "mixed") {
+    return "corroboration";
+  }
+
+  if (tier === "low") {
+    return "corroboration_or_override";
+  }
+
+  return "none";
+}
+
+function getVerificationCandidateAssets(post) {
+  const strictAssets = Array.isArray(post?.mappedAssets) ? post.mappedAssets : [];
+  const impactAssets = Array.isArray(post?.likelyImpacts)
+    ? post.likelyImpacts.map((impact) => String(impact?.asset || "").trim())
+    : [];
+
+  return uniqueSorted([...strictAssets, ...impactAssets]).slice(0, 6);
+}
+
+function findPostCorroborators(post, posts, sourceInfoById) {
+  const postAssets = getVerificationCandidateAssets(post);
+  const postAssetSet = new Set(postAssets);
+
+  return posts.filter((candidate) => {
+    if (!candidate || candidate.id === post.id || candidate.sourceId === post.sourceId) {
+      return false;
+    }
+
+    if (candidate.clusterId !== post.clusterId || candidate.direction !== post.direction) {
+      return false;
+    }
+
+    if (Number(candidate.confidence || 0) < 0.58) {
+      return false;
+    }
+
+    const candidateInfo = sourceInfoById.get(candidate.sourceId);
+
+    if (!candidateInfo) {
+      return false;
+    }
+
+    const candidateAssets = getVerificationCandidateAssets(candidate);
+
+    if (!postAssets.length || !candidateAssets.length) {
+      return true;
+    }
+
+    return candidateAssets.some((asset) => postAssetSet.has(asset));
+  });
+}
+
+function canCorroborate(requirement, corroboratorTier) {
+  if (requirement === "corroboration") {
+    return corroboratorTier !== "low";
+  }
+
+  if (requirement === "corroboration_or_override") {
+    return corroboratorTier === "high" || corroboratorTier === "solid";
+  }
+
+  return true;
+}
+
+function buildVerificationState(post, sourceInfo, corroborators, override = null) {
+  const reliability = sourceInfo?.reliability || buildSourceReliability(sourceDefaults.baselineReliability);
+  const requirement = getVerificationRequirementForTier(reliability.tier);
+  const baseActionable = Boolean(post?.actionable);
+  const eligibleCorroborators = corroborators.filter((candidate) =>
+    canCorroborate(requirement, sourceInfo?.bySourceId?.get(candidate.sourceId)?.reliability?.tier || "low")
+  );
+  const corroborated = requirement === "none" ? false : eligibleCorroborators.length > 0;
+  const overrideActive = Boolean(override?.enabled);
+  const blocksActionability =
+    baseActionable &&
+    ((requirement === "corroboration" && !corroborated) ||
+      (requirement === "corroboration_or_override" && !corroborated && !overrideActive));
+
+  let status = "trusted";
+  let badge = "Reliable";
+  let note = reliability.operatorGuidance;
+
+  if (requirement === "corroboration" && corroborated) {
+    status = "corroborated";
+    badge = "Corroborated";
+    note = `A second source confirmed this ${String(post.clusterId || "signal").replace("cluster-", "").replaceAll("-", " ")} read.`;
+  } else if (requirement === "corroboration" && !corroborated) {
+    status = "needs_corroboration";
+    badge = "Needs corroboration";
+    note = baseActionable
+      ? "This source is useful, but the signal stays non-actionable until one corroborating source confirms it."
+      : reliability.operatorGuidance;
+  } else if (requirement === "corroboration_or_override" && overrideActive) {
+    status = "manual_override";
+    badge = "Manual override";
+    note = override.note
+      ? `Operator override active: ${override.note}`
+      : "An operator override is allowing this low-trust signal to stay in the actionable path.";
+  } else if (requirement === "corroboration_or_override" && corroborated) {
+    status = "corroborated";
+    badge = "Corroborated";
+    note = "A reliable source independently corroborated this low-trust signal.";
+  } else if (requirement === "corroboration_or_override") {
+    status = "fact_check_needed";
+    badge = "Fact-check needed";
+    note = baseActionable
+      ? "This source cannot make a signal actionable on its own. It needs corroboration from a reliable source or an operator override."
+      : reliability.operatorGuidance;
+  }
+
+  return {
+    tier: reliability.tier,
+    label: reliability.label,
+    score: reliability.score,
+    operatorGuidance: reliability.operatorGuidance,
+    requirement,
+    corroborated,
+    corroboratingSourceCount: eligibleCorroborators.length,
+    corroboratingSources: eligibleCorroborators
+      .map((candidate) => sourceInfo.bySourceId.get(candidate.sourceId))
+      .filter(Boolean)
+      .map((candidateSource) => ({
+        sourceId: candidateSource.id,
+        handle: candidateSource.handle,
+        tier: candidateSource.reliability.tier,
+        label: candidateSource.reliability.label
+      })),
+    overrideActive,
+    overrideUpdatedAt: override?.updatedAt || "",
+    overrideNote: override?.note || "",
+    blocksActionability,
+    decisionEligible: !blocksActionability,
+    status,
+    badge,
+    note
+  };
+}
+
+export function applyPostVerificationPolicy({ posts, sources, overrides = null }) {
+  const sourceById = new Map(
+    (sources || []).map((source) => {
+      const safeSource = getSourceProfile(source);
+      return [
+        safeSource.id,
+        {
+          ...safeSource,
+          reliability: getSourceReliability(safeSource)
+        }
+      ];
+    })
+  );
+  const overrideByPostId = new Map(
+    Object.values(overrides || readPostVerificationOverrides().byPostId || {}).map((override) => [
+      override.postId,
+      override
+    ])
+  );
+  const sourceInfo = {
+    bySourceId: sourceById
+  };
+
+  const nextPosts = posts.map((post) => {
+    const source = sourceById.get(post.sourceId) || {
+      ...getSourceProfile(null),
+      reliability: buildSourceReliability(sourceDefaults.baselineReliability)
+    };
+    const corroborators = findPostCorroborators(post, posts, sourceById);
+    const verification = buildVerificationState(
+      post,
+      {
+        ...source,
+        bySourceId: sourceById
+      },
+      corroborators,
+      overrideByPostId.get(post.id) || null
+    );
+
+    return {
+      ...post,
+      actionable: Boolean(post.actionable) && !verification.blocksActionability,
+      verification,
+      agentTrace: {
+        ...(post.agentTrace || {}),
+        verificationStatus: verification.status,
+        verificationRequirement: verification.requirement
+      }
+    };
+  });
+
+  return {
+    posts: nextPosts,
+    summary: {
+      blockedCount: nextPosts.filter((post) => post.verification?.blocksActionability).length,
+      corroboratedCount: nextPosts.filter((post) => post.verification?.corroborated).length,
+      overrideCount: nextPosts.filter((post) => post.verification?.overrideActive).length
+    }
+  };
+}
+
+function getAllowedAssetsForSource(source) {
+  return Array.isArray(source.allowedAssets) && source.allowedAssets.length
+    ? source.allowedAssets
+    : universeTickers;
+}
+
+function getClusterAllowedAssets(clusterId, source) {
+  const config = clusterConfig[clusterId];
+  const allowedAssets = getAllowedAssetsForSource(source);
+  return config.defaultAssets.filter((ticker) => allowedAssets.includes(ticker));
+}
+
+function getStrictMappingScope(clusterId, source, bodyLower, rawPost) {
+  const sourceAllowedAssets = getAllowedAssetsForSource(source);
+  const clusterAllowedAssets = getClusterAllowedAssets(clusterId, source);
+  const directAssets = getKeywordMatchedAssets(bodyLower, sourceAllowedAssets);
+  const hintedAssets = getHintedAssets(rawPost, sourceAllowedAssets);
+
+  return {
+    clusterAllowedAssets,
+    directAssets,
+    hintedAssets,
+    strictAssets: uniqueSorted([...clusterAllowedAssets, ...directAssets, ...hintedAssets])
+  };
+}
+
+function getKeywordMatchedAssets(bodyLower, allowedAssets, keywordMap = assetKeywordMap) {
+  return Object.entries(keywordMap)
+    .filter(([ticker, keywords]) => allowedAssets.includes(ticker) && countMatches(bodyLower, keywords) > 0)
+    .map(([ticker]) => ticker);
+}
+
+function getHintedAssets(rawPost, allowedAssets) {
+  return Array.isArray(rawPost.mappedAssets)
+    ? rawPost.mappedAssets.filter((ticker) => allowedAssets.includes(ticker))
+    : [];
 }
 
 function pickClusterId(rawPost, source, bodyLower) {
@@ -541,21 +805,18 @@ function deriveThemes(clusterId, bodyLower, rawPost) {
 }
 
 function deriveMappedAssets(clusterId, bodyLower, source, rawPost) {
-  const config = clusterConfig[clusterId];
-  const allowedAssets = Array.isArray(source.allowedAssets) && source.allowedAssets.length
-    ? source.allowedAssets
-    : universeTickers;
-  const clusterAllowedAssets = config.defaultAssets.filter((ticker) => allowedAssets.includes(ticker));
-  const directMatches = Object.entries(assetKeywordMap)
-    .filter(([, keywords]) => countMatches(bodyLower, keywords) > 0)
-    .map(([ticker]) => ticker)
-    .filter((ticker) => clusterAllowedAssets.includes(ticker));
-  const hintedAssets = Array.isArray(rawPost.mappedAssets)
-    ? rawPost.mappedAssets.filter((ticker) => clusterAllowedAssets.includes(ticker))
-    : [];
-  const fallbackAssets = clusterAllowedAssets;
+  const { clusterAllowedAssets, directAssets, hintedAssets } = getStrictMappingScope(clusterId, source, bodyLower, rawPost);
+  const broadProxyMatches = getKeywordMatchedAssets(bodyLower, clusterAllowedAssets, broadProxyKeywordMap);
 
-  return uniqueSorted([...directMatches, ...hintedAssets, ...fallbackAssets]).slice(0, 4);
+  if (directAssets.length || hintedAssets.length) {
+    return uniqueSorted([...directAssets, ...hintedAssets, ...broadProxyMatches]).slice(0, 4);
+  }
+
+  if (broadProxyMatches.length) {
+    return broadProxyMatches.slice(0, 4);
+  }
+
+  return clusterAllowedAssets.slice(0, 4);
 }
 
 function deriveActionable(bodyLower, clusterId, direction) {
@@ -625,17 +886,15 @@ function normalizeThemes(value, fallbackValue) {
 }
 
 function normalizeMappedAssets(clusterId, source, extractedAssets, bodyLower, rawPost) {
-  const config = clusterConfig[clusterId];
-  const allowedAssetsForSource = Array.isArray(source.allowedAssets) && source.allowedAssets.length
-    ? source.allowedAssets
-    : universeTickers;
-  const clusterAllowedAssets = config.defaultAssets.filter((ticker) => allowedAssetsForSource.includes(ticker));
+  const { strictAssets, directAssets, hintedAssets } = getStrictMappingScope(clusterId, source, bodyLower, rawPost);
 
   if (Array.isArray(extractedAssets) && extractedAssets.length) {
     const filteredAssets = uniqueSorted(
-      extractedAssets
-        .map((asset) => String(asset || "").trim())
-        .filter((asset) => clusterAllowedAssets.includes(asset))
+      [
+        ...extractedAssets.map((asset) => String(asset || "").trim()),
+        ...directAssets,
+        ...hintedAssets
+      ].filter((asset) => strictAssets.includes(asset))
     );
 
     if (filteredAssets.length) {
@@ -644,6 +903,139 @@ function normalizeMappedAssets(clusterId, source, extractedAssets, bodyLower, ra
   }
 
   return deriveMappedAssets(clusterId, bodyLower, source, rawPost);
+}
+
+function buildAssetMappingMeta({ clusterId, bodyLower, source, rawPost, extractedAssets, mappedAssets }) {
+  const { clusterAllowedAssets, directAssets: directMatches, hintedAssets: hintedMatches, strictAssets } =
+    getStrictMappingScope(clusterId, source, bodyLower, rawPost);
+  const normalizedMappedAssets = uniqueSorted(
+    (Array.isArray(mappedAssets) ? mappedAssets : [])
+      .map((asset) => String(asset || "").trim())
+      .filter((asset) => strictAssets.includes(asset))
+  );
+
+  if (!normalizedMappedAssets.length) {
+    return {
+      confidence: "low",
+      weak: false,
+      requiresReview: false,
+      basis: "unmapped",
+      label: "Unmapped",
+      note: "No asset mapping was retained for this post.",
+      directAssets: [],
+      hintedAssets: [],
+      inferredAssets: []
+    };
+  }
+
+  const directAssets = uniqueSorted(directMatches.filter((ticker) => normalizedMappedAssets.includes(ticker)));
+  const hintedAssets = uniqueSorted(hintedMatches.filter((ticker) => normalizedMappedAssets.includes(ticker)));
+  const explicitAssets = uniqueSorted([...directAssets, ...hintedAssets]);
+  const inferredAssets = normalizedMappedAssets.filter((ticker) => !explicitAssets.includes(ticker));
+  const broadProxyAssets = uniqueSorted(
+    getKeywordMatchedAssets(bodyLower, clusterAllowedAssets, broadProxyKeywordMap).filter((ticker) => inferredAssets.includes(ticker))
+  );
+  const normalizedExtractedAssets = Array.isArray(extractedAssets)
+    ? uniqueSorted(
+        extractedAssets
+          .map((asset) => String(asset || "").trim())
+          .filter((asset) => strictAssets.includes(asset) && inferredAssets.includes(asset))
+      )
+    : [];
+  const allInferredBroad = Boolean(inferredAssets.length) && inferredAssets.every((ticker) => broadProxyAssets.includes(ticker));
+  let confidence = "high";
+  let weak = false;
+  let requiresReview = false;
+  let basis = "direct";
+  let label = "Direct mapping";
+  let note = "Ticker linkage comes from explicit ticker, company, or product language in the post.";
+
+  if (!explicitAssets.length) {
+    if (normalizedExtractedAssets.length) {
+      basis = allInferredBroad ? "broad_inference" : "model_inference";
+      confidence = allInferredBroad || normalizedMappedAssets.length > 1 ? "low" : "medium";
+      weak = confidence === "low";
+      requiresReview = true;
+      label = allInferredBroad ? "Broad inference" : "Review mapping";
+      note = allInferredBroad
+        ? "Ticker links are inferred from broad narrative read-through rather than explicit ticker language."
+        : "The model inferred the ticker linkage from context; review the ticker-to-post connection before acting.";
+    } else {
+      basis = "cluster_inference";
+      confidence = "low";
+      weak = true;
+      requiresReview = true;
+      label = "Cluster inference";
+      note = "No explicit ticker language was detected, so the mapping was inferred from the narrative cluster.";
+    }
+  } else if (inferredAssets.length) {
+    basis = "mixed";
+    confidence = allInferredBroad ? "medium" : "low";
+    weak = true;
+    requiresReview = true;
+    label = allInferredBroad ? "Broad inference" : "Mixed mapping";
+    note = allInferredBroad
+      ? "Some mapped assets are explicit, but the extra broad proxy names are inferred from read-through context."
+      : "Some mapped assets are explicit and others are inferred; review the ticker linkage before acting.";
+  } else if (!directAssets.length && hintedAssets.length) {
+    basis = "source_hint";
+    confidence = "medium";
+    label = "Source hint";
+    note = "Ticker linkage came from an upstream source hint rather than explicit ticker language in the post.";
+  }
+
+  return {
+    confidence,
+    weak,
+    requiresReview,
+    basis,
+    label,
+    note,
+    directAssets,
+    hintedAssets,
+    inferredAssets
+  };
+}
+
+function normalizeLikelyImpacts(likelyImpacts) {
+  const impactMap = new Map();
+
+  for (const impact of Array.isArray(likelyImpacts) ? likelyImpacts : []) {
+    const asset = String(impact?.asset || "").trim().toUpperCase();
+
+    if (!asset) {
+      continue;
+    }
+
+    const score = Number(impact?.score);
+    const normalizedImpact = {
+      asset,
+      score: Number(Math.max(0, Math.min(Number.isFinite(score) ? score : 0, 1)).toFixed(2)),
+      directness: String(impact?.directness || "Read-through").trim() || "Read-through",
+      impactDirection: String(impact?.impactDirection || "Mixed").trim() || "Mixed",
+      reason: String(impact?.reason || "").trim()
+    };
+    const existing = impactMap.get(asset);
+
+    if (!existing || normalizedImpact.score > existing.score) {
+      impactMap.set(asset, normalizedImpact);
+    }
+  }
+
+  return [...impactMap.values()]
+    .sort(
+      (left, right) =>
+        right.score - left.score || (universeIndex.get(left.asset) ?? 999) - (universeIndex.get(right.asset) ?? 999)
+    )
+    .slice(0, 5);
+}
+
+export function attachLikelyImpacts(post, likelyImpacts = [], impactRanking = null) {
+  return {
+    ...post,
+    likelyImpacts: normalizeLikelyImpacts(likelyImpacts),
+    impactRanking: impactRanking || post?.impactRanking || null
+  };
 }
 
 function analyzePost(rawPost, source, generatedAt, extractedClaim = null, extractorMode = "heuristic") {
@@ -677,6 +1069,14 @@ function analyzePost(rawPost, source, generatedAt, extractedClaim = null, extrac
   const claimType = normalizeClaimType(extractedClaim?.claimType, fallbackClaimType);
   const themes = normalizeThemes(extractedClaim?.themes, deriveThemes(clusterId, bodyLower, rawPost));
   const mappedAssets = normalizeMappedAssets(clusterId, safeSource, extractedClaim?.mappedAssets, bodyLower, rawPost);
+  const assetMapping = buildAssetMappingMeta({
+    clusterId,
+    bodyLower,
+    source: safeSource,
+    rawPost,
+    extractedAssets: extractedClaim?.mappedAssets,
+    mappedAssets
+  });
 
   return {
     id: rawPost.id,
@@ -691,12 +1091,17 @@ function analyzePost(rawPost, source, generatedAt, extractedClaim = null, extrac
     themes,
     confidence,
     mappedAssets,
+    assetMapping,
+    likelyImpacts: normalizeLikelyImpacts(rawPost.likelyImpacts),
     clusterId,
+    impactRanking: rawPost.impactRanking || null,
     agentTrace: {
       clusterId,
       sourceReliability: safeSource.baselineReliability,
       extractedAt: generatedAt,
       extractorMode,
+      assetMappingBasis: assetMapping.basis,
+      assetMappingConfidence: assetMapping.confidence,
       extractionNote: String(extractedClaim?.extractionNote || "").trim()
     }
   };
@@ -988,6 +1393,107 @@ function applyMarketAdjustments(asset, scores, marketData) {
   };
 }
 
+function deriveDecisionMath(asset, primaryCluster, finalAction, scores, marketData, vetoReason) {
+  const clusterAgreement = primaryCluster?.agreementScore ?? 0.5;
+  const support = scores.support;
+  const risk = scores.risk;
+  const caution = scores.caution;
+  const sourceCoverage = scores.sourceCoverage;
+  const mappedPostCount = scores.mappedPosts.length;
+  const assetBias =
+    asset.ticker === "BTC"
+      ? -0.04
+      : asset.ticker === "QQQ"
+        ? -0.02
+        : asset.ticker === "SOXX" || asset.ticker === "NVDA"
+          ? 0.01
+          : 0;
+  const returns5d = Number(marketData?.returns5d || 0);
+  const relativeStrength = Number(marketData?.relativeStrength || 0);
+  const volumeRatio = Number(marketData?.volumeRatio || 1);
+  const volatility = Number(marketData?.volatilityScore || 0);
+  const trendLift = clamp(returns5d * 0.7 + relativeStrength * 6 + (volumeRatio - 1) * 0.02, -0.04, 0.05);
+  const downsidePressure = clamp(
+    Math.max(0, -returns5d) * 0.8 + Math.max(0, -relativeStrength) * 5 + Math.max(0, volatility - 0.5) * 0.03,
+    0,
+    0.05
+  );
+  const thesisProbability = round(
+    clamp(
+      0.38 +
+        (clusterAgreement - 0.5) * 0.55 +
+        (support - risk) * 0.22 +
+        sourceCoverage * 0.015 +
+        Math.min(mappedPostCount, 4) * 0.01 +
+        trendLift -
+        caution * 0.17 -
+        (vetoReason ? 0.06 : 0) +
+        assetBias +
+        (finalAction === "BUY" ? 0.04 : finalAction === "SELL" ? 0.01 : -0.05),
+      0.28,
+      0.86
+    )
+  );
+
+  const expectedUpside = round(
+    clamp(
+      finalAction === "SELL"
+        ? 0.02 + risk * 0.05 + caution * 0.03 + downsidePressure + (vetoReason ? 0.008 : 0)
+        : 0.025 + support * 0.06 + clusterAgreement * 0.05 + Math.max(0, trendLift) * 0.4,
+      0.02,
+      0.16
+    )
+  );
+  const expectedDownside = round(
+    clamp(
+      finalAction === "SELL"
+        ? 0.02 + support * 0.04 + caution * 0.03 + Math.max(0, trendLift) * 0.2 + volatility * 0.03
+        : 0.02 + risk * 0.05 + caution * 0.04 + volatility * 0.03 + downsidePressure + (vetoReason ? 0.01 : 0),
+      0.02,
+      0.12
+    )
+  );
+  const rewardRisk = round(clamp(expectedUpside / Math.max(expectedDownside, 0.01), 0.4, 4));
+  const maxLossGuardrail = round(clamp(expectedDownside * 0.7, 0.02, 0.06));
+  const uncertainty = round(
+    clamp(
+      0.16 +
+        caution * 0.24 +
+        Math.max(0, 0.58 - clusterAgreement) * 0.18 +
+        Math.max(0, 3 - sourceCoverage) * 0.03 +
+        Math.max(0, volatility - 0.42) * 0.08 +
+        (vetoReason ? 0.04 : 0),
+      0.1,
+      0.42
+    )
+  );
+  const sizeBand =
+    finalAction === "SELL"
+      ? thesisProbability >= 0.7 && expectedDownside >= expectedUpside
+        ? "exit"
+        : "reduce"
+      : finalAction === "HOLD"
+        ? "watch"
+        : thesisProbability >= 0.76 && rewardRisk >= 2 && maxLossGuardrail <= 0.035
+          ? "small"
+          : thesisProbability >= 0.68 && rewardRisk >= 1.6
+            ? "starter"
+            : "probe";
+
+  return {
+    thesisProbability,
+    uncertainty,
+    expectedUpside,
+    expectedDownside,
+    rewardRisk,
+    sizeBand,
+    maxLossGuardrail,
+    decisionMathSummary: `${Math.round(thesisProbability * 100)}% thesis probability, ${rewardRisk.toFixed(
+      1
+    )}x reward/risk, ${sizeBand} size band, ${Math.round(maxLossGuardrail * 100)}% max-loss guardrail.`
+  };
+}
+
 function buildMarketContext(asset, primaryCluster, scores, marketData) {
   if (!marketData) {
     return {
@@ -1125,6 +1631,14 @@ function buildDecisionBook(clusters, posts, marketSnapshot) {
       policyResult.vetoReason,
       scores
     );
+    const decisionMath = deriveDecisionMath(
+      asset,
+      primaryCluster,
+      finalAction,
+      scores,
+      marketData,
+      policyResult.vetoReason
+    );
     const confidence = round(
       clamp(
         0.5 +
@@ -1153,6 +1667,15 @@ function buildDecisionBook(clusters, posts, marketSnapshot) {
             : "3-7 days",
       timestamp: formatBerlinTimestamp(posts[0]?.createdAt || new Date().toISOString()),
       clusterIds: primaryCluster ? [primaryCluster.id] : [],
+      decisionMath,
+      thesisProbability: decisionMath.thesisProbability,
+      uncertaintyScore: decisionMath.uncertainty,
+      expectedUpside: decisionMath.expectedUpside,
+      expectedDownside: decisionMath.expectedDownside,
+      rewardRisk: decisionMath.rewardRisk,
+      sizeBand: decisionMath.sizeBand,
+      maxLossGuardrail: decisionMath.maxLossGuardrail,
+      decisionMathSummary: decisionMath.decisionMathSummary,
       rationale: decisionCopy.rationale,
       whyNot: decisionCopy.whyNot,
       uncertainty: decisionCopy.uncertainty,
@@ -1184,7 +1707,8 @@ export async function runAgenticEngine({
   posts,
   sources,
   generatedAt = new Date().toISOString(),
-  marketSnapshot = null
+  marketSnapshot = null,
+  financialProfile = {}
 }) {
   const sourceMap = new Map(sources.map((source) => [source.id, getSourceProfile(source)]));
   const extractionResult = await extractClaimsForPosts({
@@ -1203,9 +1727,41 @@ export async function runAgenticEngine({
       )
     )
   );
-  const runtimeClusters = buildRuntimeClusters(analysedPosts, generatedAt);
-  const decisionBook = buildDecisionBook(runtimeClusters, analysedPosts, marketSnapshot);
-  const actionableCount = analysedPosts.filter((post) => post.actionable).length;
+  const impactResult = await rankLikelyImpactsForPosts({
+    posts: analysedPosts,
+    sources,
+    generatedAt,
+    financialProfile
+  });
+  const enrichedPosts = sortByDateDescending(
+    analysedPosts.map((post) =>
+      attachLikelyImpacts(
+        post,
+        impactResult.impacts.get(post.id) || [],
+        {
+          requestedMode: impactResult.stats.requestedMode,
+          activeMode: impactResult.stats.activeMode,
+          provider: impactResult.stats.provider,
+          model: impactResult.stats.model,
+          candidateCount: impactResult.stats.candidateCount
+        }
+      )
+    )
+  );
+  const verificationResult = applyPostVerificationPolicy({
+    posts: enrichedPosts,
+    sources
+  });
+  const verifiedPosts = sortByDateDescending(verificationResult.posts);
+  const runtimeClusters = buildRuntimeClusters(enrichedPosts, generatedAt);
+  const decisionEligiblePosts = verifiedPosts.filter((post) => post.verification?.decisionEligible !== false);
+  const decisionClusters = buildRuntimeClusters(decisionEligiblePosts, generatedAt);
+  const decisionBook = buildDecisionBook(decisionClusters, decisionEligiblePosts, marketSnapshot);
+  const actionableCount = verifiedPosts.filter((post) => post.actionable).length;
+  const likelyImpactCount = verifiedPosts.reduce(
+    (sum, post) => sum + (Array.isArray(post.likelyImpacts) ? post.likelyImpacts.length : 0),
+    0
+  );
   const engineMode =
     extractionResult.stats.activeMode === "openai"
       ? "model-backed-agent-v2"
@@ -1214,33 +1770,43 @@ export async function runAgenticEngine({
   return {
     mode: engineMode,
     generatedAt,
-    posts: analysedPosts,
+    posts: verifiedPosts,
     clusters: runtimeClusters,
     decisions: decisionBook.decisions,
     vetoedSignals: decisionBook.vetoedSignals,
     extractor: extractionResult.stats,
+    impactMapper: impactResult.stats,
+    verification: verificationResult.summary,
     market: marketSnapshot,
     summary: {
-      claimCount: analysedPosts.length,
+      claimCount: verifiedPosts.length,
       actionableCount,
       clusterCount: runtimeClusters.length,
       decisionCount: decisionBook.decisions.length,
       vetoCount: decisionBook.vetoedSignals.length,
       sourceCount: sources.length,
+      likelyImpactCount,
+      verificationBlockedCount: verificationResult.summary.blockedCount,
+      verificationCorroboratedCount: verificationResult.summary.corroboratedCount,
+      verificationOverrideCount: verificationResult.summary.overrideCount,
       extractorMode: extractionResult.stats.activeMode,
       extractorModel: extractionResult.stats.model,
+      impactMapperMode: impactResult.stats.activeMode,
+      impactMapperModel: impactResult.stats.model,
       extractorCacheHits: extractionResult.stats.cacheHits,
       extractorLiveExtractions: extractionResult.stats.liveExtractions,
       extractorFallbackCount: extractionResult.stats.fallbackCount,
+      impactMapperLiveMappings: impactResult.stats.liveMappings,
+      impactMapperFailureCount: impactResult.stats.failureCount,
       marketRegime: marketSnapshot?.summary?.marketRegime || "",
-      newestPostAt: analysedPosts[0]?.createdAt || "",
-      oldestPostAt: analysedPosts.at(-1)?.createdAt || ""
+      newestPostAt: verifiedPosts[0]?.createdAt || "",
+      oldestPostAt: verifiedPosts.at(-1)?.createdAt || ""
     },
     stages: [
       {
         id: "ingestion",
         name: "Ingestion agent",
-        metric: `${analysedPosts.length} fetched posts`,
+        metric: `${verifiedPosts.length} fetched posts`,
         description: "Loads the append-only local tweet feed and source registry into the runtime snapshot."
       },
       {
@@ -1253,11 +1819,30 @@ export async function runAgenticEngine({
             : "Falls back to the built-in heuristic extractor until an OpenAI API key is configured."
       },
       {
+        id: "impact-mapping",
+        name: "Impact mapping agent",
+        metric:
+          impactResult.stats.activeMode === "openai"
+            ? `${likelyImpactCount} ranked impacts`
+            : "Model impact mapping unavailable",
+        description:
+          impactResult.stats.activeMode === "openai"
+            ? "Ranks likely affected names from the tracked universe using the hosted model plus strict post context."
+            : "Likely impacted stocks stay empty until a hosted model is configured for the impact mapper."
+      },
+      {
         id: "clustering",
         name: "Clustering agent",
         metric: `${runtimeClusters.length} live narratives`,
         description:
           "Groups aligned claims into runtime clusters using theme matching, source weighting, and freshness."
+      },
+      {
+        id: "verification",
+        name: "Verification gate",
+        metric: `${verificationResult.summary.blockedCount} blocked / ${verificationResult.summary.corroboratedCount} corroborated`,
+        description:
+          "Applies source-reliability corroboration rules so low-trust signals cannot reach the decision path without confirmation or an explicit operator override."
       },
       {
         id: "policy",
@@ -1280,7 +1865,11 @@ export async function runAgenticEngine({
       extractionResult.stats.activeMode === "openai"
         ? `Model extraction is running on ${extractionResult.stats.model} with ${extractionResult.stats.cacheHits} cache hits in this snapshot.`
         : "Set OPENAI_API_KEY to turn on model-backed claim extraction; the deterministic fallback remains active otherwise.",
-      ...extractionResult.warnings.slice(0, 2)
+      impactResult.stats.activeMode === "openai"
+        ? `Model impact mapping is running on ${impactResult.stats.model} across ${impactResult.stats.candidateCount} watched-universe names.`
+        : "Likely impacted stocks are only shown when the hosted model-backed impact mapper is available.",
+      ...extractionResult.warnings.slice(0, 2),
+      ...impactResult.warnings.slice(0, 2)
     ]
   };
 }

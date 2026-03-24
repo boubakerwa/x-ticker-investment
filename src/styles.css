@@ -409,7 +409,115 @@ button {
   color: var(--accent);
 }
 
+.review-proposed {
+  background: rgba(12, 80, 109, 0.12);
+  color: var(--accent);
+}
+
+.review-approved {
+  background: rgba(15, 139, 111, 0.14);
+  color: var(--buy);
+}
+
+.review-dismissed {
+  background: rgba(183, 71, 58, 0.16);
+  color: var(--sell);
+}
+
 .pill-muted {
+  background: rgba(29, 36, 51, 0.08);
+  color: var(--muted);
+}
+
+.tag-muted {
+  background: rgba(29, 36, 51, 0.06);
+  color: var(--muted);
+}
+
+.tag-warning,
+.pill-warning {
+  background: rgba(212, 140, 20, 0.18);
+  color: #9b5f00;
+}
+
+.decision-math-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.math-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(12, 80, 109, 0.12);
+  background: linear-gradient(180deg, rgba(12, 80, 109, 0.05), rgba(255, 255, 255, 0.68));
+}
+
+.math-card-empty {
+  background: rgba(12, 80, 109, 0.04);
+}
+
+.math-grid {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.math-metric {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.8rem 0.85rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(12, 80, 109, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.math-metric span {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.math-metric strong {
+  font-family: var(--font-display);
+}
+
+.math-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.lifecycle-tag {
+  letter-spacing: 0.02em;
+}
+
+.lifecycle-discovery,
+.lifecycle-candidate {
+  background: rgba(12, 80, 109, 0.12);
+  color: var(--accent);
+}
+
+.lifecycle-validated {
+  background: rgba(23, 97, 106, 0.14);
+  color: #15525a;
+}
+
+.lifecycle-approved {
+  background: rgba(15, 139, 111, 0.14);
+  color: var(--buy);
+}
+
+.lifecycle-dismissed,
+.lifecycle-expired {
+  background: rgba(183, 71, 58, 0.16);
+  color: var(--sell);
+}
+
+.lifecycle-archived {
   background: rgba(29, 36, 51, 0.08);
   color: var(--muted);
 }
@@ -587,6 +695,104 @@ li + li {
   margin-top: 0.9rem;
 }
 
+.mapping-stack {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.verification-stack {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.verification-chip-row,
+.verification-actions {
+  margin-top: 0;
+}
+
+.mapping-chip-row {
+  margin-top: 0;
+}
+
+.mapping-cell {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.mapping-inline-tag {
+  width: fit-content;
+}
+
+.mapping-note {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #8b5a0a;
+}
+
+.mapping-note-compact {
+  display: block;
+}
+
+.impact-stack {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.impact-group {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.impact-label,
+.impact-inline-label {
+  font-size: 0.72rem;
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.impact-chip-row {
+  margin-top: 0;
+}
+
+.impact-chip {
+  display: grid;
+  gap: 0.12rem;
+  align-items: start;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid rgba(29, 36, 51, 0.08);
+  border-radius: 16px;
+  background: rgba(29, 36, 51, 0.04);
+  color: var(--ink);
+  text-align: left;
+}
+
+.impact-chip strong {
+  font-family: var(--font-display);
+  font-size: 0.84rem;
+}
+
+.impact-chip span,
+.impact-inline span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.impact-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.impact-inline {
+  display: grid;
+  gap: 0.2rem;
+}
+
 .mini-chip,
 .inline-link,
 .asset-link,
@@ -751,6 +957,54 @@ li + li {
 .replay-panel {
   display: grid;
   gap: 0.9rem;
+}
+
+.test-shell {
+  align-items: start;
+}
+
+.test-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+.test-stage {
+  padding: 0.95rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.test-stage-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.test-stage-head strong {
+  font-family: var(--font-display);
+}
+
+.test-stage p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.test-stage-success {
+  border-color: rgba(23, 110, 87, 0.16);
+}
+
+.test-stage-warning {
+  border-color: rgba(183, 130, 32, 0.24);
+  background: rgba(255, 248, 232, 0.7);
+}
+
+.test-stage-neutral {
+  border-color: rgba(12, 80, 109, 0.12);
 }
 
 .status-inline {
@@ -1600,9 +1854,33 @@ body {
 
 .office-titlebar {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.office-brand {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.office-logo-lockup {
+  display: block;
+  width: min(100%, 320px);
+  height: auto;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .office-titlebar h1 {
@@ -1744,6 +2022,238 @@ body {
   border-top: 1px solid #eef2f5;
 }
 
+.office-research-callout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 0.9rem;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid #dbe6ee;
+  background: linear-gradient(180deg, rgba(23, 97, 106, 0.06), rgba(255, 255, 255, 0.86));
+}
+
+.office-research-callout h3,
+.research-intro-panel h3 {
+  margin: 0.1rem 0 0.25rem;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.office-research-callout p,
+.research-intro-panel p,
+.research-dashboard-card p,
+.research-card p,
+.research-scorecard p,
+.lifecycle-card p {
+  color: #66727d;
+}
+
+.office-research-callout-meta,
+.research-intro-pills,
+.research-card-meta,
+.research-scorecard-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.research-summary-grid {
+  margin-top: 0.6rem;
+}
+
+.research-intro-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 0.9rem;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid #dbe6ee;
+  background: rgba(247, 250, 252, 0.92);
+}
+
+.research-dashboard-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 0.9rem;
+}
+
+.research-dashboard-card {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #dce4eb;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.research-dashboard-card span {
+  color: #66727d;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.research-dashboard-card strong {
+  font-size: 1.15rem;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.research-dossier-grid,
+.research-scorecard-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.research-dossier-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.research-scorecard-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.research-card,
+.research-scorecard,
+.research-linked-card,
+.lifecycle-column,
+.lifecycle-card {
+  border: 1px solid #dbe6ee;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.research-card,
+.research-scorecard,
+.research-linked-card {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.research-card.is-approved {
+  border-color: rgba(15, 139, 111, 0.22);
+  background: rgba(241, 255, 249, 0.84);
+}
+
+.research-card.is-dismissed {
+  border-color: rgba(183, 71, 58, 0.18);
+  background: rgba(255, 244, 242, 0.84);
+}
+
+.research-card-head,
+.lifecycle-column-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.research-card-head p {
+  margin: 0.35rem 0 0;
+}
+
+.research-score-grid {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.research-linked-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.research-linked-card {
+  padding: 0.85rem;
+  background: #f8fafc;
+}
+
+.research-linked-card p {
+  margin: 0;
+}
+
+.research-evidence-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #66727d;
+}
+
+.research-evidence-list li + li {
+  margin-top: 0.35rem;
+}
+
+.lifecycle-board {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.lifecycle-column {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  background: #f8fafc;
+}
+
+.lifecycle-column-head span {
+  color: #66727d;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.lifecycle-column-head strong {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.lifecycle-column-body {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.lifecycle-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.8rem;
+  background: #ffffff;
+}
+
+.research-lifecycle-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0.9rem 0;
+}
+
+.research-lifecycle-step {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid #dbe6ee;
+  background: #f8fafc;
+}
+
+.research-lifecycle-step span {
+  color: #66727d;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.research-lifecycle-step strong {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.research-lifecycle-step.is-active {
+  border-color: rgba(23, 97, 106, 0.22);
+  background: rgba(23, 97, 106, 0.08);
+}
+
 .office-grid {
   display: grid;
   gap: 1rem;
@@ -1840,6 +2350,33 @@ body {
   font-size: 0.8rem;
 }
 
+.office-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.office-review-meta {
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.review-tag.review-proposed {
+  background: rgba(212, 140, 20, 0.18);
+  color: var(--hold);
+}
+
+.review-tag.review-approved {
+  background: rgba(15, 139, 111, 0.14);
+  color: var(--buy);
+}
+
+.review-tag.review-dismissed {
+  background: rgba(183, 71, 58, 0.16);
+  color: var(--sell);
+}
+
 .office-table {
   width: 100%;
   border-collapse: collapse;
@@ -1864,6 +2401,31 @@ body {
 
 .office-table tbody tr:first-child td {
   border-top: 1px solid #e4ebf2;
+}
+
+.office-review-actions,
+.office-review-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.office-review-meta {
+  margin-top: 0.45rem;
+  color: #66727d;
+  font-size: 0.78rem;
+}
+
+.office-review-strip {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding: 0.95rem 0;
+  border-top: 1px solid #eef2f5;
+  border-bottom: 1px solid #eef2f5;
 }
 
 .office-action-list,
@@ -1942,16 +2504,34 @@ body {
   .office-grid-two,
   .office-grid-sidebar,
   .office-inline-stats,
-  .profile-collection-grid {
+  .profile-collection-grid,
+  .research-dashboard-grid,
+  .research-dossier-grid,
+  .research-scorecard-grid,
+  .research-score-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .office-research-callout,
+  .research-intro-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .research-lifecycle-strip {
     grid-template-columns: 1fr 1fr;
   }
 }
 
 @media (max-width: 760px) {
   .office-titlebar,
-  .office-panel-head {
+  .office-panel-head,
+  .office-review-strip {
     flex-direction: column;
     align-items: start;
+  }
+
+  .office-logo-lockup {
+    width: min(100%, 280px);
   }
 
   .office-meta {
@@ -1968,7 +2548,12 @@ body {
   .office-grid-two,
   .office-grid-sidebar,
   .office-inline-stats,
-  .profile-collection-grid {
+  .profile-collection-grid,
+  .research-dashboard-grid,
+  .research-dossier-grid,
+  .research-scorecard-grid,
+  .research-score-grid,
+  .research-lifecycle-strip {
     grid-template-columns: 1fr;
   }
 
@@ -2007,5 +2592,23 @@ body {
   .profile-collection-card-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .office-research-callout,
+  .research-intro-panel,
+  .research-card-head,
+  .lifecycle-column-head {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: start;
+  }
+
+  .office-research-callout-meta,
+  .research-intro-pills {
+    justify-content: flex-start;
+  }
+
+  .math-grid {
+    grid-template-columns: 1fr;
   }
 }

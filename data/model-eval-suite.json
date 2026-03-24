@@ -1,0 +1,281 @@
+{
+  "version": 1,
+  "suiteName": "default-model-reliability-suite",
+  "defaultAttempts": 3,
+  "gates": {
+    "minimumJsonPassRate": 1,
+    "minimumAverageScore": 0.9,
+    "minimumExactMatchRate": 0.8,
+    "minimumStableCaseRate": 0.67,
+    "minimumPerFieldAccuracy": {
+      "stance": 0.85,
+      "shouldAct": 0.9,
+      "primaryReason": 0.85,
+      "confidenceBand": 0.75
+    }
+  },
+  "schemaName": "model_reliability_case",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["stance", "shouldAct", "primaryReason", "confidenceBand"],
+    "properties": {
+      "stance": {
+        "type": "string",
+        "enum": ["Accumulate", "Hold", "Trim", "Avoid", "Research more"]
+      },
+      "shouldAct": {
+        "type": "boolean"
+      },
+      "primaryReason": {
+        "type": "string",
+        "enum": [
+          "missing_research",
+          "needs_validation",
+          "needs_thesis_approval",
+          "needs_queue_approval",
+          "weak_decision_math",
+          "actionable_setup",
+          "balance_sheet_risk"
+        ]
+      },
+      "confidenceBand": {
+        "type": "string",
+        "enum": ["low", "medium", "high"]
+      }
+    }
+  },
+  "sharedInstructions": [
+    "You are evaluating whether a scenario is action-ready for a conservative investment decision-support product.",
+    "Apply these rules in order.",
+    "If research is missing, stance must be Research more and shouldAct must be false.",
+    "If research status is discovery or candidate, the thesis still needs validation, so stance must be Research more and shouldAct must be false.",
+    "If research status is validated but not approved, stance must be Research more and shouldAct must be false.",
+    "If research is approved but the decision review is missing or proposed, stance must be Research more and shouldAct must be false.",
+    "Only when research is approved and decision review is approved may shouldAct be true.",
+    "If governance is complete but decision math is weak, prefer Hold with shouldAct false.",
+    "If governance is complete but liquidity or liabilities are stretched, prefer Research more with shouldAct false.",
+    "Use low confidence when governance blocks action or balance-sheet risk blocks action.",
+    "Use medium confidence for actionable but still conservative setups.",
+    "Return JSON only."
+  ],
+  "cases": [
+    {
+      "id": "model-eval-001",
+      "label": "Missing research must block action",
+      "input": {
+        "question": "Should I add now?",
+        "assetTicker": "NVDA",
+        "profile": {
+          "riskTolerance": "Moderate",
+          "investmentHorizon": "3-5 years",
+          "emergencyCoverageMonths": 8,
+          "targetEmergencyFundMonths": 6,
+          "liabilityToHoldingsRatio": 0.12
+        },
+        "decision": {
+          "action": "BUY",
+          "thesisProbability": 0.74,
+          "rewardRisk": 2.6,
+          "sizeBand": "starter"
+        },
+        "governance": {
+          "researchStatus": "missing",
+          "decisionReviewStatus": "missing"
+        }
+      },
+      "expected": {
+        "stance": "Research more",
+        "shouldAct": false,
+        "primaryReason": "missing_research",
+        "confidenceBand": "low"
+      }
+    },
+    {
+      "id": "model-eval-002",
+      "label": "Candidate research still needs validation",
+      "input": {
+        "question": "Can I treat this as investable yet?",
+        "assetTicker": "SOXX",
+        "profile": {
+          "riskTolerance": "Moderate",
+          "investmentHorizon": "3-5 years",
+          "emergencyCoverageMonths": 7,
+          "targetEmergencyFundMonths": 6,
+          "liabilityToHoldingsRatio": 0.18
+        },
+        "decision": {
+          "action": "BUY",
+          "thesisProbability": 0.68,
+          "rewardRisk": 2.1,
+          "sizeBand": "starter"
+        },
+        "governance": {
+          "researchStatus": "candidate",
+          "decisionReviewStatus": "missing"
+        }
+      },
+      "expected": {
+        "stance": "Research more",
+        "shouldAct": false,
+        "primaryReason": "needs_validation",
+        "confidenceBand": "low"
+      }
+    },
+    {
+      "id": "model-eval-003",
+      "label": "Validated but not approved research stays watch-only",
+      "input": {
+        "question": "Should I size this position now?",
+        "assetTicker": "MSFT",
+        "profile": {
+          "riskTolerance": "Moderate",
+          "investmentHorizon": "5+ years",
+          "emergencyCoverageMonths": 9,
+          "targetEmergencyFundMonths": 6,
+          "liabilityToHoldingsRatio": 0.1
+        },
+        "decision": {
+          "action": "BUY",
+          "thesisProbability": 0.66,
+          "rewardRisk": 1.9,
+          "sizeBand": "starter"
+        },
+        "governance": {
+          "researchStatus": "validated",
+          "decisionReviewStatus": "missing"
+        }
+      },
+      "expected": {
+        "stance": "Research more",
+        "shouldAct": false,
+        "primaryReason": "needs_thesis_approval",
+        "confidenceBand": "low"
+      }
+    },
+    {
+      "id": "model-eval-004",
+      "label": "Queue approval is still required after thesis approval",
+      "input": {
+        "question": "Can I buy this today?",
+        "assetTicker": "TSM",
+        "profile": {
+          "riskTolerance": "Moderate",
+          "investmentHorizon": "3-5 years",
+          "emergencyCoverageMonths": 7,
+          "targetEmergencyFundMonths": 6,
+          "liabilityToHoldingsRatio": 0.16
+        },
+        "decision": {
+          "action": "BUY",
+          "thesisProbability": 0.71,
+          "rewardRisk": 2.3,
+          "sizeBand": "starter"
+        },
+        "governance": {
+          "researchStatus": "approved",
+          "decisionReviewStatus": "proposed"
+        }
+      },
+      "expected": {
+        "stance": "Research more",
+        "shouldAct": false,
+        "primaryReason": "needs_queue_approval",
+        "confidenceBand": "low"
+      }
+    },
+    {
+      "id": "model-eval-005",
+      "label": "Approved governance and strong math can be actionable",
+      "input": {
+        "question": "Does this look ready for a starter position?",
+        "assetTicker": "NVDA",
+        "profile": {
+          "riskTolerance": "Moderate",
+          "investmentHorizon": "5+ years",
+          "emergencyCoverageMonths": 10,
+          "targetEmergencyFundMonths": 6,
+          "liabilityToHoldingsRatio": 0.08
+        },
+        "decision": {
+          "action": "BUY",
+          "thesisProbability": 0.77,
+          "rewardRisk": 2.8,
+          "sizeBand": "starter"
+        },
+        "governance": {
+          "researchStatus": "approved",
+          "decisionReviewStatus": "approved"
+        }
+      },
+      "expected": {
+        "stance": "Accumulate",
+        "shouldAct": true,
+        "primaryReason": "actionable_setup",
+        "confidenceBand": "medium"
+      }
+    },
+    {
+      "id": "model-eval-006",
+      "label": "Weak math should hold even when governance is complete",
+      "input": {
+        "question": "Should I add more here?",
+        "assetTicker": "QQQ",
+        "profile": {
+          "riskTolerance": "Moderate",
+          "investmentHorizon": "3-5 years",
+          "emergencyCoverageMonths": 8,
+          "targetEmergencyFundMonths": 6,
+          "liabilityToHoldingsRatio": 0.14
+        },
+        "decision": {
+          "action": "HOLD",
+          "thesisProbability": 0.54,
+          "rewardRisk": 1.1,
+          "sizeBand": "watch"
+        },
+        "governance": {
+          "researchStatus": "approved",
+          "decisionReviewStatus": "approved"
+        }
+      },
+      "expected": {
+        "stance": "Hold",
+        "shouldAct": false,
+        "primaryReason": "weak_decision_math",
+        "confidenceBand": "medium"
+      }
+    },
+    {
+      "id": "model-eval-007",
+      "label": "Balance-sheet stress should override a clean buy setup",
+      "input": {
+        "question": "Even with a good thesis, should I add?",
+        "assetTicker": "BTC",
+        "profile": {
+          "riskTolerance": "Aggressive",
+          "investmentHorizon": "3-5 years",
+          "emergencyCoverageMonths": 1.2,
+          "targetEmergencyFundMonths": 6,
+          "liabilityToHoldingsRatio": 0.62
+        },
+        "decision": {
+          "action": "BUY",
+          "thesisProbability": 0.73,
+          "rewardRisk": 2.5,
+          "sizeBand": "starter"
+        },
+        "governance": {
+          "researchStatus": "approved",
+          "decisionReviewStatus": "approved"
+        }
+      },
+      "expected": {
+        "stance": "Research more",
+        "shouldAct": false,
+        "primaryReason": "balance_sheet_risk",
+        "confidenceBand": "low"
+      }
+    }
+  ]
+}

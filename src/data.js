@@ -135,6 +135,34 @@ export const sources = [
     specialHandling: "Crypto signals must align with broader risk context or they default to HOLD.",
     tone: "Fast-moving",
     lastActive: "2026-03-16 09:02 CET"
+  },
+  {
+    id: "src-polymarket",
+    handle: "@polymarket",
+    name: "Polymarket",
+    category: "Prediction Market / Catalyst",
+    baselineReliability: 0.86,
+    preferredHorizon: "1-14 days",
+    policyTemplate: "Market-implied probabilities and catalyst framing",
+    relevantSectors: ["Macro", "Policy", "Politics", "AI Infrastructure", "Risk Appetite"],
+    allowedAssets: ["NVDA", "AMD", "TSM", "SOXX", "QQQ", "MSFT", "META", "BTC"],
+    specialHandling: "Useful for surfacing live event probabilities, but still translate market odds into asset impact before actioning them.",
+    tone: "Market-priced",
+    lastActive: ""
+  },
+  {
+    id: "src-nolimitgains",
+    handle: "@nolimitgains",
+    name: "No Limit Gains",
+    category: "Trader / Commentary",
+    baselineReliability: 0.58,
+    preferredHorizon: "1-3 days",
+    policyTemplate: "Fast narrative scanner for momentum and positioning",
+    relevantSectors: ["AI / Semis", "Large-Cap Tech", "Risk Appetite"],
+    allowedAssets: ["NVDA", "AMD", "TSM", "SOXX", "QQQ", "MSFT", "META", "BTC"],
+    specialHandling: "Treat as early radar only; corroboration is required before it can unlock an actionable view.",
+    tone: "Fast-moving",
+    lastActive: ""
   }
 ];
 

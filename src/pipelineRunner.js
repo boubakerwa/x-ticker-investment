@@ -1,6 +1,7 @@
 import { getAppData } from "./data.js";
 import { runAgenticEngine } from "./agenticEngine.js";
 import { syncFeedProvider } from "./feedProvider.js";
+import { readFinancialProfile } from "./financialProfileStore.js";
 import { buildIngestionSnapshot } from "./ingestionPipeline.js";
 import {
   buildMarketSnapshot,
@@ -8,9 +9,11 @@ import {
   getMarketProviderVersion
 } from "./marketDataProvider.js";
 import { getClaimExtractorConfig } from "./modelClaimExtractor.js";
+import { syncDecisionReviewsForRun } from "./decisionReviewStore.js";
 import {
   getLatestPipelineSnapshot,
   isPipelineSnapshotCurrent,
+  listPipelineRuns,
   persistPipelineRun
 } from "./pipelineStore.js";
 import { readSourceStore } from "./sourceStore.js";
@@ -129,6 +132,7 @@ export async function runPipeline({
   reason = ""
 } = {}) {
   const generatedAt = new Date().toISOString();
+  const previousRun = listPipelineRuns(1)[0] || null;
   const sourceStore = readSourceStore();
   const feedSyncResult = await syncFeedProvider({
     generatedAt,
@@ -151,11 +155,13 @@ export async function runPipeline({
   const marketSnapshot = await buildMarketSnapshot({
     generatedAt
   });
+  const financialProfile = readFinancialProfile();
   const runtimeAnalysis = await runAgenticEngine({
     posts: ingestionSnapshot.normalizedPosts,
     sources: sourceStore.sources,
     generatedAt,
-    marketSnapshot
+    marketSnapshot,
+    financialProfile
   });
   const runId = buildRunId();
   const snapshot = buildBaseSnapshot({
@@ -199,6 +205,14 @@ export async function runPipeline({
   };
 
   persistPipelineRun(runRecord);
+  const createdReviews = syncDecisionReviewsForRun({
+    run: runRecord,
+    previousRun
+  });
+
+  runRecord.reviewQueue = {
+    createdCount: createdReviews.length
+  };
   return runRecord;
 }
 

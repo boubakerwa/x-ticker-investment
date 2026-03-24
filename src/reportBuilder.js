@@ -1,4 +1,8 @@
-import { getBackgroundPipelineStatus } from "./backgroundPipelineRunner.js";
+import {
+  describeBackgroundPipelineSchedule,
+  getBackgroundPipelineStatus
+} from "./backgroundPipelineRunner.js";
+import { buildCurrentDecisionReviewState } from "./decisionReviewStore.js";
 import { listDecisionHistory, listPipelineRuns } from "./pipelineStore.js";
 
 function normalizeTicker(value) {
@@ -58,6 +62,17 @@ function buildDecisionHighlights(decisions) {
   });
 }
 
+function formatReviewStatus(status) {
+  return String(status || "proposed").replace(/^./, (character) => character.toUpperCase());
+}
+
+function buildReviewHighlights(items) {
+  return items.slice(0, 3).map((item) => {
+    const confidence = Math.round((item.confidence || 0) * 100);
+    return `${item.asset} ${item.action} · ${confidence}% · ${formatReviewStatus(item.reviewStatus)}`;
+  });
+}
+
 function formatDecisionSummary(decisionHistory) {
   if (!decisionHistory.length) {
     return "No decisions recorded yet.";
@@ -90,16 +105,33 @@ export function buildDailyDigest({
   const trackedTickers = getTrackedTickers(financialProfile);
   const trackedDecisions = getTrackedDecisionsFromSnapshot(latestSnapshot, financialProfile);
   const topTrackedDecision = trackedDecisions[0] || null;
-  const highlights = trackedDecisions.length
-    ? buildDecisionHighlights(trackedDecisions)
-    : trackedTickers.length
-      ? ["No active decisions yet for your tracked assets."]
-      : ["Add holdings or a watchlist to personalize the daily digest."];
+  const reviewState = latestSnapshot
+    ? buildCurrentDecisionReviewState({
+        snapshot: latestSnapshot,
+        financialProfile
+      })
+    : {
+        summary: {
+          proposedCount: 0,
+          reviewedCount: 0
+        },
+        queue: []
+      };
+  const topPendingReview = reviewState.queue.find((item) => item.reviewStatus === "proposed") || null;
+  const highlights = reviewState.queue.length
+    ? buildReviewHighlights(reviewState.queue)
+    : trackedDecisions.length
+      ? buildDecisionHighlights(trackedDecisions)
+      : trackedTickers.length
+        ? ["No active decisions yet for your tracked assets."]
+        : ["Add holdings or a watchlist to personalize the daily digest."];
 
   return {
     title: "Daily operator digest",
     summary:
-      topTrackedDecision
+      topPendingReview
+        ? `Approval queue: ${topPendingReview.asset} is still ${topPendingReview.action} and needs review.`
+        : topTrackedDecision
         ? `Portfolio focus: ${topTrackedDecision.asset} is currently ${topTrackedDecision.action} at ${Math.round(topTrackedDecision.confidence * 100)}% confidence.`
         : latestRun?.summary?.decisionCount > 0
           ? `Latest run produced ${latestRun.summary.decisionCount} decisions and ${latestRun.summary.vetoCount} vetoes.`
@@ -118,8 +150,18 @@ export function buildDailyDigest({
         value: trackedDecisions.length ? String(trackedDecisions.length) : "0"
       },
       {
+        label: "Pending approvals",
+        value: String(reviewState.summary.proposedCount || 0)
+      },
+      {
+        label: "Reviewed calls",
+        value: String(reviewState.summary.reviewedCount || 0)
+      },
+      {
         label: "Scheduler",
-        value: scheduler.active ? `Active · every ${scheduler.intervalMinutes}m` : "Paused"
+        value: scheduler.active
+          ? `Active · ${describeBackgroundPipelineSchedule(scheduler)}`
+          : "Paused"
       },
       {
         label: "Recent runs",
@@ -156,11 +198,25 @@ export function buildDailyDigest({
 export function buildPipelineAlert(run, { financialProfile = {} } = {}) {
   const trackedDecisions = getTrackedDecisionsFromRun(run, financialProfile);
   const topTrackedDecision = trackedDecisions[0] || null;
+  const reviewState = run?.snapshot
+    ? buildCurrentDecisionReviewState({
+        snapshot: run.snapshot,
+        financialProfile
+      })
+    : {
+        summary: {
+          proposedCount: 0
+        },
+        queue: []
+      };
+  const topPendingReview = reviewState.queue.find((item) => item.reviewStatus === "proposed") || null;
 
   return {
     title: "Pipeline run completed",
     summary:
-      topTrackedDecision
+      topPendingReview
+        ? `Run ${run.id} opened ${reviewState.summary.proposedCount} review items; ${topPendingReview.asset} is first in queue.`
+        : topTrackedDecision
         ? `Run ${run.id} surfaced a tracked call: ${topTrackedDecision.asset} ${topTrackedDecision.action}.`
         : run.summary.decisionCount > 0
           ? `Run ${run.id} finished with ${run.summary.decisionCount} decisions.`
@@ -173,6 +229,10 @@ export function buildPipelineAlert(run, { financialProfile = {} } = {}) {
       {
         label: "Tracked calls",
         value: trackedDecisions.length ? String(trackedDecisions.length) : "0"
+      },
+      {
+        label: "Pending review",
+        value: String(reviewState.summary.proposedCount || 0)
       },
       {
         label: "Extractor",
@@ -191,7 +251,11 @@ export function buildPipelineAlert(run, { financialProfile = {} } = {}) {
         value: String(run.summary.vetoCount)
       }
     ],
-    highlights: trackedDecisions.length ? buildDecisionHighlights(trackedDecisions) : [],
+    highlights: reviewState.queue.length
+      ? buildReviewHighlights(reviewState.queue)
+      : trackedDecisions.length
+        ? buildDecisionHighlights(trackedDecisions)
+        : [],
     footer: run.generatedAt
   };
 }
