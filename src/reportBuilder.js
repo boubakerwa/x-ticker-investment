@@ -1,4 +1,7 @@
-import { getBackgroundPipelineStatus } from "./backgroundPipelineRunner.js";
+import {
+  describeBackgroundPipelineSchedule,
+  getBackgroundPipelineStatus
+} from "./backgroundPipelineRunner.js";
 import { buildCurrentDecisionReviewState } from "./decisionReviewStore.js";
 import { listDecisionHistory, listPipelineRuns } from "./pipelineStore.js";
 
@@ -156,7 +159,9 @@ export function buildDailyDigest({
       },
       {
         label: "Scheduler",
-        value: scheduler.active ? `Active · every ${scheduler.intervalMinutes}m` : "Paused"
+        value: scheduler.active
+          ? `Active · ${describeBackgroundPipelineSchedule(scheduler)}`
+          : "Paused"
       },
       {
         label: "Recent runs",

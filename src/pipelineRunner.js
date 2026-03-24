@@ -1,6 +1,7 @@
 import { getAppData } from "./data.js";
 import { runAgenticEngine } from "./agenticEngine.js";
 import { syncFeedProvider } from "./feedProvider.js";
+import { readFinancialProfile } from "./financialProfileStore.js";
 import { buildIngestionSnapshot } from "./ingestionPipeline.js";
 import {
   buildMarketSnapshot,
@@ -154,11 +155,13 @@ export async function runPipeline({
   const marketSnapshot = await buildMarketSnapshot({
     generatedAt
   });
+  const financialProfile = readFinancialProfile();
   const runtimeAnalysis = await runAgenticEngine({
     posts: ingestionSnapshot.normalizedPosts,
     sources: sourceStore.sources,
     generatedAt,
-    marketSnapshot
+    marketSnapshot,
+    financialProfile
   });
   const runId = buildRunId();
   const snapshot = buildBaseSnapshot({

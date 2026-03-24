@@ -1,7 +1,8 @@
 import { replaceTweetStore } from "./tweetStore.js";
+import { readXUserCacheByHandles, upsertXUserCache } from "./xUserCacheStore.js";
 
 const DEFAULT_X_API_BASE_URL = "https://api.x.com/2";
-const X_API_PROVIDER_VERSION = "x-api-adapter-v1";
+const X_API_PROVIDER_VERSION = "x-api-adapter-v2";
 
 function trimTrailingSlash(value) {
   return String(value || "").replace(/\/+$/, "");
@@ -41,7 +42,24 @@ async function requestJson(url, config, errorContext) {
 
   if (!response.ok) {
     const detail = payload?.detail || payload?.title || payload?.error || `HTTP ${response.status}`;
-    throw new Error(`${errorContext}: ${detail}`);
+    const error = new Error(`${errorContext}: ${detail}`);
+    error.statusCode = response.status;
+    error.provider = "x_api";
+    error.providerType = String(payload?.type || "").trim();
+    error.providerTitle = String(payload?.title || "").trim();
+    error.providerDetail = String(detail).trim();
+
+    if (
+      error.providerTitle === "CreditsDepleted" ||
+      error.providerType.includes("/problems/credits") ||
+      error.providerDetail.toLowerCase().includes("does not have any credits")
+    ) {
+      error.code = "x_api_credits_depleted";
+      error.userMessage =
+        "X API credits are depleted. Add credits in the X Developer Console or switch FEED_PROVIDER away from x-api before restarting the live feed.";
+    }
+
+    throw error;
   }
 
   return payload;
@@ -69,6 +87,48 @@ async function lookupUsersByHandles(handles, config) {
   }
 
   return usersByHandle;
+}
+
+async function resolveUsersByHandles(handles, config) {
+  const normalizedHandles = [...new Set(handles.map((handle) => normalizeHandle(handle)).filter(Boolean))];
+  const cachedUsers = readXUserCacheByHandles(normalizedHandles);
+  const missingHandles = normalizedHandles.filter((handle) => !cachedUsers.has(handle));
+  const lookedUpUsers = missingHandles.length ? await lookupUsersByHandles(missingHandles, config) : new Map();
+
+  if (lookedUpUsers.size) {
+    upsertXUserCache(
+      [...lookedUpUsers.entries()].map(([handle, user]) => ({
+        handle,
+        userId: String(user.id || "").trim(),
+        username: String(user.username || handle).trim(),
+        name: String(user.name || "").trim(),
+        verified: Boolean(user.verified),
+        mostRecentTweetId: String(user.most_recent_tweet_id || "").trim()
+      }))
+    );
+  }
+
+  const usersByHandle = new Map();
+
+  for (const [handle, cachedUser] of cachedUsers.entries()) {
+    usersByHandle.set(handle, {
+      id: cachedUser.userId,
+      username: cachedUser.username,
+      name: cachedUser.name,
+      verified: cachedUser.verified,
+      most_recent_tweet_id: cachedUser.mostRecentTweetId
+    });
+  }
+
+  for (const [handle, user] of lookedUpUsers.entries()) {
+    usersByHandle.set(handle, user);
+  }
+
+  return {
+    usersByHandle,
+    cacheHitCount: cachedUsers.size,
+    lookupCount: missingHandles.length
+  };
 }
 
 async function fetchRecentPostsForUser(userId, config) {
@@ -99,10 +159,11 @@ export async function syncXApiTimeline({ sources, generatedAt = new Date().toISO
     throw new Error("No sources with valid X handles are configured.");
   }
 
-  const usersByHandle = await lookupUsersByHandles(
+  const userResolution = await resolveUsersByHandles(
     eligibleSources.map((source) => source.handle),
     config
   );
+  const usersByHandle = userResolution.usersByHandle;
   const warnings = [];
   const posts = [];
 
@@ -159,6 +220,10 @@ export async function syncXApiTimeline({ sources, generatedAt = new Date().toISO
     feedMode: tweetStore.mode,
     seededAt: tweetStore.seededAt,
     fetchedCount: tweetStore.posts.length,
+    userResolution: {
+      cacheHitCount: userResolution.cacheHitCount,
+      lookupCount: userResolution.lookupCount
+    },
     warnings
   };
 }

@@ -57,6 +57,38 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_extraction_cache_post_id
       ON extraction_cache(post_id);
 
+    CREATE TABLE IF NOT EXISTS impact_mapping_cache (
+      fingerprint TEXT PRIMARY KEY,
+      prompt_version TEXT NOT NULL,
+      model TEXT NOT NULL,
+      post_id TEXT,
+      source_id TEXT,
+      cached_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_impact_mapping_cache_post_id
+      ON impact_mapping_cache(post_id);
+
+    CREATE TABLE IF NOT EXISTS post_verification_overrides (
+      post_id TEXT PRIMARY KEY,
+      updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_post_verification_overrides_updated_at
+      ON post_verification_overrides(updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS x_user_cache (
+      handle TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_x_user_cache_updated_at
+      ON x_user_cache(updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS pipeline_runs (
       id TEXT PRIMARY KEY,
       generated_at TEXT NOT NULL,

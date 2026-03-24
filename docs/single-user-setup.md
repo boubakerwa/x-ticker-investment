@@ -115,4 +115,10 @@ Then start the adapter:
 ./scripts/start-local-qwen-adapter.sh
 ```
 
+Then validate the model before trusting it:
+
+```bash
+npm run evals:model
+```
+
 See `docs/local-qwen-macmini.md` for the full local-model notes.

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">X Ticker Investment logo mark</title>
+  <desc id="desc">An interwoven X over ticker bars inside a rounded square.</desc>
+  <defs>
+    <linearGradient id="bg" x1="16" y1="10" x2="80" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17394c" />
+      <stop offset="1" stop-color="#10222f" />
+    </linearGradient>
+    <linearGradient id="teal" x1="24" y1="26" x2="72" y2="74" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#48a3b9" />
+      <stop offset="1" stop-color="#0f8b6f" />
+    </linearGradient>
+    <linearGradient id="paper" x1="24" y1="74" x2="72" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff9ef" />
+      <stop offset="1" stop-color="#eadfc8" />
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="88" height="88" rx="24" fill="url(#bg)" />
+
+  <g opacity="0.16" fill="#dceef5">
+    <rect x="22" y="22" width="52" height="2" rx="1" />
+    <rect x="22" y="40" width="52" height="2" rx="1" />
+    <rect x="22" y="58" width="52" height="2" rx="1" />
+  </g>
+
+  <g fill="#f5f0e8" opacity="0.14">
+    <rect x="23" y="50" width="8" height="20" rx="3" />
+    <rect x="37" y="42" width="8" height="28" rx="3" />
+    <rect x="51" y="34" width="8" height="36" rx="3" />
+    <rect x="65" y="26" width="8" height="44" rx="3" />
+  </g>
+
+  <path
+    d="M23 25L48 50L73 71"
+    fill="none"
+    stroke="url(#teal)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="10"
+  />
+  <path
+    d="M23 71L48 46L71 23"
+    fill="none"
+    stroke="url(#paper)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="10"
+  />
+
+  <circle cx="72" cy="24" r="5" fill="#d48c14" />
+  <circle cx="72" cy="24" r="2.2" fill="#fff7eb" />
+</svg>

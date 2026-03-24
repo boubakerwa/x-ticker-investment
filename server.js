@@ -3,6 +3,8 @@ import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  applyPostVerificationPolicy,
+  attachLikelyImpacts,
   buildHeuristicPostAnalysis,
   buildNormalizedPostAnalysis
 } from "./src/agenticEngine.js";
@@ -24,8 +26,10 @@ import { runExtractionEval } from "./src/evalHarness.js";
 import { getEvalRun, getLatestEvalRun, listEvalRuns } from "./src/evalStore.js";
 import { readFinancialProfile, updateFinancialProfile } from "./src/financialProfileStore.js";
 import { buildClaimExtractionReplay } from "./src/modelClaimExtractor.js";
+import { buildImpactMappingReplay } from "./src/modelImpactMapper.js";
 import { getNotificationStatus, sendNotification } from "./src/notificationProvider.js";
 import { ensureLatestPipelineRun } from "./src/pipelineRunner.js";
+import { getPostVerificationOverride, setPostVerificationOverride } from "./src/postVerificationStore.js";
 import {
   getLatestPipelineSnapshot,
   getPipelineRun,
@@ -34,6 +38,7 @@ import {
 } from "./src/pipelineStore.js";
 import { executePipelineJob, getOrchestratorStatus, sendDailyDigest } from "./src/orchestrator.js";
 import { monitoredUniverse } from "./src/data.js";
+import { getTelegramBotStatus, startTelegramBotRunner } from "./src/telegramBotRunner.js";
 import { hasTweetsForSource, importManualPosts, readTweetStore, reseedTweetStore } from "./src/tweetStore.js";
 import {
   createSource,
@@ -61,12 +66,23 @@ const ACTIONABLE_RESEARCH_STATUSES = new Set(["approved"]);
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
   ".svg": "image/svg+xml; charset=utf-8"
 };
 
 let bootstrapPromise = null;
+let bootstrapStatus = {
+  status: "idle",
+  lastAttemptAt: "",
+  lastSuccessAt: "",
+  lastError: "",
+  fallbackSnapshotRunId: "",
+  usingFallbackSnapshot: false
+};
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
@@ -81,6 +97,29 @@ function sendError(response, statusCode, message) {
     ok: false,
     error: message
   });
+}
+
+function formatBootstrapError(error) {
+  if (error && typeof error === "object" && typeof error.userMessage === "string" && error.userMessage.trim()) {
+    return error.userMessage.trim();
+  }
+
+  return error instanceof Error ? error.message : "Bootstrap refresh failed.";
+}
+
+function setBootstrapStatus(patch = {}) {
+  bootstrapStatus = {
+    ...bootstrapStatus,
+    ...patch
+  };
+
+  return bootstrapStatus;
+}
+
+function getBootstrapStatus() {
+  return {
+    ...bootstrapStatus
+  };
 }
 
 function readJsonBody(request) {
@@ -223,6 +262,51 @@ function resolveManualImportSource(payload) {
   });
 }
 
+function resolveAdHocTestSource(payload, sources = []) {
+  const requestedSourceId = String(payload.sourceId || "").trim();
+  const requestedHandle = String(payload.sourceHandle || "").trim();
+  const existingSource =
+    sources.find((source) => source.id === requestedSourceId) ||
+    sources.find(
+      (source) =>
+        requestedHandle && String(source.handle || "").toLowerCase() === requestedHandle.toLowerCase()
+    ) ||
+    null;
+  const handle = String(requestedHandle || existingSource?.handle || "@testbench").trim() || "@testbench";
+  const normalizedHandle = handle.startsWith("@") ? handle : `@${handle}`;
+  const sourceToken = normalizeTicker(normalizedHandle).toLowerCase() || "testbench";
+  const allowedAssets = parseCommaSeparatedList(payload.allowedAssets);
+  const relevantSectors = parseCommaSeparatedList(payload.relevantSectors);
+
+  return {
+    ...(existingSource || {}),
+    id: existingSource?.id || `adhoc-${sourceToken}`,
+    handle: normalizedHandle,
+    name: String(payload.sourceName || existingSource?.name || "Ad hoc test source").trim() || normalizedHandle,
+    category:
+      String(payload.sourceCategory || existingSource?.category || "Test / Ad hoc").trim() || "Test / Ad hoc",
+    baselineReliability: Number(payload.baselineReliability || existingSource?.baselineReliability || 0.64),
+    preferredHorizon: String(existingSource?.preferredHorizon || "0-3 days"),
+    policyTemplate:
+      String(existingSource?.policyTemplate || "Ad hoc single-post test source used from the Tests tab."),
+    relevantSectors:
+      relevantSectors.length
+        ? relevantSectors
+        : Array.isArray(existingSource?.relevantSectors)
+          ? existingSource.relevantSectors
+          : [],
+    allowedAssets:
+      allowedAssets.length
+        ? allowedAssets
+        : Array.isArray(existingSource?.allowedAssets) && existingSource.allowedAssets.length
+          ? existingSource.allowedAssets
+          : monitoredUniverse.map((asset) => asset.ticker),
+    specialHandling: String(existingSource?.specialHandling || ""),
+    tone: String(existingSource?.tone || "Custom"),
+    lastActive: new Date().toISOString()
+  };
+}
+
 function summarizeRun(run) {
   return {
     id: run.id,
@@ -255,6 +339,10 @@ function summarizeEvalRun(run) {
     : null;
 }
 
+function getEvalMode(run) {
+  return run?.extractor?.activeMode || run?.validationMode || run?.model?.provider || "model";
+}
+
 function buildPlaceholders(decisionHistory, evalRuns) {
   return {
     decisionLogs: decisionHistory.slice(0, 6).map((entry) => ({
@@ -268,7 +356,7 @@ function buildPlaceholders(decisionHistory, evalRuns) {
           id: run.id,
           name: `${run.suiteName} eval`,
           description: `${Math.round(run.summary.averageScore * 100)}% average score across ${run.summary.caseCount} cases.`,
-          state: run.extractor.activeMode
+          state: getEvalMode(run)
         }))
       : [
           {
@@ -486,32 +574,117 @@ function filterReviewStateByResearch(reviewState, researchByAsset) {
 
 async function ensureBootstrap() {
   if (!bootstrapPromise) {
+    const startedAt = new Date().toISOString();
+    setBootstrapStatus({
+      status: "running",
+      lastAttemptAt: startedAt,
+      lastError: "",
+      usingFallbackSnapshot: false,
+      fallbackSnapshotRunId: ""
+    });
     bootstrapPromise = ensureLatestPipelineRun({
       trigger: "startup"
-    }).catch((error) => {
-      bootstrapPromise = null;
-      throw error;
-    });
+    })
+      .then((result) => {
+        setBootstrapStatus({
+          status: "ready",
+          lastAttemptAt: startedAt,
+          lastSuccessAt: new Date().toISOString(),
+          lastError: "",
+          usingFallbackSnapshot: false,
+          fallbackSnapshotRunId: ""
+        });
+        return result;
+      })
+      .catch((error) => {
+        const latestSnapshot = getLatestPipelineSnapshot();
+        const message = formatBootstrapError(error);
+
+        if (latestSnapshot) {
+          setBootstrapStatus({
+            status: "degraded",
+            lastAttemptAt: startedAt,
+            lastError: message,
+            usingFallbackSnapshot: true,
+            fallbackSnapshotRunId: latestSnapshot.runId || ""
+          });
+
+          return {
+            run: null,
+            snapshot: latestSnapshot,
+            dependencyKey: "",
+            reused: true,
+            degraded: true,
+            errorMessage: message
+          };
+        }
+
+        setBootstrapStatus({
+          status: "failed",
+          lastAttemptAt: startedAt,
+          lastError: message,
+          usingFallbackSnapshot: false,
+          fallbackSnapshotRunId: ""
+        });
+        bootstrapPromise = null;
+        throw error;
+      });
   }
 
   return bootstrapPromise;
 }
 
 async function getPersistedAppState() {
-  await ensureBootstrap();
+  try {
+    await ensureBootstrap();
+  } catch (error) {
+    const latestSnapshot = getLatestPipelineSnapshot();
+
+    if (!latestSnapshot) {
+      const message = formatBootstrapError(error);
+      const bootstrapError = new Error(message);
+      bootstrapError.statusCode = 503;
+      throw bootstrapError;
+    }
+  }
 
   let latestSnapshot = getLatestPipelineSnapshot();
 
-  if (!latestSnapshot) {
-    await ensureLatestPipelineRun({
-      trigger: "bootstrap-missing",
-      force: true
+  if (
+    latestSnapshot &&
+    bootstrapStatus.status === "degraded" &&
+    new Date(latestSnapshot.generatedAt || 0).getTime() > new Date(bootstrapStatus.lastAttemptAt || 0).getTime()
+  ) {
+    setBootstrapStatus({
+      status: "ready",
+      lastSuccessAt: latestSnapshot.generatedAt || new Date().toISOString(),
+      lastError: "",
+      usingFallbackSnapshot: false,
+      fallbackSnapshotRunId: ""
     });
+  }
+
+  if (!latestSnapshot) {
+    try {
+      await ensureLatestPipelineRun({
+        trigger: "bootstrap-missing",
+        force: true
+      });
+    } catch (error) {
+      const message = formatBootstrapError(error);
+      const bootstrapError = new Error(message);
+      bootstrapError.statusCode = 503;
+      throw bootstrapError;
+    }
     latestSnapshot = getLatestPipelineSnapshot();
   }
 
   if (!latestSnapshot) {
-    throw new Error("No persisted pipeline snapshot is available.");
+    const bootstrapError = new Error(
+      "No persisted pipeline snapshot is available yet. Fix the feed connection or switch to a local/manual feed, then rerun the pipeline."
+    );
+    bootstrapError.statusCode = 503;
+    throw bootstrapError;
   }
 
   const pipelineRuns = listPipelineRuns(12);
@@ -521,11 +694,13 @@ async function getPersistedAppState() {
   const financialProfile = readFinancialProfile();
   const advisorHistory = listAdvisorAnswers(10);
   const researchState = buildResearchDashboardState();
+  const liveSources = listSources();
   const researchByAsset = buildResearchLookup(researchState.dossiers);
   const decoratedSnapshot = {
     ...latestSnapshot,
     appData: {
       ...latestSnapshot.appData,
+      sources: liveSources,
       decisions: (latestSnapshot.appData?.decisions || []).map((decision) =>
         decorateDecisionWithResearch(
           decision,
@@ -547,8 +722,10 @@ async function getPersistedAppState() {
     appData: {
       ...decoratedSnapshot.appData,
       runtime: {
+        bootstrap: getBootstrapStatus(),
         scheduler: getBackgroundPipelineStatus(),
-        orchestrator: getOrchestratorStatus()
+        orchestrator: getOrchestratorStatus(),
+        telegramBot: getTelegramBotStatus()
       },
       history: {
         latestRunId: latestSnapshot.runId,
@@ -594,8 +771,10 @@ createServer(async (request, response) => {
         service: "x-ticker-investment",
         timestamp: new Date().toISOString(),
         latestRunId: latestSnapshot?.runId || "",
+        bootstrap: getBootstrapStatus(),
         scheduler: getBackgroundPipelineStatus(),
-        notifications: getNotificationStatus().config
+        notifications: getNotificationStatus().config,
+        telegramBot: getTelegramBotStatus()
       });
       return;
     }
@@ -675,7 +854,8 @@ createServer(async (request, response) => {
       sendJson(response, 200, {
         ok: true,
         scheduler: getBackgroundPipelineStatus(),
-        orchestrator: getOrchestratorStatus()
+        orchestrator: getOrchestratorStatus(),
+        telegramBot: getTelegramBotStatus()
       });
       return;
     }
@@ -692,6 +872,96 @@ createServer(async (request, response) => {
       sendJson(response, 200, {
         ok: true,
         run
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/engine/test-drive" && request.method === "POST") {
+      const payload = await readJsonBody(request);
+      const body = String(payload.rawText || payload.body || "").trim();
+
+      if (!body) {
+        sendError(response, 400, "Paste a tweet or note before running a test.");
+        return;
+      }
+
+      const persistedState = await getPersistedAppState();
+      const generatedAt = persistedState.snapshot?.generatedAt || new Date().toISOString();
+      const financialProfile = persistedState.appData?.advisor?.financialProfile || readFinancialProfile();
+      const sourceStore = readSourceStore();
+      const source = resolveAdHocTestSource(payload, sourceStore.sources);
+      const rawPost = {
+        id: `adhoc-test-${Date.now()}`,
+        sourceId: source.id,
+        createdAt: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
+        body
+      };
+      const sources = [
+        ...sourceStore.sources.filter((item) => item.id !== source.id),
+        source
+      ];
+      const replay = await buildClaimExtractionReplay({
+        post: rawPost,
+        sources,
+        generatedAt,
+        live: payload.runLive !== false
+      });
+      const heuristicBaseline = buildHeuristicPostAnalysis({
+        post: rawPost,
+        source,
+        generatedAt
+      });
+      const cachedExtraction = replay.cache.entry?.extraction || null;
+      const cachedNormalized = cachedExtraction
+        ? buildNormalizedPostAnalysis({
+            post: rawPost,
+            source,
+            generatedAt,
+            extractedClaim: cachedExtraction,
+            extractorMode: "openai-cache"
+          })
+        : null;
+      const liveNormalized =
+        replay.liveRun?.ok && replay.liveRun.parsedExtraction
+          ? buildNormalizedPostAnalysis({
+              post: rawPost,
+              source,
+              generatedAt,
+              extractedClaim: replay.liveRun.parsedExtraction,
+            extractorMode: "openai-live"
+          })
+          : null;
+      const baseSelectedNormalized = liveNormalized || cachedNormalized || heuristicBaseline;
+      const impactReplay = await buildImpactMappingReplay({
+        post: baseSelectedNormalized,
+        sources,
+        financialProfile,
+        generatedAt,
+        live: payload.runLive !== false
+      });
+      const selectedNormalized = attachLikelyImpacts(
+        baseSelectedNormalized,
+        impactReplay.liveRun?.ok
+          ? impactReplay.liveRun.parsedImpacts
+          : impactReplay.cache?.parsedImpacts || []
+      );
+      const verifiedSelected = applyPostVerificationPolicy({
+        posts: [selectedNormalized],
+        sources
+      }).posts[0];
+
+      sendJson(response, 200, {
+        ok: true,
+        generatedAt,
+        source,
+        rawPost,
+        heuristicBaseline,
+        cachedNormalized,
+        liveNormalized,
+        selectedNormalized: verifiedSelected,
+        replay,
+        impactReplay
       });
       return;
     }
@@ -776,15 +1046,24 @@ createServer(async (request, response) => {
       if (request.method === "POST") {
         const payload = await readJsonBody(request);
         const source = createSource(payload);
-        const pipelineResult = await executePipelineJob({
-          trigger: "source-create",
-          reason: source.id
-        });
+        let pipelineResult = null;
+        let pipelineWarning = "";
+
+        try {
+          pipelineResult = await executePipelineJob({
+            trigger: "source-create",
+            reason: source.id
+          });
+        } catch (error) {
+          pipelineWarning = formatBootstrapError(error);
+        }
+
         sendJson(response, 201, {
           ok: true,
           source,
-          pipelineJobId: pipelineResult.jobId,
-          pipelineRunId: pipelineResult.run.id
+          pipelineJobId: pipelineResult?.jobId || "",
+          pipelineRunId: pipelineResult?.run?.id || "",
+          pipelineWarning
         });
         return;
       }
@@ -1008,6 +1287,47 @@ createServer(async (request, response) => {
       }
     }
 
+    if (requestUrl.pathname.startsWith("/api/operator/post-verification-overrides/")) {
+      const postId = decodeURIComponent(
+        requestUrl.pathname.replace("/api/operator/post-verification-overrides/", "")
+      );
+
+      if (!postId) {
+        sendError(response, 400, "Post id is required.");
+        return;
+      }
+
+      if (request.method === "GET") {
+        sendJson(response, 200, {
+          ok: true,
+          override: getPostVerificationOverride(postId)
+        });
+        return;
+      }
+
+      if (request.method === "PUT") {
+        const payload = await readJsonBody(request);
+        const enabled = payload.enabled !== false;
+        const override = setPostVerificationOverride({
+          postId,
+          enabled,
+          note: String(payload.note || "").trim()
+        });
+        const pipelineResult = await executePipelineJob({
+          trigger: enabled ? "verification-override-enable" : "verification-override-clear",
+          reason: postId
+        });
+
+        sendJson(response, 200, {
+          ok: true,
+          override,
+          pipelineJobId: pipelineResult.jobId,
+          pipelineRunId: pipelineResult.run.id
+        });
+        return;
+      }
+    }
+
     if (requestUrl.pathname.startsWith("/api/operator/sources/")) {
       const sourceId = decodeURIComponent(requestUrl.pathname.replace("/api/operator/sources/", ""));
 
@@ -1019,15 +1339,24 @@ createServer(async (request, response) => {
       if (request.method === "PUT") {
         const payload = await readJsonBody(request);
         const source = updateSource(sourceId, payload);
-        const pipelineResult = await executePipelineJob({
-          trigger: "source-update",
-          reason: source.id
-        });
+        let pipelineResult = null;
+        let pipelineWarning = "";
+
+        try {
+          pipelineResult = await executePipelineJob({
+            trigger: "source-update",
+            reason: source.id
+          });
+        } catch (error) {
+          pipelineWarning = formatBootstrapError(error);
+        }
+
         sendJson(response, 200, {
           ok: true,
           source,
-          pipelineJobId: pipelineResult.jobId,
-          pipelineRunId: pipelineResult.run.id
+          pipelineJobId: pipelineResult?.jobId || "",
+          pipelineRunId: pipelineResult?.run?.id || "",
+          pipelineWarning
         });
         return;
       }
@@ -1039,14 +1368,23 @@ createServer(async (request, response) => {
         }
 
         deleteSource(sourceId);
-        const pipelineResult = await executePipelineJob({
-          trigger: "source-delete",
-          reason: sourceId
-        });
+        let pipelineResult = null;
+        let pipelineWarning = "";
+
+        try {
+          pipelineResult = await executePipelineJob({
+            trigger: "source-delete",
+            reason: sourceId
+          });
+        } catch (error) {
+          pipelineWarning = formatBootstrapError(error);
+        }
+
         sendJson(response, 200, {
           ok: true,
-          pipelineJobId: pipelineResult.jobId,
-          pipelineRunId: pipelineResult.run.id
+          pipelineJobId: pipelineResult?.jobId || "",
+          pipelineRunId: pipelineResult?.run?.id || "",
+          pipelineWarning
         });
         return;
       }
@@ -1109,9 +1447,13 @@ createServer(async (request, response) => {
 
     if (request.method === "POST" && requestUrl.pathname === "/api/admin/runtime/resume") {
       const payload = await readJsonBody(request);
-      const requestedInterval = Number(payload.intervalMinutes || process.env.PIPELINE_INTERVAL_MINUTES || 15);
       const scheduler = startBackgroundPipelineRunner({
-        intervalMinutes: Number.isFinite(requestedInterval) && requestedInterval > 0 ? requestedInterval : 15
+        intervalMinutes:
+          payload.intervalMinutes ?? process.env.PIPELINE_INTERVAL_MINUTES ?? 15,
+        scheduleTimes:
+          payload.scheduleTimes ?? process.env.PIPELINE_SCHEDULE_TIMES ?? "",
+        timezone:
+          payload.timezone ?? process.env.PIPELINE_SCHEDULE_TIMEZONE
       });
       sendJson(response, 200, {
         ok: true,
@@ -1188,12 +1530,22 @@ createServer(async (request, response) => {
   createReadStream(filePath).pipe(response);
 })
   .listen(port, host, async () => {
+    let startupWarning = "";
+
     try {
       await ensureBootstrap();
-      startBackgroundPipelineRunner();
-      console.log(`x-ticker-investment running on http://${host}:${port}`);
     } catch (error) {
-      console.error("Failed to bootstrap persisted pipeline snapshot.", error);
-      process.exitCode = 1;
+      startupWarning = formatBootstrapError(error);
     }
+
+    startBackgroundPipelineRunner();
+    await startTelegramBotRunner();
+
+    if (startupWarning) {
+      console.warn(`Startup refresh failed: ${startupWarning}`);
+    } else if (getBootstrapStatus().status === "degraded" && getBootstrapStatus().lastError) {
+      console.warn(`Startup refresh degraded: ${getBootstrapStatus().lastError}`);
+    }
+
+    console.log(`x-ticker-investment running on http://${host}:${port}`);
   });

@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" role="img" aria-labelledby="title desc">
+  <title id="title">X Ticker Investment logo</title>
+  <desc id="desc">Logo lockup with the X Ticker Investment symbol and wordmark.</desc>
+  <defs>
+    <linearGradient id="bg" x1="16" y1="10" x2="80" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17394c" />
+      <stop offset="1" stop-color="#10222f" />
+    </linearGradient>
+    <linearGradient id="teal" x1="24" y1="26" x2="72" y2="74" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#48a3b9" />
+      <stop offset="1" stop-color="#0f8b6f" />
+    </linearGradient>
+    <linearGradient id="paper" x1="24" y1="74" x2="72" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff9ef" />
+      <stop offset="1" stop-color="#eadfc8" />
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(12 54)">
+    <rect x="0" y="0" width="112" height="112" rx="30" fill="url(#bg)" />
+
+    <g opacity="0.16" fill="#dceef5">
+      <rect x="22" y="24" width="68" height="2.5" rx="1.25" />
+      <rect x="22" y="47" width="68" height="2.5" rx="1.25" />
+      <rect x="22" y="70" width="68" height="2.5" rx="1.25" />
+    </g>
+
+    <g fill="#f5f0e8" opacity="0.14">
+      <rect x="23" y="60" width="10" height="22" rx="3.5" />
+      <rect x="41" y="50" width="10" height="32" rx="3.5" />
+      <rect x="59" y="40" width="10" height="42" rx="3.5" />
+      <rect x="77" y="28" width="10" height="54" rx="3.5" />
+    </g>
+
+    <path
+      d="M24 27L56 58L88 90"
+      fill="none"
+      stroke="url(#teal)"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="12"
+    />
+    <path
+      d="M24 90L56 58L85 29"
+      fill="none"
+      stroke="url(#paper)"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="12"
+    />
+
+    <circle cx="86" cy="30" r="6" fill="#d48c14" />
+    <circle cx="86" cy="30" r="2.5" fill="#fff7eb" />
+  </g>
+
+  <g transform="translate(160 32)">
+    <text
+      x="0"
+      y="62"
+      fill="#10222f"
+      font-family="'Avenir Next', 'Segoe UI', sans-serif"
+      font-size="28"
+      font-weight="600"
+      letter-spacing="5"
+    >
+      LOCAL INVESTMENT DESK
+    </text>
+    <text
+      x="0"
+      y="128"
+      fill="#10222f"
+      font-family="'Avenir Next', 'Segoe UI', sans-serif"
+      font-size="74"
+      font-weight="700"
+      letter-spacing="-1"
+    >
+      X Ticker
+    </text>
+    <text
+      x="0"
+      y="176"
+      fill="#5d6678"
+      font-family="'Avenir Next', 'Segoe UI', sans-serif"
+      font-size="38"
+      font-weight="600"
+      letter-spacing="3"
+    >
+      INVESTMENT
+    </text>
+    <path d="M0 193H282" stroke="#d8e0e8" stroke-width="3" stroke-linecap="round" />
+    <circle cx="304" cy="193" r="6" fill="#0f8b6f" />
+  </g>
+</svg>

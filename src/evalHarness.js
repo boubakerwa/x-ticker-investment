@@ -188,6 +188,7 @@ function pickDecisionActions(decisions, expectedDecisionActions) {
 export async function runExtractionEval({
   trigger = "manual",
   preferredMode = "heuristic",
+  useCache = true,
   suite = readEvalSuite(),
   generatedAt = new Date().toISOString()
 } = {}) {
@@ -226,7 +227,8 @@ export async function runExtractionEval({
       : await extractClaimsForPosts({
           posts: postCases.map((testCase) => testCase.post),
           sources: sourceStore.sources,
-          generatedAt
+          generatedAt,
+          useCache
         });
 
   const evaluatedPostCases = postCases.map((testCase) => {

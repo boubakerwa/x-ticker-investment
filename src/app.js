@@ -29,6 +29,9 @@ const EMPTY_DATA = {
       decisionCount: 0,
       vetoCount: 0,
       sourceCount: 0,
+      verificationBlockedCount: 0,
+      verificationCorroboratedCount: 0,
+      verificationOverrideCount: 0,
       newestPostAt: "",
       oldestPostAt: ""
     },
@@ -36,10 +39,22 @@ const EMPTY_DATA = {
     notes: []
   },
   runtime: {
+    bootstrap: {
+      status: "",
+      lastAttemptAt: "",
+      lastSuccessAt: "",
+      lastError: "",
+      fallbackSnapshotRunId: "",
+      usingFallbackSnapshot: false
+    },
     scheduler: {
       active: false,
       running: false,
+      mode: "",
       intervalMinutes: 0,
+      scheduleTimes: [],
+      timezone: "",
+      scheduleDescription: "",
       startedAt: "",
       nextRunAt: "",
       lastRunAt: "",
@@ -139,6 +154,17 @@ const EMPTY_STORE_STATUS = {
   byCluster: []
 };
 
+const DEFAULT_TEST_DRAFT = {
+  sourceId: "",
+  sourceHandle: "@testbench",
+  sourceName: "Ad hoc test source",
+  sourceCategory: "Test / Ad hoc",
+  allowedAssets: "",
+  relevantSectors: "",
+  rawText: "",
+  runLive: true
+};
+
 const state = {
   view: "dashboard",
   selectedAsset: "",
@@ -160,10 +186,12 @@ const state = {
   isAskingAdvisor: false,
   isMutating: false,
   isReplayLoading: false,
+  isTestRunLoading: false,
   isRunDetailLoading: false,
   isEvalDetailLoading: false,
   error: "",
   replayError: "",
+  testRunError: "",
   runDetailError: "",
   evalDetailError: "",
   operatorNotice: "",
@@ -175,6 +203,8 @@ const state = {
   data: EMPTY_DATA,
   recentTweets: [],
   replayData: null,
+  testDraft: { ...DEFAULT_TEST_DRAFT },
+  testRunData: null,
   selectedRunDetail: null,
   selectedEvalDetail: null,
   advisorAnswer: null,
@@ -238,6 +268,7 @@ const formatEnumLabel = (value) =>
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
 const formatShortId = (value) => String(value || "").slice(0, 18) || "Pending";
+const getEvalMode = (run) => String(run?.extractor?.activeMode || run?.validationMode || run?.model?.provider || "model");
 
 function formatRatio(value) {
   const numericValue = Number(value);
@@ -311,6 +342,64 @@ function normalizeTickerList(items) {
   return [...new Set((items || []).map((item) => normalizeTicker(item)).filter(Boolean))];
 }
 
+function buildTrackedSourceLabel({ isHolding = false, isWatchlist = false } = {}) {
+  if (isHolding && isWatchlist) {
+    return "Portfolio + watchlist";
+  }
+
+  if (isHolding) {
+    return "Portfolio holding";
+  }
+
+  if (isWatchlist) {
+    return "Watchlist";
+  }
+
+  return "";
+}
+
+function buildWatchedUniverseAsset(ticker, baseAsset, holding, isWatchlist) {
+  const normalizedTicker = normalizeTicker(ticker);
+
+  if (!normalizedTicker) {
+    return null;
+  }
+
+  const isHolding = Boolean(holding);
+  const trackingLabel = buildTrackedSourceLabel({ isHolding, isWatchlist });
+  const personalNotes = String(holding?.notes || "").trim();
+  const personalCategory = String(holding?.category || "").trim();
+  const personalLabel = String(holding?.label || "").trim();
+  const personalAssetCopy = isHolding
+    ? "This asset comes from your saved portfolio."
+    : "This asset comes from your saved watchlist.";
+  const personalNotesCopy = personalNotes
+    ? personalNotes
+    : `${personalAssetCopy} Add a short note in Portfolio to improve automated impact mapping.`;
+
+  return {
+    ...(baseAsset || {}),
+    ticker: normalizedTicker,
+    name: baseAsset?.name || personalLabel || normalizedTicker,
+    type: baseAsset?.type || personalCategory || "Custom tracked asset",
+    bucket: baseAsset?.bucket || trackingLabel || "Tracked asset",
+    thesis: baseAsset?.thesis || personalNotesCopy,
+    riskFlag:
+      baseAsset?.riskFlag ||
+      (personalNotes
+        ? "Impact ranking uses your saved notes plus the live post narrative."
+        : "No curated metadata yet. Add a short note in Portfolio to improve automated impact mapping."),
+    isCurated: Boolean(baseAsset),
+    isTracked: isHolding || isWatchlist,
+    isHolding,
+    isWatchlist,
+    trackingLabel,
+    personalLabel,
+    personalCategory,
+    personalNotes
+  };
+}
+
 function buildProfileCashSummary(profile) {
   const monthlyExpenses = Number(profile.monthlyExpenses || 0);
   const emergencyFund = Number(profile.emergencyFund || 0);
@@ -330,15 +419,80 @@ function getTrackedAssetTickers(profile = getAdvisor().financialProfile || EMPTY
   ]);
 }
 
+function getWatchedUniverse(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
+  const baseUniverse = Array.isArray(getData().monitoredUniverse) ? getData().monitoredUniverse : [];
+  const trackedTickers = getTrackedAssetTickers(profile);
+  const holdingsByTicker = new Map(
+    (profile.holdings || [])
+      .map((holding) => [normalizeTicker(holding.ticker), holding])
+      .filter(([ticker]) => ticker)
+  );
+  const watchlistSet = new Set(normalizeTickerList(profile.watchlist || []));
+  const baseByTicker = new Map(
+    baseUniverse
+      .map((asset) => [normalizeTicker(asset.ticker), asset])
+      .filter(([ticker]) => ticker)
+  );
+  const watchedUniverse = [];
+  const seen = new Set();
+
+  trackedTickers.forEach((ticker) => {
+    const watchedAsset = buildWatchedUniverseAsset(
+      ticker,
+      baseByTicker.get(ticker) || null,
+      holdingsByTicker.get(ticker) || null,
+      watchlistSet.has(ticker)
+    );
+
+    if (watchedAsset && !seen.has(ticker)) {
+      watchedUniverse.push(watchedAsset);
+      seen.add(ticker);
+    }
+  });
+
+  baseUniverse.forEach((asset) => {
+    const ticker = normalizeTicker(asset.ticker);
+
+    if (!ticker || seen.has(ticker)) {
+      return;
+    }
+
+    const watchedAsset = buildWatchedUniverseAsset(
+      ticker,
+      asset,
+      holdingsByTicker.get(ticker) || null,
+      watchlistSet.has(ticker)
+    );
+
+    if (watchedAsset) {
+      watchedUniverse.push(watchedAsset);
+      seen.add(ticker);
+    }
+  });
+
+  return watchedUniverse;
+}
+
+function getPostExposureTickers(
+  post,
+  profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile
+) {
+  return normalizeTickerList([
+    ...(Array.isArray(post?.mappedAssets) ? post.mappedAssets : []),
+    ...getLikelyImpacts(post, profile).map((impact) => impact.asset)
+  ]);
+}
+
 function getTrackedAssets(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
   const trackedTickers = getTrackedAssetTickers(profile);
+  const watchedUniverse = getWatchedUniverse(profile);
 
   return trackedTickers.map((ticker) => {
-    const universeAsset = getData().monitoredUniverse.find((asset) => asset.ticker === ticker) || null;
+    const universeAsset = watchedUniverse.find((asset) => asset.ticker === ticker) || null;
     const holding = (profile.holdings || []).find((item) => normalizeTicker(item.ticker) === ticker) || null;
     const decision = getDecisionByAsset(ticker) || null;
     const relatedPosts = sortPostsByCreatedAt(
-      getData().posts.filter((post) => (post.mappedAssets || []).includes(ticker))
+      getData().posts.filter((post) => getPostExposureTickers(post, profile).includes(ticker))
     ).slice(0, 3);
 
     return {
@@ -975,6 +1129,356 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function getSourceReliabilityInfo(source) {
+  const score = Number(source?.reliability?.score ?? source?.baselineReliability ?? 0);
+  const normalizedScore = Number.isFinite(score) ? Math.max(0, Math.min(score, 0.99)) : 0.5;
+  const label =
+    String(source?.reliability?.label || "").trim() ||
+    (normalizedScore >= 0.72
+      ? "Reliable"
+      : normalizedScore >= 0.58
+        ? "Review carefully"
+        : "Fact-check needed");
+  const tier =
+    String(source?.reliability?.tier || "").trim() ||
+    (normalizedScore >= 0.85 ? "high" : normalizedScore >= 0.72 ? "solid" : normalizedScore >= 0.58 ? "mixed" : "low");
+  const operatorGuidance =
+    String(source?.reliability?.operatorGuidance || "").trim() ||
+    (label === "Reliable"
+      ? "Good source, but still validate the claimed operating impact."
+      : label === "Review carefully"
+        ? "Useful signal input, but corroborate before it shapes a decision."
+        : "Treat as radar only until the claim is independently verified.");
+
+  return {
+    score: Number(normalizedScore.toFixed(2)),
+    label,
+    tier,
+    operatorGuidance
+  };
+}
+
+function getAssetMappingInfo(post) {
+  const mapping = post?.assetMapping || {};
+  const mappedAssets = Array.isArray(post?.mappedAssets) ? post.mappedAssets : [];
+  const labelByBasis = {
+    unmapped: "Unmapped",
+    direct: "Direct mapping",
+    source_hint: "Source hint",
+    mixed: "Mixed mapping",
+    broad_inference: "Broad inference",
+    model_inference: "Review mapping",
+    cluster_inference: "Cluster inference"
+  };
+  const basis = String(mapping.basis || (mappedAssets.length ? "direct" : "unmapped")).trim();
+  const confidence = String(mapping.confidence || (mappedAssets.length ? "high" : "low")).trim();
+  const label = String(mapping.label || labelByBasis[basis] || "Review mapping").trim();
+  const note = String(mapping.note || "").trim();
+  const requiresReview =
+    Boolean(mapping.requiresReview) ||
+    basis === "mixed" ||
+    basis === "broad_inference" ||
+    basis === "model_inference" ||
+    basis === "cluster_inference";
+
+  return {
+    basis,
+    confidence,
+    label,
+    note,
+    requiresReview
+  };
+}
+
+function getPostVerificationInfo(post) {
+  const verification = post?.verification || {};
+  const status = String(verification.status || "").trim() || "trusted";
+  const badge = String(verification.badge || "").trim();
+  const note = String(verification.note || "").trim();
+
+  return {
+    status,
+    badge,
+    note,
+    requirement: String(verification.requirement || "").trim(),
+    blocksActionability: Boolean(verification.blocksActionability),
+    overrideActive: Boolean(verification.overrideActive),
+    corroborated: Boolean(verification.corroborated),
+    corroboratingSourceCount: Number(verification.corroboratingSourceCount || 0)
+  };
+}
+
+function renderPostVerificationTag(post, className = "") {
+  const verification = getPostVerificationInfo(post);
+
+  if (!verification.badge || verification.status === "trusted") {
+    return "";
+  }
+
+  const resolvedClassName =
+    className ||
+    (verification.blocksActionability
+      ? "tag tag-warning"
+      : verification.overrideActive
+        ? "tag"
+        : "tag tag-muted");
+
+  return `<span class="${resolvedClassName}">${escapeHtml(verification.badge)}</span>`;
+}
+
+function renderPostVerificationNote(post, className = "mapping-note") {
+  const verification = getPostVerificationInfo(post);
+
+  if (!verification.note || verification.status === "trusted") {
+    return "";
+  }
+
+  return `<p class="${className}">${escapeHtml(verification.note)}</p>`;
+}
+
+function renderPostVerificationControls(post) {
+  const verification = getPostVerificationInfo(post);
+  const postId = String(post?.id || "").trim();
+
+  if (!postId || postId.startsWith("adhoc-test-") || verification.requirement !== "corroboration_or_override") {
+    return "";
+  }
+
+  return `
+    <div class="verification-actions">
+      <button
+        class="mini-chip"
+        type="button"
+        data-post-verification-override="${escapeHtml(postId)}"
+        data-post-verification-enabled="${verification.overrideActive ? "0" : "1"}"
+      >
+        ${verification.overrideActive ? "Clear override" : "Override fact-check gate"}
+      </button>
+    </div>
+  `;
+}
+
+function renderPostVerificationStack(post) {
+  const verificationTag = renderPostVerificationTag(post);
+  const verificationNote = renderPostVerificationNote(post);
+  const verificationControls = renderPostVerificationControls(post);
+
+  if (!verificationTag && !verificationNote && !verificationControls) {
+    return "";
+  }
+
+  return `
+    <div class="verification-stack">
+      ${verificationTag ? `<div class="chip-row verification-chip-row">${verificationTag}</div>` : ""}
+      ${verificationNote}
+      ${verificationControls}
+    </div>
+  `;
+}
+
+function renderMappedAssetButtons(post, buttonClass = "mini-chip", emptyLabel = "Unmapped") {
+  const mappedAssets = Array.isArray(post?.mappedAssets) ? post.mappedAssets : [];
+
+  if (!mappedAssets.length) {
+    return `<span class="subtle">${escapeHtml(emptyLabel)}</span>`;
+  }
+
+  return mappedAssets
+    .map((asset) => {
+      const safeAsset = escapeHtml(String(asset));
+      return `<button class="${buttonClass}" data-asset="${safeAsset}">${safeAsset}</button>`;
+    })
+    .join("");
+}
+
+function renderAssetMappingStatusTag(post, className = "tag tag-warning") {
+  const mapping = getAssetMappingInfo(post);
+
+  if (!mapping.requiresReview) {
+    return "";
+  }
+
+  return `<span class="${className}">${escapeHtml(mapping.label)}</span>`;
+}
+
+function renderAssetMappingNote(post, className = "mapping-note") {
+  const mapping = getAssetMappingInfo(post);
+
+  if (!mapping.requiresReview) {
+    return "";
+  }
+
+  return `<p class="${className}">${escapeHtml(mapping.note || "Ticker linkage is inferred; review the mapping before acting.")}</p>`;
+}
+
+function renderMappedAssetStack(post, buttonClass = "mini-chip") {
+  return `
+    <div class="mapping-stack">
+      <div class="chip-row mapping-chip-row">
+        ${renderMappedAssetButtons(post, buttonClass)}
+        ${renderAssetMappingStatusTag(post)}
+      </div>
+      ${renderAssetMappingNote(post)}
+    </div>
+  `;
+}
+
+function renderAssetMappingCell(post) {
+  const mappedAssets = Array.isArray(post?.mappedAssets) ? post.mappedAssets : [];
+  const mapping = getAssetMappingInfo(post);
+
+  return `
+    <div class="mapping-cell">
+      <span>${escapeHtml(mappedAssets.join(", ") || "Unmapped")}</span>
+      ${mapping.requiresReview ? `<span class="tag tag-warning mapping-inline-tag">${escapeHtml(mapping.label)}</span>` : ""}
+      ${
+        mapping.requiresReview
+          ? `<small class="mapping-note mapping-note-compact">${escapeHtml(mapping.note || "Ticker linkage is inferred; review the mapping before acting.")}</small>`
+          : ""
+      }
+      ${renderLikelyImpactInline(post)}
+    </div>
+  `;
+}
+
+function getLikelyImpacts(
+  post,
+  profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile
+) {
+  const likelyImpacts = Array.isArray(post?.likelyImpacts) ? post.likelyImpacts : [];
+  const normalizedBaseImpacts = likelyImpacts.length
+    ? likelyImpacts
+        .map((impact) => ({
+          asset: normalizeTicker(impact.asset),
+          score: Number(impact.score || 0),
+          directness: String(impact.directness || "Read-through").trim() || "Read-through",
+          impactDirection: String(impact.impactDirection || "Mixed").trim() || "Mixed",
+          reason: String(impact.reason || "").trim()
+        }))
+        .filter((impact) => impact.asset)
+    : (Array.isArray(post?.mappedAssets) ? post.mappedAssets : []).map((asset, index) => ({
+        asset: normalizeTicker(asset),
+        score: Math.max(0.42, 0.74 - index * 0.08),
+        directness: index === 0 ? "Direct" : "Read-through",
+        impactDirection: "Mixed",
+        reason: "Derived from the post's strict asset mapping."
+      }));
+  const trackedTickers = getTrackedAssetTickers(profile);
+  const trackedIndex = new Map(trackedTickers.map((ticker, index) => [ticker, index]));
+  const impactMap = new Map();
+
+  normalizedBaseImpacts.forEach((impact) => {
+    const ticker = normalizeTicker(impact.asset);
+
+    if (!ticker) {
+      return;
+    }
+
+    const normalizedImpact = {
+      asset: ticker,
+      score: Number(Math.max(0, Math.min(Number(impact.score || 0), 1)).toFixed(2)),
+      directness: String(impact.directness || "Read-through").trim() || "Read-through",
+      impactDirection: String(impact.impactDirection || "Mixed").trim() || "Mixed",
+      reason: String(impact.reason || "").trim()
+    };
+    const existing = impactMap.get(ticker);
+
+    if (!existing || normalizedImpact.score > existing.score) {
+      impactMap.set(ticker, normalizedImpact);
+    }
+  });
+
+  return [...impactMap.values()]
+    .sort(
+      (left, right) =>
+        (trackedIndex.has(left.asset) ? 0 : 1) - (trackedIndex.has(right.asset) ? 0 : 1) ||
+        right.score - left.score ||
+        (trackedIndex.get(left.asset) ?? 999) - (trackedIndex.get(right.asset) ?? 999) ||
+        left.asset.localeCompare(right.asset)
+    )
+    .slice(0, 8);
+}
+
+function renderLikelyImpactChip(impact) {
+  const safeAsset = escapeHtml(impact.asset);
+  const safeDirectness = escapeHtml(impact.directness || "Read-through");
+  const safeImpactDirection = escapeHtml(impact.impactDirection || "Mixed");
+  const safeReason = escapeHtml(impact.reason || "");
+
+  return `
+    <button class="impact-chip" data-asset="${safeAsset}" title="${safeReason}">
+      <strong>${safeAsset}</strong>
+      <span>${safeImpactDirection} · ${safeDirectness} · ${formatPercent(Math.max(0, Math.min(Number(impact.score || 0), 1)))}</span>
+    </button>
+  `;
+}
+
+function renderLikelyImpactSummary(post) {
+  const impacts = getLikelyImpacts(post);
+  const trackedTickers = getTrackedAssetTickers();
+  const trackedSet = new Set(trackedTickers);
+  const trackedImpacts = impacts.filter((impact) => trackedSet.has(impact.asset)).slice(0, 3);
+  const widerImpacts = (trackedTickers.length ? impacts.filter((impact) => !trackedSet.has(impact.asset)) : impacts).slice(0, 4);
+
+  if (!impacts.length) {
+    return `<div class="impact-stack"><p class="impact-empty">No likely impacts ranked for this post yet.</p></div>`;
+  }
+
+  return `
+    <div class="impact-stack">
+      ${
+        trackedTickers.length
+          ? `
+            <div class="impact-group">
+              <span class="impact-label">AI-ranked in your tracked universe</span>
+              <div class="chip-row impact-chip-row">
+                ${
+                  trackedImpacts.length
+                    ? trackedImpacts.map((impact) => renderLikelyImpactChip(impact)).join("")
+                    : '<span class="impact-empty">No current tracked names rank for this post yet.</span>'
+                }
+              </div>
+            </div>
+          `
+          : ""
+      }
+      <div class="impact-group">
+        <span class="impact-label">${trackedTickers.length ? "Wider AI-ranked impacts" : "AI-ranked impacted stocks"}</span>
+        <div class="chip-row impact-chip-row">
+          ${
+            widerImpacts.length
+              ? widerImpacts.map((impact) => renderLikelyImpactChip(impact)).join("")
+              : '<span class="impact-empty">No broader impacts ranked for this post.</span>'
+          }
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderLikelyImpactInline(post) {
+  const impacts = getLikelyImpacts(post);
+  const trackedTickers = getTrackedAssetTickers();
+  const trackedSet = new Set(trackedTickers);
+  const primaryImpacts = trackedTickers.length
+    ? impacts.filter((impact) => trackedSet.has(impact.asset)).slice(0, 3)
+    : impacts.slice(0, 3);
+  const fallbackImpacts = impacts.slice(0, 3);
+  const visibleImpacts = primaryImpacts.length ? primaryImpacts : fallbackImpacts;
+  const label = primaryImpacts.length && trackedTickers.length ? "Tracked impacts" : "Likely impacts";
+
+  if (!visibleImpacts.length) {
+    return "";
+  }
+
+  return `
+    <div class="impact-inline">
+      <strong class="impact-inline-label">${label}</strong>
+      <span>${escapeHtml(visibleImpacts.map((impact) => `${impact.asset} (${impact.impactDirection}, ${impact.directness})`).join(", "))}</span>
+    </div>
+  `;
+}
+
 function renderJsonBlock(value) {
   return `<pre class="code-block">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
 }
@@ -1474,10 +1978,12 @@ function buildRunDecisionAnalytics(entries) {
 }
 
 function normalizeSelections() {
-  const { monitoredUniverse, sources } = getData();
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const watchedUniverse = getWatchedUniverse(profile);
+  const { sources } = getData();
 
-  if (!monitoredUniverse.some((asset) => asset.ticker === state.selectedAsset)) {
-    state.selectedAsset = monitoredUniverse[0]?.ticker || "";
+  if (!watchedUniverse.some((asset) => asset.ticker === state.selectedAsset)) {
+    state.selectedAsset = watchedUniverse[0]?.ticker || "";
   }
 
   if (!sources.some((source) => source.id === state.selectedSource)) {
@@ -1529,15 +2035,15 @@ async function loadData({ refresh = false } = {}) {
     ]);
 
     if (!snapshotResponse.ok) {
-      throw new Error(`Snapshot request failed with ${snapshotResponse.status}`);
+      throw new Error(await parseError(snapshotResponse, `Snapshot request failed with ${snapshotResponse.status}`));
     }
 
     if (!tweetsResponse.ok) {
-      throw new Error(`Tweet feed request failed with ${tweetsResponse.status}`);
+      throw new Error(await parseError(tweetsResponse, `Tweet feed request failed with ${tweetsResponse.status}`));
     }
 
     if (!statusResponse.ok) {
-      throw new Error(`Store status request failed with ${statusResponse.status}`);
+      throw new Error(await parseError(statusResponse, `Store status request failed with ${statusResponse.status}`));
     }
 
     state.data = await snapshotResponse.json();
@@ -1625,8 +2131,9 @@ async function runMutation(task, successMessage) {
   render();
 
   try {
-    await task();
-    state.operatorNotice = successMessage;
+    const result = await task();
+    state.operatorNotice =
+      typeof successMessage === "function" ? successMessage(result) : successMessage;
     await loadData({ refresh: true });
   } catch (error) {
     state.error = error instanceof Error ? error.message : "Operator action failed.";
@@ -1823,6 +2330,27 @@ async function importManualFeed(form) {
   }, payload.replaceExisting ? "Manual feed imported and replaced the current store." : "Manual feed appended.");
 }
 
+async function togglePostVerificationOverride(postId, enabled) {
+  await runMutation(async () => {
+    const response = await fetch(
+      `/api/operator/post-verification-overrides/${encodeURIComponent(postId)}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          enabled
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to update the fact-check override."));
+    }
+  }, enabled ? "Fact-check override saved and the pipeline was rerun." : "Fact-check override cleared and the pipeline was rerun.");
+}
+
 async function saveFinancialProfile(form) {
   state.isSavingProfile = true;
   state.advisorError = "";
@@ -1935,7 +2463,13 @@ async function submitSourceForm(form) {
 
     const result = await response.json();
     state.editingSourceId = result.source?.id || "";
-  }, editingSource ? "Source updated." : "Source created.");
+    return result;
+  }, (result) => {
+    const baseMessage = editingSource ? "Source updated." : "Source created.";
+    return result?.pipelineWarning
+      ? `${baseMessage} Live pipeline refresh is still degraded: ${result.pipelineWarning}`
+      : baseMessage;
+  });
 }
 
 async function deleteOperatorSource(sourceId) {
@@ -1951,7 +2485,12 @@ async function deleteOperatorSource(sourceId) {
     if (state.editingSourceId === sourceId) {
       state.editingSourceId = "";
     }
-  }, "Source deleted.");
+
+    return response.json();
+  }, (result) =>
+    result?.pipelineWarning
+      ? `Source deleted. Live pipeline refresh is still degraded: ${result.pipelineWarning}`
+      : "Source deleted.");
 }
 
 async function submitResearchForm(form) {
@@ -2101,6 +2640,58 @@ async function loadReplay({ postId = state.selectedReplayPostId, live = false, s
   }
 }
 
+function buildTestDrivePayload(form) {
+  const formData = new FormData(form);
+
+  return {
+    sourceId: String(formData.get("testSourceId") || "").trim(),
+    sourceHandle: String(formData.get("testSourceHandle") || "").trim(),
+    sourceName: String(formData.get("testSourceName") || "").trim(),
+    sourceCategory: String(formData.get("testSourceCategory") || "").trim(),
+    allowedAssets: String(formData.get("testAllowedAssets") || "").trim(),
+    relevantSectors: String(formData.get("testRelevantSectors") || "").trim(),
+    rawText: String(formData.get("testRawText") || ""),
+    runLive: formData.get("testRunLive") === "on"
+  };
+}
+
+async function runTestDrive(form, { forceLive = null } = {}) {
+  const payload = buildTestDrivePayload(form);
+
+  if (forceLive != null) {
+    payload.runLive = forceLive;
+  }
+
+  state.testDraft = {
+    ...payload
+  };
+  state.testRunError = "";
+  state.testRunData = null;
+  state.isTestRunLoading = true;
+  render();
+
+  try {
+    const response = await fetch("/api/engine/test-drive", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, `Test run failed with ${response.status}`));
+    }
+
+    state.testRunData = await response.json();
+  } catch (error) {
+    state.testRunError = error instanceof Error ? error.message : "Failed to run the ad hoc test.";
+  } finally {
+    state.isTestRunLoading = false;
+    render();
+  }
+}
+
 async function loadPipelineRunDetail({ runId = state.selectedRunId, silent = false } = {}) {
   if (!runId) {
     return;
@@ -2238,6 +2829,15 @@ function attachListeners() {
     });
   });
 
+  document.querySelectorAll("[data-post-verification-override]").forEach((button) => {
+    button.addEventListener("click", () => {
+      togglePostVerificationOverride(
+        button.dataset.postVerificationOverride,
+        button.dataset.postVerificationEnabled === "1"
+      );
+    });
+  });
+
   document.querySelectorAll("[data-refresh]").forEach((button) => {
     button.addEventListener("click", () => loadData({ refresh: true }));
   });
@@ -2314,6 +2914,27 @@ function attachListeners() {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       importManualFeed(form);
+    });
+  });
+
+  document.querySelectorAll("[data-test-drive-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      runTestDrive(form);
+    });
+  });
+
+  document.querySelectorAll("[data-rerun-test-live]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const form = document.querySelector("[data-test-drive-form]");
+
+      if (!form) {
+        return;
+      }
+
+      runTestDrive(form, {
+        forceLive: true
+      });
     });
   });
 
@@ -2478,6 +3099,21 @@ function renderStatusBanner() {
     `;
   }
 
+  const bootstrap = getData().runtime?.bootstrap || EMPTY_DATA.runtime.bootstrap;
+
+  if (bootstrap.status === "degraded" && bootstrap.lastError) {
+    return `
+      <section class="section-card status-banner">
+        <div>
+          <span class="eyebrow">Startup Warning</span>
+          <h3>Running on the last good snapshot</h3>
+          <p>${escapeHtml(bootstrap.lastError)}</p>
+        </div>
+        <button class="refresh-button" data-run-pipeline>Run pipeline</button>
+      </section>
+    `;
+  }
+
   if (state.isRefreshing) {
     return `
       <section class="section-card status-banner">
@@ -2566,6 +3202,7 @@ function renderNav() {
     ["setup", "Portfolio", `${profile.holdings.length} holdings`],
     ["research", "Research", `${researchSummary.dossierCount || researchDossiers.length} dossiers`],
     ["signals", "Signals", `${getRecentAnalysedPosts().length} posts`],
+    ["tests", "Tests", state.isTestRunLoading ? "Running" : state.testRunData ? "Ready" : "Lab"],
     ["advisor", "Advisor", getAdvisor().history.length || "0"],
     [isAdvancedView() ? state.view : "admin", "Operations", getHistory().runs.length || "0"]
   ];
@@ -2574,9 +3211,12 @@ function renderNav() {
   return `
     <header class="office-header">
       <div class="office-titlebar">
-        <div>
-          <p class="brand-kicker">Local investment desk</p>
-          <h1>X Ticker Investment</h1>
+        <div class="office-brand">
+          <img class="office-logo-lockup" src="/logo.svg" alt="X Ticker Investment" width="320" height="93" />
+          <div class="sr-only">
+            <p class="brand-kicker">Local investment desk</p>
+            <h1>X Ticker Investment</h1>
+          </div>
         </div>
         <div class="office-meta">
           <div class="office-meta-item">
@@ -2651,6 +3291,7 @@ function renderAdminPage() {
   const latestRun = history.runs[0] || null;
   const latestEval = evaluation.latestRun || evaluation.history[0] || null;
   const quickLinks = [
+    ["tests", "Tests"],
     ["logs", "Run history"],
     ["sources", "Sources"],
     ["assets", "Assets"],
@@ -2682,7 +3323,7 @@ function renderAdminPage() {
           <article class="office-metric">
             <span>Scheduler</span>
             <strong>${runtime.scheduler.active ? "Active" : "Off"}</strong>
-            <small>${runtime.scheduler.active ? `${runtime.scheduler.intervalMinutes} min` : "Manual only"}</small>
+            <small>${runtime.scheduler.active ? runtime.scheduler.scheduleDescription || "Scheduled" : "Manual only"}</small>
           </article>
           <article class="office-metric">
             <span>Feed mode</span>
@@ -3041,13 +3682,16 @@ function renderReplayInspector() {
                       </div>
                       <span class="pill">${replay.currentSnapshotPost?.clusterId || "pending"}</span>
                     </div>
-                    <p>${replay.rawPost.body}</p>
-                    <div class="tag-row">
-                      <span class="tag">${replay.currentSnapshotPost?.claimType || "Pending"}</span>
-                      <span class="tag">${replay.currentSnapshotPost?.direction || "Pending"}</span>
-                      <span class="tag">${replay.currentSnapshotPost?.actionable ? "Actionable" : "Filtered down"}</span>
-                    </div>
-                  </article>
+                  <p>${replay.rawPost.body}</p>
+                  <div class="tag-row">
+                    <span class="tag">${replay.currentSnapshotPost?.claimType || "Pending"}</span>
+                    <span class="tag">${replay.currentSnapshotPost?.direction || "Pending"}</span>
+                    <span class="tag">${replay.currentSnapshotPost?.actionable ? "Actionable" : "Filtered down"}</span>
+                    ${renderPostVerificationTag(replay.currentSnapshotPost || {})}
+                  </div>
+                  ${renderPostVerificationNote(replay.currentSnapshotPost || {})}
+                  ${renderPostVerificationControls(replay.currentSnapshotPost || {})}
+                </article>
                   <details open>
                     <summary>Current normalized output</summary>
                     ${renderJsonBlock(replay.currentSnapshotPost)}
@@ -3095,6 +3739,452 @@ function renderReplayInspector() {
         </div>
       </div>
     </section>
+  `;
+}
+
+function buildTestTraceItems(testRun) {
+  const replay = testRun?.replay || {};
+  const impactReplay = testRun?.impactReplay || {};
+  const source = testRun?.source || {};
+  const selectedNormalized =
+    testRun?.selectedNormalized || testRun?.liveNormalized || testRun?.cachedNormalized || testRun?.heuristicBaseline || null;
+  const mappedAssets = Array.isArray(selectedNormalized?.mappedAssets) ? selectedNormalized.mappedAssets : [];
+  const likelyImpacts = getLikelyImpacts(selectedNormalized || testRun?.rawPost || {});
+  const liveStage = replay.liveRun
+    ? replay.liveRun.ok
+      ? {
+          status: "success",
+          summary: "The model returned a one-off live extraction for this test input."
+        }
+      : {
+          status: "warning",
+          summary: replay.liveRun.error || "The live extraction request failed."
+        }
+    : replay.validationReady?.liveEligible
+      ? {
+          status: "neutral",
+          summary: "Live extraction was skipped for this run."
+        }
+        : {
+            status: "neutral",
+            summary: "The extractor is not in model-backed mode, so only heuristic analysis ran."
+          };
+  const impactStage = impactReplay.liveRun
+    ? impactReplay.liveRun.ok
+      ? {
+          status: "success",
+          summary: "The impact mapper ranked likely affected names from the tracked universe."
+        }
+      : {
+          status: "warning",
+          summary: impactReplay.liveRun.error || "The live impact-mapping request failed."
+        }
+    : impactReplay.validationReady?.liveEligible
+      ? {
+          status: "neutral",
+          summary: "Live impact mapping was skipped for this run."
+        }
+        : {
+            status: "neutral",
+            summary: "The impact mapper is not in hosted-model mode, so no AI-ranked impacts were generated."
+          };
+  const impactCacheStage = impactReplay.cache?.hit
+    ? {
+        status: "success",
+        summary: "A cached impact-ranking result already existed for this normalized post and watched-universe context."
+      }
+    : {
+        status: "neutral",
+        summary: "No cached impact-ranking result matched this test input."
+      };
+
+  return [
+    {
+      label: "Input staged",
+      status: "success",
+      summary: `${source.handle || "Unknown source"} with ${(source.allowedAssets || []).length || 0} allowed assets and ${String(testRun?.rawPost?.body || "").length} characters.`
+    },
+    {
+      label: "Heuristic baseline",
+      status: "success",
+      summary: `${testRun?.heuristicBaseline?.claimType || "Pending"} -> ${testRun?.heuristicBaseline?.clusterId || "pending"} (${(testRun?.heuristicBaseline?.mappedAssets || []).join(", ") || "Unmapped"}).`
+    },
+    {
+      label: "Prompt request",
+      status: "success",
+      summary: `${replay.config?.activeMode || "heuristic"} · ${replay.config?.model || "No hosted model"} · ${replay.validationReady?.exampleCount || 0} calibration examples.`
+    },
+    {
+      label: "Cache lookup",
+      status: replay.cache?.hit ? "success" : "neutral",
+      summary: replay.cache?.hit
+        ? "A cached extraction already existed for the same prompt/model fingerprint."
+        : "No cached extraction matched this test input."
+    },
+    {
+      label: "Live extraction",
+      status: liveStage.status,
+      summary: liveStage.summary
+    },
+    {
+      label: "Normalized output",
+      status: "success",
+      summary: `${selectedNormalized?.claimType || "Pending"} · ${selectedNormalized?.direction || "Pending"} · ${selectedNormalized?.clusterId || "pending"}`
+    },
+    {
+      label: "Verification gate",
+      status: getPostVerificationInfo(selectedNormalized || {}).blocksActionability
+        ? "warning"
+        : getPostVerificationInfo(selectedNormalized || {}).status === "trusted"
+          ? "neutral"
+          : "success",
+      summary:
+        getPostVerificationInfo(selectedNormalized || {}).note ||
+        "This signal did not need an extra reliability gate."
+    },
+    {
+      label: "Asset mapping",
+      status: getAssetMappingInfo(selectedNormalized || {}).requiresReview ? "warning" : "success",
+      summary: mappedAssets.length
+        ? `${mappedAssets.join(", ")} · ${getAssetMappingInfo(selectedNormalized || {}).label}`
+        : "Unmapped after normalization."
+    },
+    {
+      label: "Impact request",
+      status: impactReplay.validationReady?.liveEligible ? "success" : "neutral",
+      summary: `${impactReplay.config?.activeMode || "disabled"} · ${impactReplay.config?.model || "No hosted model"} · ${impactReplay.validationReady?.candidateCount || 0} candidate assets.`
+    },
+    {
+      label: "Impact cache",
+      status: impactCacheStage.status,
+      summary: impactCacheStage.summary
+    },
+    {
+      label: "Impact mapping",
+      status: impactStage.status,
+      summary: impactStage.summary
+    },
+    {
+      label: "Likely impacts",
+      status: likelyImpacts.length ? "success" : "neutral",
+      summary: likelyImpacts.length
+        ? likelyImpacts
+            .slice(0, 3)
+            .map((impact) => `${impact.asset} (${impact.impactDirection}, ${impact.directness})`)
+            .join(", ")
+        : "No likely impacted stocks were ranked for this input."
+    }
+  ];
+}
+
+function renderTestTraceGrid(testRun) {
+  const stages = buildTestTraceItems(testRun);
+
+  return `
+    <div class="test-stage-grid">
+      ${stages
+        .map(
+          (stage) => `
+            <article class="test-stage test-stage-${stage.status}">
+              <div class="test-stage-head">
+                <strong>${escapeHtml(stage.label)}</strong>
+                <span class="pill pill-muted">${escapeHtml(formatEnumLabel(stage.status))}</span>
+              </div>
+              <p>${escapeHtml(stage.summary)}</p>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderTestOutputCard(testRun) {
+  const selectedNormalized =
+    testRun?.selectedNormalized || testRun?.liveNormalized || testRun?.cachedNormalized || testRun?.heuristicBaseline || null;
+
+  if (!selectedNormalized) {
+    return `
+      <article class="status-inline">
+        <strong>No analysis result yet</strong>
+        <p>Run the test to see normalized output, mapped assets, and likely impacts.</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="operator-card">
+      <div class="operator-card-head">
+        <div>
+          <strong>${escapeHtml(testRun?.source?.handle || testRun?.rawPost?.sourceId || "@testbench")}</strong>
+          <span>${escapeHtml(testRun?.rawPost?.createdAt || testRun?.generatedAt || "")}</span>
+        </div>
+        <span class="pill">${escapeHtml(selectedNormalized.clusterId || "pending")}</span>
+      </div>
+      <p>${escapeHtml(testRun?.rawPost?.body || "")}</p>
+      <div class="tag-row">
+        <span class="tag">${escapeHtml(selectedNormalized.claimType || "Pending")}</span>
+        <span class="tag">${escapeHtml(selectedNormalized.direction || "Pending")}</span>
+        <span class="tag">${selectedNormalized.actionable ? "Actionable" : "Filtered down"}</span>
+        ${renderPostVerificationTag(selectedNormalized)}
+        <span class="tag">${formatPercent(selectedNormalized.confidence || 0)}</span>
+      </div>
+      ${renderPostVerificationNote(selectedNormalized)}
+      <div class="tweet-analysis">
+        <div class="tweet-analysis-block">
+          <span>Mapped assets</span>
+          ${renderMappedAssetStack(selectedNormalized)}
+        </div>
+        <div class="tweet-analysis-block">
+          <span>Likely impacted stocks</span>
+          ${renderLikelyImpactSummary(selectedNormalized)}
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderTestsPage() {
+  const extractor = getEngine().extractor || EMPTY_DATA.engine.extractor;
+  const draft = state.testDraft || DEFAULT_TEST_DRAFT;
+  const testRun = state.testRunData;
+  const sourceOptions = getData().sources || [];
+
+  return `
+    <main class="office-content">
+      ${renderStatusBanner()}
+      ${renderOperatorNotice()}
+      <section class="office-panel office-summary-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Tests</span>
+            <h2>Single-tweet lab with full analysis trace</h2>
+            <p class="section-copy">Paste one tweet or note, run an ad hoc analysis, and inspect the chain from request envelope through normalized output without polluting the live feed.</p>
+          </div>
+          <div class="office-inline-meta">
+            <span>${escapeHtml(extractor.activeMode || "heuristic")}</span>
+            <span>${escapeHtml(extractor.model || "No hosted model")}</span>
+          </div>
+        </div>
+        <div class="office-summary-grid">
+          <article class="office-metric">
+            <span>Extractor mode</span>
+            <strong>${escapeHtml(formatEnumLabel(extractor.activeMode || "heuristic"))}</strong>
+            <small>${escapeHtml(extractor.provider || "local rules")}</small>
+          </article>
+          <article class="office-metric">
+            <span>Model</span>
+            <strong>${escapeHtml(extractor.model || "Heuristic only")}</strong>
+            <small>${escapeHtml(extractor.promptVersion || "No prompt bundle")}</small>
+          </article>
+          <article class="office-metric">
+            <span>Last test</span>
+            <strong>${testRun?.source?.handle ? escapeHtml(testRun.source.handle) : "Pending"}</strong>
+            <small>${testRun?.generatedAt ? formatGeneratedAt(testRun.generatedAt) : "Run the first ad hoc test"}</small>
+          </article>
+          <article class="office-metric">
+            <span>Impact mapper</span>
+            <strong>${
+              testRun?.impactReplay?.liveRun
+                ? testRun.impactReplay.liveRun.ok
+                  ? "Completed"
+                  : "Failed"
+                : testRun?.impactReplay?.validationReady?.liveEligible
+                  ? "Available"
+                  : "Off"
+            }</strong>
+            <small>${
+              testRun?.impactReplay?.cache?.hit
+                ? "Cached ranking available"
+                : testRun?.impactReplay?.config?.model
+                  ? `${testRun.impactReplay.config.model} · ${testRun.impactReplay.validationReady?.candidateCount || 0} candidates`
+                  : "No hosted impact mapper configured"
+            }</small>
+          </article>
+          <article class="office-metric">
+            <span>Impact cache</span>
+            <strong>${testRun?.impactReplay?.cache?.hit ? "Hit" : "Miss"}</strong>
+            <small>${
+              testRun?.impactReplay?.cache?.entry?.cachedAt
+                ? formatGeneratedAt(testRun.impactReplay.cache.entry.cachedAt)
+                : testRun?.impactReplay?.config?.model
+                  ? "No cached ranking yet"
+                  : "No hosted impact mapper configured"
+            }</small>
+          </article>
+        </div>
+      </section>
+      <section class="section-card">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Ad hoc test</span>
+            <h3>Paste one tweet and inspect the chain</h3>
+          </div>
+          <div class="office-form-actions">
+            <button class="mini-chip" type="button" data-rerun-test-live ${extractor.activeMode === "openai" && !state.isTestRunLoading ? "" : "disabled"}>Re-run live extraction</button>
+            <button class="mini-chip" data-view="signals">Open signals</button>
+          </div>
+        </div>
+        <div class="replay-shell test-shell">
+          <section class="office-panel">
+            <form class="operator-form office-form" data-test-drive-form>
+              <input type="hidden" name="testSourceId" value="${escapeHtml(draft.sourceId || "")}" />
+              <div class="field-grid">
+                <label class="form-field">
+                  <span>Source handle</span>
+                  <input name="testSourceHandle" list="test-source-handle-list" value="${escapeHtml(draft.sourceHandle || "@testbench")}" />
+                  <small class="subtle">If this matches an existing monitored source, its metadata is reused automatically.</small>
+                </label>
+                <label class="form-field">
+                  <span>Source name</span>
+                  <input name="testSourceName" value="${escapeHtml(draft.sourceName || "")}" />
+                </label>
+                <label class="form-field">
+                  <span>Category</span>
+                  <input name="testSourceCategory" value="${escapeHtml(draft.sourceCategory || "")}" />
+                </label>
+                <label class="form-field">
+                  <span>Allowed assets override</span>
+                  <input name="testAllowedAssets" placeholder="NVDA, AMD, IBM" value="${escapeHtml(draft.allowedAssets || "")}" />
+                </label>
+              </div>
+              <label class="form-field">
+                <span>Relevant sectors override</span>
+                <input name="testRelevantSectors" placeholder="AI, semis, public sector, software" value="${escapeHtml(draft.relevantSectors || "")}" />
+              </label>
+              <label class="form-field">
+                <span>Tweet or note</span>
+                <textarea
+                  name="testRawText"
+                  rows="10"
+                  placeholder="US government AI procurement talk is moving faster than expected. If this turns into real operating language, which names should I watch?"
+                >${escapeHtml(draft.rawText || "")}</textarea>
+              </label>
+              <label class="checkbox-field">
+                <input type="checkbox" name="testRunLive" ${draft.runLive ? "checked" : ""} />
+                <span>Run live model extraction when available</span>
+              </label>
+              <div class="office-form-actions">
+                <button class="refresh-button" type="submit" ${state.isTestRunLoading ? "disabled" : ""}>
+                  ${state.isTestRunLoading ? "Analyzing..." : "Run analysis"}
+                </button>
+                <button class="mini-chip" type="button" data-view="dashboard">Back to overview</button>
+              </div>
+              <datalist id="test-source-handle-list">
+                ${sourceOptions.map((source) => `<option value="${escapeHtml(source.handle)}">${escapeHtml(source.name || source.handle)}</option>`).join("")}
+              </datalist>
+            </form>
+          </section>
+          <section class="office-panel replay-panel">
+            ${
+              state.testRunError
+                ? `
+                  <article class="status-inline status-inline-error">
+                    <strong>Test error</strong>
+                    <p>${escapeHtml(state.testRunError)}</p>
+                  </article>
+                `
+                : ""
+            }
+            ${
+              state.isTestRunLoading
+                ? `
+                  <article class="status-inline">
+                    <strong>Running ad hoc analysis</strong>
+                    <p>The lab is building the extractor request, checking cache, and normalizing the single-post output now.</p>
+                  </article>
+                `
+                : ""
+            }
+            ${testRun ? renderTestTraceGrid(testRun) : ""}
+            ${renderTestOutputCard(testRun)}
+            ${
+              testRun
+                ? `
+                  <details open>
+                    <summary>Selected normalized output</summary>
+                    ${renderJsonBlock(testRun.selectedNormalized)}
+                  </details>
+                  <details>
+                    <summary>Heuristic baseline</summary>
+                    ${renderJsonBlock(testRun.heuristicBaseline)}
+                  </details>
+                  <details>
+                    <summary>Prompt guide and validation focus</summary>
+                    ${renderJsonBlock(testRun.replay.promptGuide)}
+                  </details>
+                  <details>
+                    <summary>Extraction request envelope</summary>
+                    ${renderJsonBlock(testRun.replay.requestEnvelope)}
+                  </details>
+                  <details>
+                    <summary>Cached extraction payload</summary>
+                    ${
+                      testRun.replay.cache.hit
+                        ? renderJsonBlock(testRun.replay.cache.entry)
+                        : '<article class="status-inline"><strong>No cached extraction</strong><p>This exact input has not been cached for the current prompt/model fingerprint yet.</p></article>'
+                    }
+                  </details>
+                  <details>
+                    <summary>Cached normalized output</summary>
+                    ${
+                      testRun.cachedNormalized
+                        ? renderJsonBlock(testRun.cachedNormalized)
+                        : '<article class="status-inline"><strong>No cached normalized output</strong><p>The cache did not contain a model extraction for this test case.</p></article>'
+                    }
+                  </details>
+                  <details>
+                    <summary>One-off live run</summary>
+                    ${
+                      testRun.replay.liveRun
+                        ? renderJsonBlock(testRun.replay.liveRun)
+                        : `<article class="status-inline"><strong>Live run not executed</strong><p>${testRun.replay.validationReady?.liveEligible ? "Enable the checkbox or use Re-run live extraction to force a one-off model call." : "The current extractor is not in hosted-model mode."}</p></article>`
+                    }
+                  </details>
+                  <details>
+                    <summary>Live normalized output</summary>
+                    ${
+                      testRun.liveNormalized
+                        ? renderJsonBlock(testRun.liveNormalized)
+                        : '<article class="status-inline"><strong>No live normalized output</strong><p>The selected output came from cache or heuristic normalization for this run.</p></article>'
+                    }
+                  </details>
+                  <details>
+                    <summary>Impact-mapping prompt guide</summary>
+                    ${renderJsonBlock(testRun.impactReplay.promptGuide)}
+                  </details>
+                  <details>
+                    <summary>Impact-mapping request envelope</summary>
+                    ${renderJsonBlock(testRun.impactReplay.requestEnvelope)}
+                  </details>
+                  <details>
+                    <summary>Impact-mapping cache entry</summary>
+                    ${
+                      testRun.impactReplay.cache?.hit
+                        ? renderJsonBlock(testRun.impactReplay.cache.entry)
+                        : '<article class="status-inline"><strong>No cached impact ranking</strong><p>This normalized post and watched-universe context have not been cached for the current model prompt yet.</p></article>'
+                    }
+                  </details>
+                  <details>
+                    <summary>Impact-mapping live run</summary>
+                    ${
+                      testRun.impactReplay.liveRun
+                        ? renderJsonBlock(testRun.impactReplay.liveRun)
+                        : `<article class="status-inline"><strong>No live impact-mapping run</strong><p>${testRun.impactReplay.validationReady?.liveEligible ? "Enable the checkbox or rerun the analysis to force a live impact-mapping call." : "The current impact mapper is not in hosted-model mode."}</p></article>`
+                    }
+                  </details>
+                `
+                : `
+                  <article class="status-inline">
+                    <strong>Paste one tweet to start</strong>
+                    <p>This lab keeps the analysis separate from the live feed while showing the same extraction and normalization path the app would use downstream.</p>
+                  </article>
+                `
+            }
+          </section>
+        </div>
+      </section>
+    </main>
   `;
 }
 
@@ -3320,8 +4410,14 @@ function renderSignalFeed() {
                   <div class="tag-row">
                     <span class="tag">${post.claimType}</span>
                     <span class="tag">${post.actionable ? "Actionable" : "Not actionable"}</span>
-                    ${post.mappedAssets.map((asset) => `<button class="tag tag-button" data-asset="${asset}">${asset}</button>`).join("")}
+                    ${renderPostVerificationTag(post)}
+                    ${renderMappedAssetButtons(post, "tag tag-button")}
+                    ${renderAssetMappingStatusTag(post)}
                   </div>
+                  ${renderPostVerificationNote(post)}
+                  ${renderPostVerificationControls(post)}
+                  ${renderAssetMappingNote(post)}
+                  ${renderLikelyImpactSummary(post)}
                 </article>
               `;
             })
@@ -3392,8 +4488,11 @@ function renderAnalysedTweetsWindow() {
                           <span class="tag">${post.claimType}</span>
                           <span class="tag">${post.direction}</span>
                           <span class="tag">${post.actionable ? "Actionable" : "Filtered down"}</span>
+                          ${renderPostVerificationTag(post)}
                           <span class="tag">${formatPercent(post.confidence)}</span>
                         </div>
+                        ${renderPostVerificationNote(post)}
+                        ${renderPostVerificationControls(post)}
                         <div class="tweet-analysis">
                           <div class="tweet-analysis-block">
                             <span>Cluster</span>
@@ -3401,11 +4500,11 @@ function renderAnalysedTweetsWindow() {
                           </div>
                           <div class="tweet-analysis-block">
                             <span>Mapped assets</span>
-                            <div class="chip-row">
-                              ${post.mappedAssets
-                                .map((asset) => `<button class="mini-chip" data-asset="${asset}">${asset}</button>`)
-                                .join("")}
-                            </div>
+                            ${renderMappedAssetStack(post)}
+                          </div>
+                          <div class="tweet-analysis-block">
+                            <span>Likely impacted stocks</span>
+                            ${renderLikelyImpactSummary(post)}
                           </div>
                         </div>
                       </article>
@@ -3427,6 +4526,7 @@ function renderAnalysedTweetsWindow() {
 
 function renderDashboard() {
   const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const watchedUniverse = getWatchedUniverse(profile);
   const setupState = buildSingleUserSetupState(profile);
   const latestAnswer = getLatestAdvisorAnswer();
   const feedMode = getFeedMode();
@@ -3434,17 +4534,15 @@ function renderDashboard() {
   const cashSummary = buildProfileCashSummary(profile);
   const { trackedAssets, actionableAssets, urgentAssets, priorityAssets } = buildTrackedPortfolioAnalytics(profile);
   const recentSignals = sortPostsByCreatedAt(
-    getData().posts.filter((post) =>
-      (post.mappedAssets || []).some((asset) => trackedTickers.includes(asset))
-    )
+    getData().posts.filter((post) => getPostExposureTickers(post, profile).some((asset) => trackedTickers.includes(asset)))
   ).slice(0, 3);
   const globalFocusItems = getData().decisions.slice(0, 4).map((decision) => ({
     ticker: decision.asset,
-    asset: getData().monitoredUniverse.find((item) => item.ticker === decision.asset) || null,
+    asset: watchedUniverse.find((item) => item.ticker === decision.asset) || null,
     holding: null,
     decision,
     relatedPosts: sortPostsByCreatedAt(
-      getData().posts.filter((post) => (post.mappedAssets || []).includes(decision.asset))
+      getData().posts.filter((post) => getPostExposureTickers(post, profile).includes(decision.asset))
     ).slice(0, 2)
   }));
   const focusItems = (priorityAssets.length ? priorityAssets : globalFocusItems).slice(0, 4);
@@ -3477,7 +4575,7 @@ function renderDashboard() {
               <td>${decision?.action || "WATCH"}</td>
               <td>${decision ? formatPercent(decision.confidence || 0) : "Pending"}</td>
               <td>${item.relatedPosts.length}</td>
-              <td>${description}${decision ? renderDecisionMathSummary(getDecisionMath(decision)) : ""}</td>
+              <td>${escapeHtml(description)}${decision ? renderDecisionMathSummary(getDecisionMath(decision)) : ""}</td>
               <td>${decisionReview && isResearchEligibleForReview(linkedResearch) ? renderDecisionReviewTag(decisionReview.reviewStatus) : `<span class="subtle">${isResearchEligibleForReview(linkedResearch) ? "No review needed" : "Research first"}</span>`}</td>
               <td>${decisionReview ? renderDecisionReviewGate(decisionReview.id, decisionReview.reviewStatus, decision, linkedResearch) : `<span class="subtle">Nothing queued.</span>`}</td>
             </tr>
@@ -3522,7 +4620,7 @@ function renderDashboard() {
             <tr>
               <td>${source?.handle || post.sourceId}</td>
               <td>${formatGeneratedAt(post.createdAt)}</td>
-              <td>${(post.mappedAssets || []).join(", ") || "Unmapped"}</td>
+              <td>${renderAssetMappingCell(post)}</td>
               <td>${post.body}</td>
             </tr>
           `;
@@ -3726,11 +4824,17 @@ function renderDashboard() {
 
 function renderAssetDecision(asset, decision) {
   if (!decision) {
+    const noDecisionCopy = asset.isCurated
+      ? "This asset is in the curated universe, but the current snapshot did not generate a live BUY, HOLD, or SELL call."
+      : asset.isTracked
+        ? "This tracked asset is in your personal watched universe. It can still appear in likely-impact ranking, but it will not receive a live BUY, HOLD, or SELL call until you add explicit research coverage or promote it into the curated universe."
+        : "This asset is not part of the active decision set yet.";
+
     return `
       <article class="section-card nested-card">
         <span class="eyebrow">Decision summary</span>
         <h3>No active recommendation for ${asset.ticker}</h3>
-        <p>This asset is in the curated universe, but the current snapshot did not generate a live BUY, HOLD, or SELL call.</p>
+        <p>${noDecisionCopy}</p>
       </article>
     `;
   }
@@ -4068,13 +5172,14 @@ function renderResearchView() {
 }
 
 function renderAssetsView() {
-  const { monitoredUniverse } = getData();
-  const asset = monitoredUniverse.find((item) => item.ticker === state.selectedAsset);
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const watchedUniverse = getWatchedUniverse(profile);
+  const asset = watchedUniverse.find((item) => item.ticker === state.selectedAsset);
 
   if (!asset) {
     return renderEmptyState(
-      "The tradable universe has not loaded yet.",
-      "Once the API responds, the focused AI, tech, ETF, and crypto list will appear here."
+      "The watched universe has not loaded yet.",
+      "Once the API responds, the curated universe plus your portfolio and watchlist will appear here."
     );
   }
 
@@ -4094,19 +5199,24 @@ function renderAssetsView() {
         <div class="asset-rail">
           <div class="section-header compact">
             <div>
-              <span class="eyebrow">Tradable universe</span>
-              <h3>Focused tech, AI, and crypto list</h3>
+              <span class="eyebrow">Watched universe</span>
+              <h3>Curated universe plus your saved portfolio and watchlist</h3>
             </div>
           </div>
           <div class="asset-list">
-            ${monitoredUniverse
+            ${watchedUniverse
               .map((item) => {
                 const itemDecision = getDecisionByAsset(item.ticker);
+                const itemLabel = item.isTracked
+                  ? item.bucket && item.bucket !== item.trackingLabel
+                    ? `${item.trackingLabel} · ${item.bucket}`
+                    : item.trackingLabel || item.bucket
+                  : item.bucket;
                 return `
                   <button class="asset-item ${state.selectedAsset === item.ticker ? "is-selected" : ""}" data-asset="${item.ticker}">
                     <div>
                       <strong>${item.ticker}</strong>
-                      <span>${item.bucket}</span>
+                      <span>${escapeHtml(itemLabel)}</span>
                     </div>
                     <span class="decision-badge decision-${(itemDecision?.action || "hold").toLowerCase()}">${itemDecision?.action || "WATCH"}</span>
                   </button>
@@ -4118,9 +5228,20 @@ function renderAssetsView() {
         <div class="asset-panel">
           <div class="asset-header">
             <div>
-              <span class="eyebrow">${asset.type}</span>
-              <h2>${asset.name} <span class="muted">${asset.ticker}</span></h2>
-              <p>${asset.thesis}</p>
+              <span class="eyebrow">${escapeHtml(asset.type)}</span>
+              <h2>${escapeHtml(asset.name)} <span class="muted">${asset.ticker}</span></h2>
+              <p>${escapeHtml(asset.thesis)}</p>
+              ${
+                asset.isTracked
+                  ? `
+                    <div class="chip-row">
+                      <span class="pill pill-muted">${escapeHtml(asset.trackingLabel)}</span>
+                      ${!asset.isCurated ? '<span class="pill pill-muted">Personal asset</span>' : ""}
+                      ${!asset.isCurated && !asset.personalNotes && !asset.personalCategory ? '<span class="pill pill-muted">Add notes to sharpen impact matching</span>' : ""}
+                    </div>
+                  `
+                  : ""
+              }
             </div>
             <div class="asset-highlight">
               <span class="decision-badge decision-${(decision?.action || "hold").toLowerCase()}">${decision?.action || "WATCH"}</span>
@@ -4760,7 +5881,7 @@ function renderSignalsPage() {
                           <td>${source?.handle || post.sourceId}</td>
                           <td>${formatGeneratedAt(post.createdAt)}</td>
                           <td>${post.claimType || "Unknown"}</td>
-                          <td>${(post.mappedAssets || []).join(", ") || "Unmapped"}</td>
+                          <td>${renderAssetMappingCell(post)}</td>
                           <td>${post.body}</td>
                         </tr>
                       `;
@@ -4776,17 +5897,17 @@ function renderSignalsPage() {
 }
 
 function renderAdvisorView() {
-  const { monitoredUniverse } = getData();
   const advisor = getAdvisor();
   const profile = advisor.financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const watchedUniverse = getWatchedUniverse(profile);
   const latestAnswer = getLatestAdvisorAnswer();
   const setupState = buildSingleUserSetupState(profile);
   const trackedTickers = getTrackedAssetTickers(profile);
   const suggestedTickers = trackedTickers.length
     ? trackedTickers
-    : monitoredUniverse.slice(0, 6).map((asset) => asset.ticker);
+    : watchedUniverse.slice(0, 6).map((asset) => asset.ticker);
   const relatedSignals = sortPostsByCreatedAt(
-    getData().posts.filter((post) => (post.mappedAssets || []).some((asset) => suggestedTickers.includes(asset)))
+    getData().posts.filter((post) => getPostExposureTickers(post, profile).some((asset) => suggestedTickers.includes(asset)))
   ).slice(0, 4);
   const canAsk = Boolean(suggestedTickers.length && setupState.hasDecisionFrame);
   const cashSummary = buildProfileCashSummary(profile);
@@ -4878,10 +5999,10 @@ function renderAdvisorView() {
               <span>Asset</span>
               <input name="assetTicker" list="advisor-asset-list" value="${escapeHtml(latestAnswer?.assetTicker || suggestedTickers[0] || "")}" placeholder="BTC, NVDA, VTI..." />
               <datalist id="advisor-asset-list">
-                ${monitoredUniverse
+                ${watchedUniverse
                   .map(
                     (asset) => `
-                    <option value="${asset.ticker}">${asset.name}</option>
+                    <option value="${asset.ticker}">${escapeHtml(asset.name)}</option>
                   `
                   )
                   .join("")}
@@ -5012,7 +6133,7 @@ function renderAdvisorView() {
                         <tr>
                           <td>${source?.handle || post.sourceId}</td>
                           <td>${formatGeneratedAt(post.createdAt)}</td>
-                          <td>${(post.mappedAssets || []).join(", ") || "Unmapped"}</td>
+                          <td>${renderAssetMappingCell(post)}</td>
                           <td>${post.body}</td>
                         </tr>
                       `;
@@ -5030,6 +6151,7 @@ function renderAdvisorView() {
 function renderSourceCards() {
   const { sources } = getData();
   const source = getSource(state.selectedSource);
+  const editingSource = getSourceBeingEdited();
 
   if (!source) {
     return renderEmptyState(
@@ -5039,6 +6161,19 @@ function renderSourceCards() {
   }
 
   const sourcePosts = getPostsForSource(source.id);
+  const sourceReliability = getSourceReliabilityInfo(source);
+  const sourceDraft = editingSource || {
+    handle: "",
+    name: "",
+    category: "",
+    baselineReliability: 0.6,
+    preferredHorizon: "",
+    policyTemplate: "",
+    relevantSectors: [],
+    allowedAssets: [],
+    specialHandling: "",
+    tone: ""
+  };
 
   return `
     <main class="content-shell">
@@ -5053,17 +6188,19 @@ function renderSourceCards() {
           </div>
           <div class="source-list">
             ${sources
-              .map(
-                (item) => `
+              .map((item) => {
+                const reliability = getSourceReliabilityInfo(item);
+
+                return `
                 <button class="source-item ${state.selectedSource === item.id ? "is-selected" : ""}" data-source="${item.id}">
                   <div>
                     <strong>${item.handle}</strong>
                     <span>${item.category}</span>
                   </div>
-                  <small>${formatPercent(item.baselineReliability)}</small>
+                  <small>${formatPercent(reliability.score)} · ${escapeHtml(reliability.label)}</small>
                 </button>
-              `
-              )
+              `;
+              })
               .join("")}
           </div>
         </div>
@@ -5076,8 +6213,8 @@ function renderSourceCards() {
             </div>
             <div class="asset-highlight">
               <span class="pill">${source.preferredHorizon}</span>
-              <strong>${formatPercent(source.baselineReliability)}</strong>
-              <span>${source.tone}</span>
+              <strong>${formatPercent(sourceReliability.score)}</strong>
+              <span>${escapeHtml(sourceReliability.label)}</span>
             </div>
           </div>
           <div class="asset-grid">
@@ -5088,6 +6225,14 @@ function renderSourceCards() {
                 <div class="context-item">
                   <span>Relevant sectors</span>
                   <strong>${source.relevantSectors.join(", ")}</strong>
+                </div>
+                <div class="context-item">
+                  <span>Reliability</span>
+                  <strong>${escapeHtml(sourceReliability.label)}</strong>
+                </div>
+                <div class="context-item">
+                  <span>Operator guidance</span>
+                  <strong>${escapeHtml(sourceReliability.operatorGuidance)}</strong>
                 </div>
                 <div class="context-item">
                   <span>Allowed assets</span>
@@ -5115,13 +6260,81 @@ function renderSourceCards() {
                       <div class="tag-row">
                         <span class="tag">${post.direction}</span>
                         <span class="tag">${post.explicitness}</span>
-                        ${post.mappedAssets.map((assetCode) => `<button class="tag tag-button" data-asset="${assetCode}">${assetCode}</button>`).join("")}
+                        ${renderMappedAssetButtons(post, "tag tag-button")}
+                        ${renderAssetMappingStatusTag(post)}
                       </div>
+                      ${renderAssetMappingNote(post)}
+                      ${renderLikelyImpactSummary(post)}
                     </article>
                   `
                   )
                   .join("")}
               </div>
+            </article>
+            <article class="section-card nested-card full-span">
+              <div class="section-header compact">
+                <div>
+                  <span class="eyebrow">Manage registry</span>
+                  <h3>${editingSource ? `Editing ${escapeHtml(editingSource.handle)}` : "Add or update followed accounts"}</h3>
+                </div>
+                <div class="office-form-actions">
+                  <button class="mini-chip" type="button" data-edit-source="${escapeHtml(source.id)}">Load selected source</button>
+                  <button class="mini-chip" type="button" data-new-source>Blank new source</button>
+                  ${editingSource ? `<button class="mini-chip" type="button" data-delete-source="${escapeHtml(editingSource.id)}">Delete</button>` : ""}
+                </div>
+              </div>
+              <form class="operator-form office-form" data-source-form>
+                <div class="field-grid">
+                  <label>
+                    <span>Handle</span>
+                    <input name="handle" value="${escapeHtml(sourceDraft.handle || "")}" placeholder="@newsource" required />
+                  </label>
+                  <label>
+                    <span>Name</span>
+                    <input name="name" value="${escapeHtml(sourceDraft.name || "")}" placeholder="Readable source name" required />
+                  </label>
+                  <label>
+                    <span>Category</span>
+                    <input name="category" value="${escapeHtml(sourceDraft.category || "")}" placeholder="Institution / Policy" />
+                  </label>
+                  <label>
+                    <span>Reliability</span>
+                    <input name="baselineReliability" type="number" min="0" max="0.99" step="0.01" value="${escapeHtml(String(sourceDraft.baselineReliability ?? 0.6))}" />
+                  </label>
+                  <label>
+                    <span>Preferred horizon</span>
+                    <input name="preferredHorizon" value="${escapeHtml(sourceDraft.preferredHorizon || "")}" placeholder="1-5 days" />
+                  </label>
+                  <label>
+                    <span>Tone</span>
+                    <input name="tone" value="${escapeHtml(sourceDraft.tone || "")}" placeholder="Measured" />
+                  </label>
+                </div>
+                <div class="field-grid">
+                  <label>
+                    <span>Policy template</span>
+                    <input name="policyTemplate" value="${escapeHtml(sourceDraft.policyTemplate || "")}" placeholder="How this source should be interpreted" />
+                  </label>
+                  <label>
+                    <span>Relevant sectors</span>
+                    <input name="relevantSectors" value="${escapeHtml((sourceDraft.relevantSectors || []).join(", "))}" placeholder="Policy, semis, macro" />
+                  </label>
+                  <label>
+                    <span>Allowed assets</span>
+                    <input name="allowedAssets" value="${escapeHtml((sourceDraft.allowedAssets || []).join(", "))}" placeholder="NVDA, AMD, SOXX" />
+                  </label>
+                </div>
+                <label>
+                  <span>Special handling</span>
+                  <textarea name="specialHandling" rows="3" placeholder="How strict should the fact-check / corroboration behavior be for this source?">${escapeHtml(sourceDraft.specialHandling || "")}</textarea>
+                </label>
+                <div class="office-form-actions">
+                  <button class="refresh-button" type="submit" ${state.isMutating ? "disabled" : ""}>
+                    ${state.isMutating ? "Saving..." : editingSource ? "Save source" : "Create source"}
+                  </button>
+                  ${editingSource ? `<button class="mini-chip" type="button" data-new-source>New source</button>` : `<button class="mini-chip" type="button" data-edit-source="${escapeHtml(source.id)}">Edit selected source</button>`}
+                </div>
+              </form>
             </article>
           </div>
         </div>
@@ -5181,7 +6394,7 @@ function renderLogs() {
         <article class="stat-card">
           <span class="eyebrow">Latest eval</span>
           <strong>${latestEval ? formatScorePercent(latestEval.summary.averageScore) : "Pending"}</strong>
-          <p>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount} exact matches using ${latestEval.extractor.activeMode}, plus ${latestEval.summary.scenarioExactMatchCount || 0}/${latestEval.summary.scenarioCaseCount || 0} scenario passes.` : "Run the eval harness from Operator to populate regression history."}</p>
+          <p>${latestEval ? `${latestEval.summary.exactMatchCount}/${latestEval.summary.caseCount} exact matches using ${getEvalMode(latestEval)}, plus ${latestEval.summary.scenarioExactMatchCount || 0}/${latestEval.summary.scenarioCaseCount || 0} scenario passes.` : "Run the eval harness from Operator to populate regression history."}</p>
         </article>
         <article class="stat-card">
           <span class="eyebrow">Prompt version</span>
@@ -5410,7 +6623,7 @@ function renderLogs() {
                     </article>
                     <article class="context-item">
                       <span>Extractor mode</span>
-                      <strong>${selectedEval.extractor.activeMode}</strong>
+                      <strong>${getEvalMode(selectedEval)}</strong>
                     </article>
                     <article class="context-item">
                       <span>Validation mode</span>
@@ -5596,6 +6809,10 @@ function renderContent() {
 
   if (state.view === "signals") {
     return renderSignalsPage();
+  }
+
+  if (state.view === "tests") {
+    return renderTestsPage();
   }
 
   if (state.view === "advisor") {

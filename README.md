@@ -10,6 +10,7 @@ The product watches a curated set of X accounts, extracts structured claims, clu
 - A bounded agentic pipeline, not an autonomous trading bot
 - A research and governance workflow for turning noisy social signals into auditable candidate decisions
 - A portfolio-aware advisor that uses the latest snapshot plus the saved financial profile
+- A personal watched universe that automatically folds saved holdings and watchlist names into soft impact ranking
 - A replayable runtime with persisted runs, evals, review state, and operator-facing history
 
 ## Product Model
@@ -70,9 +71,11 @@ flowchart TD
 - `Research`
   Dossier intake, editing, lifecycle actions, scorecards, and evidence traceability
 - `Signals`
-  Manual feed import plus recent normalized posts
+  Manual feed import plus recent normalized posts, strict mapped assets, and separate likely-impact ranking that elevates saved holdings/watchlist names
+- `Tests`
+  An ad hoc single-tweet lab that shows the extractor request, cache/live model behavior, normalized output, and likely impacts without polluting the live feed
 - `Assets`
-  Decision summary, linked research, operator review controls, and full reasoning trace
+  Decision summary, linked research, operator review controls, and a watched universe that blends the curated list with your saved portfolio/watchlist
 - `Advisor`
   Portfolio-aware asset questions grounded in the latest snapshot and governance state
 - `Operations`
@@ -105,6 +108,15 @@ flowchart LR
 - The app shows the same lifecycle state across Research, Overview, Assets, Advisor, and `/api/app-data`
 - The advisor uses governance state, not just model confidence
 - All core state is persisted locally for replay and audit
+
+## Staged Rollout
+
+- Stage 1: Research desk mode
+  Run the app as a supervised research surface. Treat `Broad inference`, `Mixed mapping`, and `Cluster inference` labels as context only until an operator reads the underlying post.
+- Stage 2: Assisted approval mode
+  Let the agentic pipeline draft queue items and advisor answers, but keep operator approval mandatory for every decision and for any signal with weak asset mapping.
+- Stage 3: Bounded production mode
+  Use hosted reasoning only after the model and prompt keep clearing your eval bar, keep research approval and queue approval in place, and review weak-mapping rates alongside approve/dismiss outcomes before expanding trust.
 
 ## Run Locally
 
@@ -144,13 +156,56 @@ The most important knobs are:
 - Market enrichment
   `MARKET_DATA_PROVIDER`, `MARKET_DATA_TIMEOUT_MS`
 - Scheduler
-  `PIPELINE_INTERVAL_MINUTES`
+  `PIPELINE_SCHEDULE_TIMES`, `PIPELINE_SCHEDULE_TIMEZONE`, `PIPELINE_INTERVAL_MINUTES`
 - Notifications
-  `NOTIFICATION_PROVIDER`, `NOTIFICATIONS_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+  `NOTIFICATION_PROVIDER`, `NOTIFICATIONS_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_COMMANDS_ENABLED`
 - Local / hosted LLM routing
   `LLM_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_API_KEY`, `LOCAL_LLM_MODEL`, `FINANCIAL_ADVISOR_MODEL`
 
 If no OpenAI key is configured, extraction and advice still work through conservative fallback paths.
+
+Example exact-time scheduler config for Berlin:
+
+```bash
+PIPELINE_SCHEDULE_TIMES=06:00,11:59,16:00,22:00
+PIPELINE_SCHEDULE_TIMEZONE=Europe/Berlin
+```
+
+If `PIPELINE_SCHEDULE_TIMES` is empty, the app falls back to `PIPELINE_INTERVAL_MINUTES`.
+
+## Telegram Bot Commands
+
+The runtime can answer a small set of Telegram bot commands through long polling, so you do not need to expose a public webhook for local use.
+
+Enable it with:
+
+```bash
+NOTIFICATION_PROVIDER=telegram
+NOTIFICATIONS_ENABLED=1
+TELEGRAM_BOT_TOKEN=<your-bot-token>
+TELEGRAM_CHAT_ID=<your-chat-id>
+TELEGRAM_COMMANDS_ENABLED=1
+```
+
+Optional knobs:
+
+- `TELEGRAM_ALLOWED_CHAT_ID`
+  Restricts commands to one chat. If empty, it falls back to `TELEGRAM_CHAT_ID`.
+- `TELEGRAM_POLLING_TIMEOUT_SECONDS`
+  Long-poll timeout for `getUpdates`. Default is `30`.
+
+Supported commands:
+
+- `/start`
+  Shows what the bot does
+- `/help`
+  Lists the available commands
+- `/status`
+  Returns the latest pipeline, scheduler, and approval-queue status
+- `/digest`
+  Sends the latest operator digest into the chat
+
+The command runner is active only while the local server is running.
 
 ## Local API
 

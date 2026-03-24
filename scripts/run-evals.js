@@ -2,10 +2,12 @@ import { runExtractionEval } from "../src/evalHarness.js";
 
 const args = process.argv.slice(2);
 const strictMode = args.includes("--strict");
+const useCache = !args.includes("--live") && !args.includes("--no-cache");
 const preferredMode = args.find((argument) => !argument.startsWith("--")) || "heuristic";
 const run = await runExtractionEval({
   trigger: "cli",
-  preferredMode
+  preferredMode,
+  useCache
 });
 
 console.log(
