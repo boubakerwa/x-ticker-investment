@@ -165,8 +165,11 @@ const DEFAULT_TEST_DRAFT = {
   runLive: true
 };
 
+const DEVELOPER_STORAGE_KEY = "xTickerDeveloperMode";
+
 const state = {
   view: "dashboard",
+  developerMode: readDeveloperModeSetting(),
   selectedAsset: "",
   selectedSource: "",
   selectedReplayPostId: "",
@@ -213,7 +216,9 @@ const state = {
 
 const app = document.querySelector("#app");
 const actionFilters = ["ALL", "BUY", "HOLD", "SELL"];
-const ADVANCED_VIEWS = ["admin", "assets", "sources", "logs", "docs"];
+const DEVELOPER_VIEWS = ["admin", "tests", "sources", "logs", "docs"];
+const DECISIONS_VIEWS = ["decisions", "research", "assets"];
+const PRIMARY_VIEWS = ["dashboard", "setup", "signals", "decisions", "advisor"];
 const docsPrinciples = [
   {
     title: "Bounded agents, not free-form autonomy",
@@ -243,6 +248,36 @@ const adminRoadmap = [
   "Market-context enrichment feeding the deterministic decision policy"
 ];
 
+function readStoredFlag(storageKey, fallback = false) {
+  try {
+    const rawValue = window.localStorage.getItem(storageKey);
+
+    if (rawValue === "1") {
+      return true;
+    }
+
+    if (rawValue === "0") {
+      return false;
+    }
+  } catch (_error) {
+    return fallback;
+  }
+
+  return fallback;
+}
+
+function persistStoredFlag(storageKey, enabled) {
+  try {
+    window.localStorage.setItem(storageKey, enabled ? "1" : "0");
+  } catch (_error) {
+    return;
+  }
+}
+
+function readDeveloperModeSetting() {
+  return readStoredFlag(DEVELOPER_STORAGE_KEY, false);
+}
+
 const getData = () => state.data || EMPTY_DATA;
 const getStoreStatus = () => state.storeStatus || EMPTY_STORE_STATUS;
 const getEngine = () => getData().engine || EMPTY_DATA.engine;
@@ -252,8 +287,11 @@ const getResearch = () => getData().research || EMPTY_DATA.research;
 const getReviews = () => getData().reviews || EMPTY_DATA.reviews;
 const getAdvisor = () => getData().advisor || EMPTY_DATA.advisor;
 const getRuntime = () => getData().runtime || EMPTY_DATA.runtime;
-const isAdvancedView = (view = state.view) => ADVANCED_VIEWS.includes(view);
-const getPrimaryView = (view = state.view) => (isAdvancedView(view) ? "workspace" : view);
+const isDeveloperView = (view = state.view) => DEVELOPER_VIEWS.includes(view);
+const isDecisionsView = (view = state.view) => DECISIONS_VIEWS.includes(view);
+const isPrimaryView = (view = state.view) => PRIMARY_VIEWS.includes(view);
+const getPrimaryView = (view = state.view) =>
+  isDecisionsView(view) ? "decisions" : isPrimaryView(view) ? view : "";
 const formatPercent = (value) => `${Math.round(value * 100)}%`;
 const formatScorePercent = (value) => `${Math.round((value || 0) * 100)}%`;
 const formatSignedReturn = (value) =>
@@ -765,7 +803,7 @@ function renderLinkedResearchCard(research, decision = null, { includeActions = 
           includeActions
             ? `
               <div class="office-form-actions">
-                <button class="mini-chip" data-view="research">Open research</button>
+                <button class="mini-chip" data-view="decisions">Open Decisions</button>
               </div>
             `
             : ""
@@ -815,7 +853,7 @@ function renderLinkedResearchCard(research, decision = null, { includeActions = 
         includeActions
           ? `
             <div class="office-form-actions">
-              <button class="mini-chip" data-view="research">Open research</button>
+              <button class="mini-chip" data-view="decisions">Open Decisions</button>
               ${
                 research.assets?.[0]
                   ? `<button class="mini-chip" data-asset="${escapeHtml(String(research.assets[0]))}">Open asset</button>`
@@ -945,7 +983,11 @@ function renderResearchDossierCard(dossier) {
           </div>
           <p>${escapeHtml(dossier?.thesis || dossier?.summary || dossier?.description || "No thesis summary provided yet.")}</p>
         </div>
-        <button class="mini-chip" type="button" data-view="assets">Open assets</button>
+        ${
+          assets[0]
+            ? `<button class="mini-chip" type="button" data-asset="${escapeHtml(String(assets[0]))}">Open lead asset</button>`
+            : `<button class="mini-chip" type="button" data-view="decisions">Open Decisions</button>`
+        }
       </div>
       <div class="research-card-meta">
         <span class="tag">${escapeHtml(String(dossier?.theme || dossier?.category || "General"))}</span>
@@ -1105,7 +1147,7 @@ function renderDecisionReviewActions(reviewId, reviewStatus = "proposed", extraA
 
 function renderDecisionReviewGate(reviewId, reviewStatus, decision = null, research = null) {
   const researchAction = research
-    ? `<button class="mini-chip" type="button" data-view="research">Open research</button>`
+    ? `<button class="mini-chip" type="button" data-view="decisions">Open Decisions</button>`
     : "";
 
   if (!isResearchEligibleForReview(research)) {
@@ -2054,6 +2096,10 @@ async function loadData({ refresh = false } = {}) {
     normalizeReplaySelection();
     normalizeHistorySelections();
 
+    if (!state.developerMode && isDeveloperView(state.view)) {
+      state.view = "dashboard";
+    }
+
     if (state.editingSourceId && !getSourceBeingEdited()) {
       state.editingSourceId = "";
     }
@@ -2765,6 +2811,12 @@ async function loadEvalRunDetail({ evalId = state.selectedEvalId, silent = false
 }
 
 function setView(view) {
+  if (!state.developerMode && isDeveloperView(view)) {
+    state.view = "dashboard";
+    render();
+    return;
+  }
+
   state.view = view;
   if (view === "admin" && state.selectedReplayPostId && !state.replayData) {
     loadReplay({
@@ -2789,6 +2841,17 @@ function setView(view) {
   render();
 }
 
+function setDeveloperMode(enabled) {
+  state.developerMode = Boolean(enabled);
+  persistStoredFlag(DEVELOPER_STORAGE_KEY, state.developerMode);
+
+  if (!state.developerMode && isDeveloperView(state.view)) {
+    state.view = "dashboard";
+  }
+
+  render();
+}
+
 function setAsset(ticker) {
   state.selectedAsset = ticker;
   state.view = "assets";
@@ -2807,6 +2870,12 @@ function setActionFilter(filter) {
 }
 
 function attachListeners() {
+  document.querySelectorAll("[data-toggle-developer-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setDeveloperMode(button.dataset.toggleDeveloperMode === "1");
+    });
+  });
+
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
   });
@@ -3135,13 +3204,13 @@ function renderLoading() {
       <section class="hero-panel">
         <div>
           <span class="eyebrow">Loading</span>
-          <h2>Pulling the latest local brief.</h2>
-          <p>The app is waiting for the stored feed, the latest pipeline snapshot, and your saved profile context.</p>
+          <h2>Preparing your daily brief.</h2>
+          <p>The app is loading your feed, decisions, and saved portfolio context.</p>
         </div>
         <div class="hero-decision">
-          <span class="pill pill-muted">Engine mode</span>
+          <span class="pill pill-muted">Status</span>
           <strong>Request in flight</strong>
-          <p>Once the snapshot lands, the brief, setup flow, advisor, and workspace will all hydrate automatically.</p>
+          <p>Today, Feed, Decisions, and Advisor will appear as soon as the snapshot lands.</p>
         </div>
       </section>
       <section class="loading-shell">
@@ -3195,44 +3264,71 @@ function renderNav() {
   const feedMode = getFeedMode();
   const setupState = buildSingleUserSetupState(profile);
   const researchSummary = getResearchSummary();
-  const researchDossiers = getResearchDossiers();
+  const reviewSummary = getReviewSummary();
   const trackedAssets = buildTrackedPortfolioAnalytics(profile).trackedAssets.length;
+  const scheduler = getRuntime().scheduler || EMPTY_DATA.runtime.scheduler;
   const primaryItems = [
-    ["dashboard", "Overview", trackedAssets || "0"],
-    ["setup", "Portfolio", `${profile.holdings.length} holdings`],
-    ["research", "Research", `${researchSummary.dossierCount || researchDossiers.length} dossiers`],
-    ["signals", "Signals", `${getRecentAnalysedPosts().length} posts`],
-    ["tests", "Tests", state.isTestRunLoading ? "Running" : state.testRunData ? "Ready" : "Lab"],
-    ["advisor", "Advisor", getAdvisor().history.length || "0"],
-    [isAdvancedView() ? state.view : "admin", "Operations", getHistory().runs.length || "0"]
+    ["dashboard", "Today", reviewSummary.proposedCount ? `${reviewSummary.proposedCount} to review` : "Clear"],
+    ["setup", "Portfolio", trackedAssets ? `${trackedAssets} tracked` : "Start here"],
+    ["signals", "Feed", `${getRecentAnalysedPosts().length} posts`],
+    [
+      "decisions",
+      "Decisions",
+      `${
+        reviewSummary.proposedCount ||
+        researchSummary.candidateCount ||
+        getData().decisions.length ||
+        0
+      } active`
+    ],
+    ["advisor", "Advisor", getAdvisor().history.length ? `${getAdvisor().history.length} answers` : "Ask away"]
   ];
-  const activePrimary = state.view === "signals" ? "signals" : getPrimaryView();
+  const developerItems = [
+    ["admin", "Operations"],
+    ["tests", "Tests"],
+    ["sources", "Sources"],
+    ["logs", "Logs"],
+    ["docs", "Docs"]
+  ];
+  const activePrimary = getPrimaryView();
 
   return `
     <header class="office-header">
       <div class="office-titlebar">
         <div class="office-brand">
           <img class="office-logo-lockup" src="/logo.svg" alt="X Ticker Investment" width="320" height="93" />
-          <div class="sr-only">
-            <p class="brand-kicker">Local investment desk</p>
-            <h1>X Ticker Investment</h1>
+          <div class="office-brand-copy">
+            <span class="eyebrow">Supervised AI investing desk</span>
+            <strong>Simple daily loop</strong>
+            <p>Feed, research, approval, and advice without the cockpit overload.</p>
           </div>
         </div>
         <div class="office-meta">
-          <div class="office-meta-item">
+          <div class="office-meta-pill">
             <span>Updated</span>
             <strong>${formatGeneratedAt(metadata.generatedAt)}</strong>
           </div>
-          <div class="office-meta-item">
+          <div class="office-meta-pill">
             <span>Feed</span>
             <strong>${formatEnumLabel(feedMode)}</strong>
           </div>
-          <div class="office-meta-item">
+          <div class="office-meta-pill">
+            <span>Scheduler</span>
+            <strong>${scheduler.active ? scheduler.scheduleDescription || "Scheduled" : "Manual"}</strong>
+          </div>
+          <div class="office-meta-pill">
             <span>Setup</span>
             <strong>${setupState.completedCount}/4</strong>
           </div>
           <button class="refresh-button office-refresh" data-refresh>
             ${state.isRefreshing ? "Refreshing..." : "Refresh"}
+          </button>
+          <button
+            class="developer-toggle ${state.developerMode ? "is-active" : ""}"
+            type="button"
+            data-toggle-developer-mode="${state.developerMode ? "0" : "1"}"
+          >
+            ${state.developerMode ? "Developer mode on" : "Developer mode"}
           </button>
         </div>
       </div>
@@ -3240,7 +3336,7 @@ function renderNav() {
         ${primaryItems
           .map(
             ([view, label, value]) => `
-            <button class="office-tab ${activePrimary === (label === "Operations" ? "workspace" : view) || (label === "Operations" && isAdvancedView()) ? "is-active" : ""}" data-view="${view}">
+            <button class="office-tab ${activePrimary === view ? "is-active" : ""}" data-view="${view}">
               <span>${label}</span>
               <small>${value}</small>
             </button>
@@ -3248,6 +3344,29 @@ function renderNav() {
           )
           .join("")}
       </div>
+      ${
+        state.developerMode
+          ? `
+            <div class="developer-tray">
+              <div>
+                <span class="eyebrow">Developer mode</span>
+                <p>Diagnostics and low-level tooling stay here so the main product flow stays focused.</p>
+              </div>
+              <div class="developer-chip-row">
+                ${developerItems
+                  .map(
+                    ([view, label]) => `
+                      <button class="mini-chip developer-chip ${state.view === view ? "is-active" : ""}" data-view="${view}">
+                        ${label}
+                      </button>
+                    `
+                  )
+                  .join("")}
+              </div>
+            </div>
+          `
+          : ""
+      }
     </header>
   `;
 }
@@ -4022,7 +4141,7 @@ function renderTestsPage() {
           </div>
           <div class="office-form-actions">
             <button class="mini-chip" type="button" data-rerun-test-live ${extractor.activeMode === "openai" && !state.isTestRunLoading ? "" : "disabled"}>Re-run live extraction</button>
-            <button class="mini-chip" data-view="signals">Open signals</button>
+            <button class="mini-chip" data-view="signals">Open Feed</button>
           </div>
         </div>
         <div class="replay-shell test-shell">
@@ -4068,7 +4187,7 @@ function renderTestsPage() {
                 <button class="refresh-button" type="submit" ${state.isTestRunLoading ? "disabled" : ""}>
                   ${state.isTestRunLoading ? "Analyzing..." : "Run analysis"}
                 </button>
-                <button class="mini-chip" type="button" data-view="dashboard">Back to overview</button>
+                <button class="mini-chip" type="button" data-view="dashboard">Back to Today</button>
               </div>
               <datalist id="test-source-handle-list">
                 ${sourceOptions.map((source) => `<option value="${escapeHtml(source.handle)}">${escapeHtml(source.name || source.handle)}</option>`).join("")}
@@ -4526,281 +4645,257 @@ function renderAnalysedTweetsWindow() {
 
 function renderDashboard() {
   const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
-  const watchedUniverse = getWatchedUniverse(profile);
   const setupState = buildSingleUserSetupState(profile);
   const latestAnswer = getLatestAdvisorAnswer();
   const feedMode = getFeedMode();
   const trackedTickers = getTrackedAssetTickers(profile);
   const cashSummary = buildProfileCashSummary(profile);
-  const { trackedAssets, actionableAssets, urgentAssets, priorityAssets } = buildTrackedPortfolioAnalytics(profile);
+  const { trackedAssets, actionableAssets, urgentAssets } = buildTrackedPortfolioAnalytics(profile);
   const recentSignals = sortPostsByCreatedAt(
-    getData().posts.filter((post) => getPostExposureTickers(post, profile).some((asset) => trackedTickers.includes(asset)))
-  ).slice(0, 3);
-  const globalFocusItems = getData().decisions.slice(0, 4).map((decision) => ({
-    ticker: decision.asset,
-    asset: watchedUniverse.find((item) => item.ticker === decision.asset) || null,
-    holding: null,
-    decision,
-    relatedPosts: sortPostsByCreatedAt(
-      getData().posts.filter((post) => getPostExposureTickers(post, profile).includes(decision.asset))
-    ).slice(0, 2)
-  }));
-  const focusItems = (priorityAssets.length ? priorityAssets : globalFocusItems).slice(0, 4);
+    (trackedTickers.length
+      ? getData().posts.filter((post) =>
+          getPostExposureTickers(post, profile).some((asset) => trackedTickers.includes(asset))
+        )
+      : getData().posts
+    ).slice(0, 3)
+  );
   const reviewSummary = getReviewSummary();
   const researchSummary = getResearchSummary();
   const researchDossiers = getResearchDossiers();
-  const researchCandidateCount =
-    researchSummary.candidateCount || researchDossiers.filter((dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate").length;
-  const researchApprovedCount =
-    researchSummary.approvedCount || researchDossiers.filter((dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "approved").length;
   const featuredResearch = researchDossiers.find(
     (dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate"
   ) || researchDossiers[0] || null;
   const reviewQueue = getDecisionReviewQueue().slice(0, 4);
   const nextReviewItem = reviewQueue.find((item) => item.reviewStatus === "proposed") || null;
-  const fallbackRows = focusItems.length
-    ? focusItems
-        .map((item) => {
-          const decision = item.decision;
-          const decisionReview = getCurrentDecisionReview(item.ticker);
-          const linkedResearch = getResearchForAsset(item.ticker, decision);
-          const description =
-            decision?.rationale?.[0] ||
-            item.asset?.thesis ||
-            "No active recommendation yet.";
-
-          return `
-            <tr>
-              <td><button class="inline-link" data-asset="${item.ticker}">${item.ticker}</button></td>
-              <td>${decision?.action || "WATCH"}</td>
-              <td>${decision ? formatPercent(decision.confidence || 0) : "Pending"}</td>
-              <td>${item.relatedPosts.length}</td>
-              <td>${escapeHtml(description)}${decision ? renderDecisionMathSummary(getDecisionMath(decision)) : ""}</td>
-              <td>${decisionReview && isResearchEligibleForReview(linkedResearch) ? renderDecisionReviewTag(decisionReview.reviewStatus) : `<span class="subtle">${isResearchEligibleForReview(linkedResearch) ? "No review needed" : "Research first"}</span>`}</td>
-              <td>${decisionReview ? renderDecisionReviewGate(decisionReview.id, decisionReview.reviewStatus, decision, linkedResearch) : `<span class="subtle">Nothing queued.</span>`}</td>
-            </tr>
-          `;
-        })
-        .join("")
-    : `
-      <tr>
-        <td colspan="7">No focus list yet. Save a watchlist or holdings first.</td>
-      </tr>
-    `;
-  const focusRows = reviewQueue.length
-    ? reviewQueue
-        .map(
-          (item) => `
-            <tr>
-              <td><button class="inline-link" data-asset="${item.asset}">${item.asset}</button></td>
-              <td>${item.action}</td>
-              <td>${formatPercent(item.confidence || 0)}</td>
-              <td>${item.relatedPostCount}</td>
-              <td>${item.summary || "No rationale captured."}${renderDecisionMathSummary(getDecisionMath(item))}</td>
-              <td>
-                ${renderDecisionReviewTag(item.reviewStatus)}
-                ${
-                  item.reviewedAt
-                    ? `<div class="office-review-meta">${formatGeneratedAt(item.reviewedAt)}</div>`
-                    : `<div class="office-review-meta">Pending operator decision</div>`
-                }
-              </td>
-              <td>${renderDecisionReviewGate(item.id, item.reviewStatus, item, item.linkedResearch)}</td>
-            </tr>
-          `
-        )
-        .join("")
-    : fallbackRows;
-  const signalRows = (recentSignals.length ? recentSignals : getRecentAnalysedPosts().slice(0, 3)).length
-    ? (recentSignals.length ? recentSignals : getRecentAnalysedPosts().slice(0, 3))
-        .map((post) => {
-          const source = getSource(post.sourceId);
-
-          return `
-            <tr>
-              <td>${source?.handle || post.sourceId}</td>
-              <td>${formatGeneratedAt(post.createdAt)}</td>
-              <td>${renderAssetMappingCell(post)}</td>
-              <td>${post.body}</td>
-            </tr>
-          `;
-        })
-        .join("")
-    : `
-      <tr>
-        <td colspan="4">No recent signals yet. Import manual posts in the Signals tab to move beyond the demo feed.</td>
-      </tr>
-    `;
   const nextAction =
     !setupState.hasDecisionFrame || !setupState.hasPortfolioContext
-      ? "Complete the Portfolio tab so the brief can focus on your real positions."
-      : !researchSummary.dossierCount && !researchDossiers.length && getData().decisions.length
-        ? "Capture a research dossier before treating any fresh decision as actionable."
-      : researchSummary.dossierCount || researchDossiers.length
-        ? `Review ${escapeHtml(getResearchDossierHeadline(featuredResearch, "the lead research dossier"))} before approving the queue.`
-        : reviewSummary.proposedCount
-          ? `Approve or dismiss ${nextReviewItem?.asset || "the top queued decision"} first.`
-          : !setupState.hasRealSignalInput
-            ? "Use the Signals tab to import a few real posts before trusting the queue."
+      ? "Finish the essentials in Portfolio so the brief can become personal."
+      : reviewSummary.proposedCount
+        ? `Approve or dismiss ${nextReviewItem?.asset || "the next queued call"} in Decisions.`
+        : !setupState.hasRealSignalInput
+          ? "Bring in a few real posts in Feed before trusting the brief."
+          : featuredResearch && !isResearchApproved(featuredResearch)
+            ? `Move ${escapeHtml(getResearchDossierHeadline(featuredResearch, "the lead thesis"))} forward in Decisions.`
             : urgentAssets.length
-              ? `Review ${urgentAssets[0]?.ticker || "the first urgent asset"} first.`
-              : "The setup is usable. Check the queue and ask targeted questions in Advisor.";
+              ? `Review ${urgentAssets[0]?.ticker || "the highest-priority asset"} first.`
+              : "You’re ready for the daily loop: Feed, Decisions, then Advisor.";
+  const attentionItems = [];
+
+  if (!setupState.hasDecisionFrame || !setupState.hasPortfolioContext) {
+    attentionItems.push({
+      title: "Finish portfolio essentials",
+      body: "Add your watchlist and at least a little ownership context so the brief ranks the right names.",
+      actionView: "setup",
+      actionLabel: "Open Portfolio"
+    });
+  }
+
+  if (!setupState.hasRealSignalInput) {
+    attentionItems.push({
+      title: "Switch from demo data to real posts",
+      body:
+        feedMode === "fake"
+          ? "The app is still on the seeded demo feed. Import a few real posts to make it useful."
+          : "Bring in a few real posts so today’s brief reflects your actual signal flow.",
+      actionView: "signals",
+      actionLabel: "Open Feed"
+    });
+  }
+
+  reviewQueue.forEach((item) => {
+    attentionItems.push({
+      title: `${item.asset} ${item.action} is waiting`,
+      body: item.summary || "This candidate decision is waiting for an operator decision.",
+      actionView: "decisions",
+      actionLabel: "Open Decisions"
+    });
+  });
+
+  if (!reviewQueue.length && featuredResearch) {
+    attentionItems.push({
+      title: "Advance the lead research packet",
+      body: featuredResearch.summary || featuredResearch.thesis || "The lead thesis still needs validation or approval.",
+      actionView: "decisions",
+      actionLabel: "Review research"
+    });
+  }
 
   return `
     <main class="office-content">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
-      <section class="office-panel office-summary-panel">
-        <div class="office-panel-head">
-          <div>
-            <span class="eyebrow">Overview</span>
-            <h2>${trackedAssets.length ? "Daily review queue" : "Setup still needs input"}</h2>
+      <section class="office-panel today-hero-panel">
+        <div class="today-hero-grid">
+          <div class="today-hero-copy">
+            <span class="eyebrow">Today</span>
+            <h2>${reviewSummary.proposedCount ? "Start with the queue" : trackedAssets.length ? "Your daily brief is ready" : "Set up the desk in a few minutes"}</h2>
+            <p>${nextAction}</p>
+            <div class="office-form-actions">
+              <button class="refresh-button" type="button" data-view="${reviewSummary.proposedCount ? "decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "setup" : "signals"}">
+                ${reviewSummary.proposedCount ? "Open Decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Open Portfolio" : "Open Feed"}
+              </button>
+              <button class="mini-chip" type="button" data-view="advisor">Ask Advisor</button>
+            </div>
           </div>
-        </div>
-        <div class="office-summary-grid">
-          <article class="office-metric">
-            <span>Portfolio coverage</span>
-            <strong>${trackedAssets.length}</strong>
-            <small>${profile.holdings.length} holdings and ${(profile.watchlist || []).length} watchlist names</small>
-          </article>
-          <article class="office-metric">
-            <span>Feed status</span>
-            <strong>${formatEnumLabel(feedMode)}</strong>
-            <small>${getRecentAnalysedPosts().length} recent posts in scope</small>
-          </article>
-          <article class="office-metric">
-            <span>Pending approvals</span>
-            <strong>${reviewSummary.proposedCount}</strong>
-            <small>${reviewSummary.reviewedCount} reviewed and ${getData().decisions.length} total decisions</small>
-          </article>
-          <article class="office-metric">
-            <span>Safety buffer</span>
-            <strong>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths}m` : "Pending"}</strong>
-            <small>${cashSummary.monthlyBurn > 0 ? `${formatCurrency(cashSummary.monthlyBurn)} monthly burn gap` : "Cash flow neutral or positive"}</small>
-          </article>
-        </div>
-        <div class="office-next-step">
-          <span>Next action</span>
-          <strong>${nextAction}</strong>
-        </div>
-        <div class="office-research-callout">
-          <div>
-            <span class="eyebrow">Research before approval</span>
-            <h3>${featuredResearch ? escapeHtml(getResearchDossierHeadline(featuredResearch)) : "No research dossiers yet"}</h3>
-            <p>${featuredResearch ? escapeHtml(featuredResearch.thesis || featuredResearch.summary || "Inspect the thesis packet before the candidate gets promoted.") : "When the app-data payload exposes a research block, the lead dossier will appear here."}</p>
+          <div class="today-hero-stats">
+            <article class="today-stat-card">
+              <span>Pending approvals</span>
+              <strong>${reviewSummary.proposedCount}</strong>
+              <small>${reviewSummary.reviewedCount} reviewed so far</small>
+            </article>
+            <article class="today-stat-card">
+              <span>Tracked assets</span>
+              <strong>${trackedAssets.length}</strong>
+              <small>${profile.holdings.length} holdings and ${(profile.watchlist || []).length} watchlist names</small>
+            </article>
+            <article class="today-stat-card">
+              <span>Feed</span>
+              <strong>${formatEnumLabel(feedMode)}</strong>
+              <small>${getRecentAnalysedPosts().length} recent analysed posts</small>
+            </article>
+            <article class="today-stat-card">
+              <span>Safety buffer</span>
+              <strong>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths}m` : "Pending"}</strong>
+              <small>${cashSummary.monthlyBurn > 0 ? `${formatCurrency(cashSummary.monthlyBurn)} burn gap` : "Cash flow okay"}</small>
+            </article>
           </div>
-          <div class="office-research-callout-meta">
-            ${featuredResearch ? renderLifecyclePill(featuredResearch.status || featuredResearch.stage) : `<span class="pill pill-muted">Discovery</span>`}
-            <span class="pill pill-muted">${researchSummary.dossierCount || researchDossiers.length} dossiers</span>
-            <span class="pill pill-muted">${researchApprovedCount} approved</span>
-          </div>
-          <button class="mini-chip" data-view="research">Open research</button>
         </div>
       </section>
       <section class="office-panel">
         <div class="office-panel-head">
           <div>
-            <span class="eyebrow">Research intake</span>
-            <h3>Evidence chain before the queue</h3>
+            <span class="eyebrow">Next up</span>
+            <h3>What needs your attention</h3>
           </div>
-          <button class="mini-chip" data-view="research">Open research view</button>
+          <button class="mini-chip" data-view="decisions">Open Decisions</button>
         </div>
-        <div class="research-dashboard-grid">
-          <article class="research-dashboard-card">
-            <span>Candidate packets</span>
-            <strong>${researchCandidateCount}</strong>
-            <p>Theses waiting for a human decision or deeper validation.</p>
-          </article>
-          <article class="research-dashboard-card">
-            <span>Approved packets</span>
-            <strong>${researchApprovedCount}</strong>
-            <p>Evidence already cleared to shape recommendations downstream.</p>
-          </article>
-          <article class="research-dashboard-card">
-            <span>Quality / timeliness</span>
-            <strong>${formatDecisionMathValue(researchSummary.averageSourceQualityScore, { probability: true })}</strong>
-            <p>${researchSummary.averageTimelinessScore != null ? `Timeliness ${formatDecisionMathValue(researchSummary.averageTimelinessScore, { probability: true })}` : "Timeliness pending from the research block."}</p>
-          </article>
-          <article class="research-dashboard-card">
-            <span>Lifecycle focus</span>
-            <strong>${featuredResearch ? renderLifecyclePill(featuredResearch.status || featuredResearch.stage) : "Discovery"}</strong>
-            <p>${featuredResearch ? escapeHtml(featuredResearch.summary || featuredResearch.thesis || "Start with the lead thesis packet.") : "Research, then candidate review, then approval."}</p>
-          </article>
+        <div class="office-checklist today-checklist">
+          ${attentionItems.length
+            ? attentionItems
+                .slice(0, 4)
+                .map(
+                  (item) => `
+                    <div class="office-checklist-row">
+                      <strong>${escapeHtml(item.title)}</strong>
+                      <span>Do next</span>
+                      <p>${escapeHtml(item.body)}</p>
+                      <div class="office-form-actions">
+                        <button class="mini-chip" type="button" data-view="${item.actionView}">${item.actionLabel}</button>
+                      </div>
+                    </div>
+                  `
+                )
+                .join("")
+            : `
+              <div class="office-checklist-row is-complete">
+                <strong>No urgent blockers</strong>
+                <span>Clear</span>
+                <p>The setup, feed, and queue are all in a usable state right now.</p>
+              </div>
+            `}
         </div>
       </section>
       <section class="office-grid office-grid-two">
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Approval queue</span>
-              <h3>What to approve or dismiss first</h3>
+              <span class="eyebrow">Queue</span>
+              <h3>Decisions waiting for you</h3>
             </div>
-            <button class="mini-chip" data-view="advisor">Open advisor</button>
+            <button class="mini-chip" data-view="decisions">Open Decisions</button>
           </div>
-          <table class="office-table">
-            <thead>
-              <tr>
-                <th>Asset</th>
-                <th>Action</th>
-                <th>Confidence</th>
-                <th>Posts</th>
-                <th>Reason</th>
-                <th>Status</th>
-                <th>Review</th>
-              </tr>
-            </thead>
-            <tbody>${focusRows}</tbody>
-          </table>
+          <div class="feed-list">
+            ${
+              reviewQueue.length
+                ? reviewQueue
+                    .map(
+                      (item) => `
+                        <article class="feed-item">
+                          <div class="feed-head">
+                            <strong>${item.asset} ${item.action}</strong>
+                            ${renderDecisionReviewTag(item.reviewStatus)}
+                          </div>
+                          <p>${escapeHtml(item.summary || "No rationale captured.")}</p>
+                          <div class="chip-row">
+                            <span class="tag">${formatPercent(item.confidence || 0)}</span>
+                            <span class="tag">${item.relatedPostCount || 0} posts</span>
+                          </div>
+                        </article>
+                      `
+                    )
+                    .join("")
+                : `<article class="status-inline"><strong>No queue items right now</strong><p>As research and signals mature, candidate decisions will appear here.</p></article>`
+            }
+          </div>
         </section>
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Recent signals</span>
-              <h3>Latest posts touching the queue</h3>
+              <span class="eyebrow">Feed</span>
+              <h3>Latest posts worth reading</h3>
             </div>
-            <button class="mini-chip" data-view="signals">Open signals</button>
+            <button class="mini-chip" data-view="signals">Open Feed</button>
           </div>
-          <table class="office-table">
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th>Time</th>
-                <th>Mapped assets</th>
-                <th>Post</th>
-              </tr>
-            </thead>
-            <tbody>${signalRows}</tbody>
-          </table>
+          <div class="feed-list">
+            ${
+              recentSignals.length
+                ? recentSignals
+                    .map((post) => {
+                      const source = getSource(post.sourceId);
+
+                      return `
+                        <article class="feed-item">
+                          <div class="feed-head">
+                            <strong>${source?.handle || post.sourceId}</strong>
+                            <span>${formatGeneratedAt(post.createdAt)}</span>
+                          </div>
+                          <p>${escapeHtml(post.body)}</p>
+                          <div class="tag-row">
+                            <span class="tag">${escapeHtml(post.claimType || "Unknown")}</span>
+                            ${renderMappedAssetButtons(post)}
+                          </div>
+                          ${renderLikelyImpactInline(post)}
+                        </article>
+                      `;
+                    })
+                    .join("")
+                : `<article class="status-inline"><strong>No live posts yet</strong><p>Use Feed to import a few real posts and the brief will become much more useful.</p></article>`
+            }
+          </div>
         </section>
       </section>
       <section class="office-grid office-grid-two">
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Setup status</span>
-              <h3>Essentials checklist</h3>
+              <span class="eyebrow">Research</span>
+              <h3>Lead thesis in motion</h3>
             </div>
-            <button class="mini-chip" data-view="setup">Open portfolio</button>
+            <button class="mini-chip" data-view="decisions">Open Decisions</button>
           </div>
-          <div class="office-checklist">
-            ${setupState.steps
-              .map(
-                (step) => `
-                  <div class="office-checklist-row ${step.complete ? "is-complete" : ""}">
-                    <strong>${step.title}</strong>
-                    <span>${step.complete ? "Done" : "Pending"}</span>
-                    <p>${step.body}</p>
+          ${
+            featuredResearch
+              ? `
+                <article class="research-linked-card">
+                  <div class="decision-topline">
+                    <strong>${escapeHtml(getResearchDossierHeadline(featuredResearch))}</strong>
+                    ${renderLifecyclePill(featuredResearch.status || featuredResearch.stage)}
                   </div>
-                `
-              )
-              .join("")}
-          </div>
+                  <p>${escapeHtml(featuredResearch.thesis || featuredResearch.summary || "No thesis summary provided yet.")}</p>
+                  <div class="chip-row">
+                    <span class="tag">${researchSummary.dossierCount || researchDossiers.length} dossiers</span>
+                    <span class="tag">${researchSummary.approvedCount || 0} approved</span>
+                  </div>
+                </article>
+              `
+              : `<article class="status-inline"><strong>No research dossiers yet</strong><p>Capture your first thesis in Decisions before promoting ideas into the queue.</p></article>`
+          }
         </section>
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Latest advisor output</span>
-              <h3>${latestAnswer ? latestAnswer.answer.headline : "No advisor answer yet"}</h3>
+              <span class="eyebrow">Advisor</span>
+              <h3>${latestAnswer ? latestAnswer.answer.headline : "Portfolio-aware guidance is ready when you are"}</h3>
             </div>
             <button class="mini-chip" data-view="advisor">Open advisor</button>
           </div>
@@ -4814,7 +4909,20 @@ function renderDashboard() {
                   <span>${formatPercent(latestAnswer.answer.confidence || 0)}</span>
                 </div>
               `
-              : `<p>Use the Advisor tab for focused questions once the portfolio and signal input are in place.</p>`
+              : `
+                <div class="office-checklist">
+                  <div class="office-checklist-row ${setupState.hasDecisionFrame ? "is-complete" : ""}">
+                    <strong>Decision frame</strong>
+                    <span>${setupState.hasDecisionFrame ? "Ready" : "Needs input"}</span>
+                    <p>Add your watchlist, horizon, and a little investing context.</p>
+                  </div>
+                  <div class="office-checklist-row ${setupState.hasCashContext ? "is-complete" : ""}">
+                    <strong>Cash context</strong>
+                    <span>${setupState.hasCashContext ? "Ready" : "Optional but recommended"}</span>
+                    <p>Income, expenses, and emergency cash help the advice stay realistic.</p>
+                  </div>
+                </div>
+              `
           }
         </section>
       </section>
@@ -4921,6 +5029,202 @@ function renderAssetDecision(asset, decision) {
   `;
 }
 
+function renderDecisionsPage() {
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const reviewQueue = getDecisionReviewQueue();
+  const reviewSummary = getReviewSummary();
+  const dossiers = getResearchDossiers();
+  const researchSummary = getResearchSummary();
+  const watchedUniverse = getWatchedUniverse(profile);
+  const { priorityAssets } = buildTrackedPortfolioAnalytics(profile);
+  const researchCandidates = dossiers.filter((dossier) => {
+    const status = normalizeResearchStatus(dossier?.status || dossier?.stage);
+    return ["candidate", "validated", "approved"].includes(status);
+  });
+  const visibleQueue = reviewQueue.slice(0, 6);
+  const visibleDossiers = (researchCandidates.length ? researchCandidates : dossiers).slice(0, 6);
+  const visibleAssets = (
+    priorityAssets.length
+      ? priorityAssets.map((item) => ({
+          ticker: item.ticker,
+          asset: item.asset || watchedUniverse.find((entry) => entry.ticker === item.ticker) || null,
+          decision: item.decision || getDecisionByAsset(item.ticker) || null,
+          relatedPosts: item.relatedPosts || []
+        }))
+      : getData().decisions.slice(0, 6).map((decision) => ({
+          ticker: decision.asset,
+          asset: watchedUniverse.find((entry) => entry.ticker === decision.asset) || null,
+          decision,
+          relatedPosts: sortPostsByCreatedAt(
+            getData().posts.filter((post) => getPostExposureTickers(post, profile).includes(decision.asset))
+          ).slice(0, 2)
+        }))
+  ).slice(0, 6);
+
+  return `
+    <main class="office-content">
+      ${renderStatusBanner()}
+      ${renderOperatorNotice()}
+      <section class="office-panel decisions-hero-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Decisions</span>
+            <h2>One place for research, queue review, and asset follow-up</h2>
+            <p class="section-copy">Use this page as the core operating surface once posts start flowing. Research feeds the queue, and the queue feeds advice.</p>
+          </div>
+          <div class="office-form-actions">
+            <button class="mini-chip" data-view="signals">Open Feed</button>
+            <button class="mini-chip" data-view="advisor">Open Advisor</button>
+          </div>
+        </div>
+        <div class="office-summary-grid">
+          <article class="office-metric">
+            <span>Pending approvals</span>
+            <strong>${reviewSummary.proposedCount || 0}</strong>
+            <small>${reviewSummary.reviewedCount || 0} reviewed</small>
+          </article>
+          <article class="office-metric">
+            <span>Research packets</span>
+            <strong>${researchSummary.dossierCount || dossiers.length || 0}</strong>
+            <small>${researchSummary.approvedCount || 0} approved</small>
+          </article>
+          <article class="office-metric">
+            <span>Watched assets</span>
+            <strong>${watchedUniverse.length}</strong>
+            <small>${getData().decisions.length} active decisions</small>
+          </article>
+          <article class="office-metric">
+            <span>Recent signals</span>
+            <strong>${getRecentAnalysedPosts().length}</strong>
+            <small>Live posts informing the current snapshot</small>
+          </article>
+        </div>
+      </section>
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Approval queue</span>
+              <h3>Decide what moves forward</h3>
+            </div>
+            ${
+              state.developerMode
+                ? `<button class="mini-chip" data-view="admin">Operations</button>`
+                : ""
+            }
+          </div>
+          ${
+            visibleQueue.length
+              ? `
+                <table class="office-table">
+                  <thead>
+                    <tr>
+                      <th>Asset</th>
+                      <th>Action</th>
+                      <th>Confidence</th>
+                      <th>Research</th>
+                      <th>Review</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${visibleQueue
+                      .map(
+                        (item) => `
+                          <tr>
+                            <td><button class="inline-link" data-asset="${item.asset}">${item.asset}</button></td>
+                            <td>${item.action}</td>
+                            <td>${formatPercent(item.confidence || 0)}</td>
+                            <td>${
+                              item.linkedResearch
+                                ? `${escapeHtml(getResearchDossierHeadline(item.linkedResearch))} ${renderLifecyclePill(item.linkedResearch.status || item.linkedResearch.stage)}`
+                                : '<span class="subtle">Research missing</span>'
+                            }</td>
+                            <td>${renderDecisionReviewGate(item.id, item.reviewStatus, item, item.linkedResearch)}</td>
+                          </tr>
+                        `
+                      )
+                      .join("")}
+                  </tbody>
+                </table>
+              `
+              : `<article class="status-inline"><strong>No pending approvals</strong><p>When a validated thesis produces a candidate call, it will show up here first.</p></article>`
+          }
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Research</span>
+              <h3>Theses moving toward approval</h3>
+            </div>
+            <div class="office-form-actions">
+              <button class="mini-chip" data-view="research">Open research workspace</button>
+            </div>
+          </div>
+          <div class="research-dossier-grid compact-grid">
+            ${
+              visibleDossiers.length
+                ? visibleDossiers
+                    .map(
+                      (dossier) => `
+                        <article class="research-linked-card">
+                          <div class="decision-topline">
+                            <strong>${escapeHtml(getResearchDossierHeadline(dossier))}</strong>
+                            ${renderLifecyclePill(dossier.status || dossier.stage)}
+                          </div>
+                          <p>${escapeHtml(dossier.summary || dossier.thesis || "No summary provided.")}</p>
+                          <div class="chip-row">
+                            ${getResearchDossierAssets(dossier)
+                              .slice(0, 4)
+                              .map((asset) => `<button class="mini-chip" data-asset="${asset}">${asset}</button>`)
+                              .join("")}
+                          </div>
+                        </article>
+                      `
+                    )
+                    .join("")
+                : `<article class="status-inline"><strong>No active research packets</strong><p>Capture a dossier from the research workspace to start the approval loop.</p></article>`
+            }
+          </div>
+        </section>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Asset follow-up</span>
+            <h3>Names the desk is currently watching</h3>
+          </div>
+          <div class="office-form-actions">
+            <button class="mini-chip" data-view="setup">Open Portfolio</button>
+          </div>
+        </div>
+        <div class="research-dossier-grid compact-grid">
+          ${
+            visibleAssets.length
+              ? visibleAssets
+                  .map(({ ticker, asset, decision, relatedPosts }) => `
+                    <article class="research-linked-card">
+                      <div class="decision-topline">
+                        <strong>${ticker}</strong>
+                        <span class="decision-badge decision-${(decision?.action || "hold").toLowerCase()}">${decision?.action || "WATCH"}</span>
+                      </div>
+                      <p>${escapeHtml(decision?.rationale?.[0] || asset?.thesis || "Tracked, but no live decision rationale is available yet.")}</p>
+                      <div class="chip-row">
+                        <span class="tag">${decision ? formatPercent(decision.confidence || 0) : "Pending"}</span>
+                        <span class="tag">${relatedPosts.length} related posts</span>
+                        <button class="mini-chip" data-asset="${ticker}">Open detail</button>
+                      </div>
+                      ${decision ? renderDecisionMathSummary(getDecisionMath(decision)) : ""}
+                    </article>
+                  `)
+                  .join("")
+              : `<article class="status-inline"><strong>No watched assets yet</strong><p>Add a watchlist or holdings in Portfolio and the desk will center on those names.</p></article>`
+          }
+        </div>
+      </section>
+    </main>
+  `;
+}
+
 function renderResearchView() {
   const dossiers = getResearchDossiers();
   const summary = getResearchSummary();
@@ -4944,7 +5248,7 @@ function renderResearchView() {
             <h2>Dossiers before candidate approval</h2>
             <p class="section-copy">This view makes the upstream work explicit: thesis evidence, source quality, and conservative math before a decision gets promoted.</p>
           </div>
-          <button class="mini-chip" data-view="dashboard">Back to overview</button>
+          <button class="mini-chip" data-view="decisions">Back to Decisions</button>
         </div>
         <div class="office-summary-grid research-summary-grid">
           <article class="office-metric">
@@ -4991,7 +5295,7 @@ function renderResearchView() {
             ${
               editingResearch
                 ? `<button class="mini-chip" type="button" data-cancel-research-edit>New dossier</button>`
-                : `<button class="mini-chip" data-view="signals">Open signals</button>`
+                : `<button class="mini-chip" data-view="signals">Open Feed</button>`
             }
           </div>
           <form class="operator-form office-form" data-research-form>
@@ -5059,7 +5363,7 @@ function renderResearchView() {
               <button class="refresh-button" type="submit" ${state.isMutating ? "disabled" : ""}>
                 ${state.isMutating ? "Saving..." : editingResearch ? "Save dossier" : "Create dossier"}
               </button>
-              <button class="mini-chip" type="button" data-view="dashboard">Back to overview</button>
+              <button class="mini-chip" type="button" data-view="decisions">Back to Decisions</button>
             </div>
           </form>
         </section>
@@ -5148,8 +5452,8 @@ function renderResearchView() {
             <h3>Evidence before decisioning</h3>
           </div>
           <div class="office-form-actions">
-            <button class="mini-chip" data-view="signals">Open signals</button>
-            <button class="mini-chip" data-view="assets">Open assets</button>
+            <button class="mini-chip" data-view="signals">Open Feed</button>
+            <button class="mini-chip" data-view="decisions">Back to Decisions</button>
           </div>
         </div>
         ${
@@ -5295,7 +5599,7 @@ function renderAssetsView() {
                               </div>
                               <p>${escapeHtml(dossier.thesis || dossier.summary || "No thesis summary provided.")}</p>
                               <div class="chip-row">
-                                <button class="mini-chip" data-view="research">Open research</button>
+                                <button class="mini-chip" data-view="decisions">Open Decisions</button>
                               </div>
                             </article>
                           `
@@ -5348,283 +5652,6 @@ function renderSetupPage() {
   const profile = getProfileDraft();
   const onboardingSummary = buildOnboardingSummary(profile);
   const setupState = buildSingleUserSetupState(profile);
-  const currentStep = Math.min(state.profileOnboardingStep || 0, 2);
-  const onboardingPanels = [
-    `
-      <section class="office-form-section">
-        <div class="office-panel-head">
-          <div>
-            <span class="eyebrow">Profile basics</span>
-            <h3>Investor profile and watchlist</h3>
-            <p class="section-copy">Keep this short. The app only needs enough context to interpret your signals and holdings correctly.</p>
-          </div>
-        </div>
-        <div class="field-grid">
-          <label class="form-field">
-            <span>Investor name</span>
-            <input name="investorName" value="${escapeHtml(profile.investorName || "")}" placeholder="Your name or household label" />
-          </label>
-          <label class="form-field">
-            <span>Risk tolerance</span>
-            <input name="riskTolerance" value="${escapeHtml(profile.riskTolerance || "Moderate")}" placeholder="Conservative, Moderate, Growth..." />
-          </label>
-          <label class="form-field">
-            <span>Investment horizon</span>
-            <input name="investmentHorizon" value="${escapeHtml(profile.investmentHorizon || "")}" placeholder="e.g. 10+ years, 3 years, liquidity reserve" />
-          </label>
-          <label class="form-field">
-            <span>Liquidity needs</span>
-            <input name="liquidityNeeds" value="${escapeHtml(profile.liquidityNeeds || "")}" placeholder="Low, medium, high" />
-          </label>
-        </div>
-        <label class="form-field">
-          <span>Goals (comma separated)</span>
-          <input
-            name="goals"
-            value="${escapeHtml((profile.goals || []).join(", "))}"
-            placeholder="Retirement, preserve liquidity, home purchase, education"
-          />
-        </label>
-        <label class="form-field">
-          <span>Watchlist tickers (comma separated)</span>
-          <input
-            name="watchlist"
-            value="${escapeHtml((profile.watchlist || []).join(", "))}"
-            placeholder="NVDA, BTC, VWCE, MSFT"
-          />
-        </label>
-        <label class="form-field">
-          <span>Notes</span>
-          <textarea name="notes" rows="4" placeholder="Anything the advisor should keep in mind about concentration, liquidity, or personal constraints.">${escapeHtml(profile.notes || "")}</textarea>
-        </label>
-        <div class="office-inline-stats">
-          <article class="context-item">
-            <span>Watchlist names</span>
-            <strong>${(profile.watchlist || []).length}</strong>
-          </article>
-          <article class="context-item">
-            <span>Tracked assets</span>
-            <strong>${onboardingSummary.trackedAssetCount}</strong>
-          </article>
-        </div>
-      </section>
-    `,
-    `
-      <section class="office-form-section">
-        <div class="office-panel-head">
-          <div>
-            <span class="eyebrow">Cash and cover</span>
-            <h3>Safety buffer, liabilities, and long-term products</h3>
-            <p class="section-copy">Add the fixed things that shape your real risk capacity: monthly cash flow, debt, private pensions, and insurance wrappers.</p>
-          </div>
-        </div>
-        <div class="field-grid">
-          <label class="form-field">
-            <span>Monthly net income</span>
-            <input type="number" step="0.01" name="monthlyNetIncome" value="${profile.monthlyNetIncome ?? 0}" />
-          </label>
-          <label class="form-field">
-            <span>Monthly expenses</span>
-            <input type="number" step="0.01" name="monthlyExpenses" value="${profile.monthlyExpenses ?? 0}" />
-          </label>
-          <label class="form-field">
-            <span>Emergency fund</span>
-            <input type="number" step="0.01" name="emergencyFund" value="${profile.emergencyFund ?? 0}" />
-          </label>
-          <label class="form-field">
-            <span>Target emergency months</span>
-            <input type="number" step="0.1" name="targetEmergencyFundMonths" value="${profile.targetEmergencyFundMonths ?? 6}" />
-          </label>
-        </div>
-        <div class="office-inline-stats">
-          <article class="context-item">
-            <span>Monthly free cash flow</span>
-            <strong>${formatCurrency((profile.monthlyNetIncome || 0) - (profile.monthlyExpenses || 0))}</strong>
-          </article>
-          <article class="context-item">
-            <span>Current reserve</span>
-            <strong>${formatCurrency(profile.emergencyFund || 0)}</strong>
-          </article>
-        </div>
-        ${renderProfileCollectionSection({
-          collection: "retirementProducts",
-          title: "Insurance and pensions",
-          copy: "Private Rentenversicherung, bAV, insurance wrappers, and other long-term products",
-          addLabel: "Add product",
-          emptyCopy: "Add anything that should count as part of your long-term financial picture, even if it is not a tradable holding.",
-          fields: [
-            {
-              key: "label",
-              label: "Product name",
-              placeholder: "Private pension, BU policy, life insurance"
-            },
-            {
-              key: "type",
-              label: "Type",
-              type: "select",
-              options: [
-                "Private Rentenversicherung",
-                "bAV",
-                "Life insurance",
-                "Disability insurance",
-                "Health insurance",
-                "Other"
-              ]
-            },
-            {
-              key: "provider",
-              label: "Provider",
-              placeholder: "Allianz, Alte Leipziger, employer plan"
-            },
-            {
-              key: "currentValue",
-              label: "Current value",
-              type: "number",
-              placeholder: "0"
-            },
-            {
-              key: "monthlyContribution",
-              label: "Monthly contribution",
-              type: "number",
-              placeholder: "0"
-            },
-            {
-              key: "notes",
-              label: "Notes",
-              type: "textarea",
-              rows: 2,
-              placeholder: "Optional details like guarantees, surrender limits, or tax treatment"
-            }
-          ]
-        })}
-        ${renderProfileCollectionSection({
-          collection: "liabilities",
-          title: "Liabilities",
-          copy: "Loans, mortgages, recurring premiums, and other obligations",
-          addLabel: "Add liability",
-          emptyCopy: "Add mortgages, personal loans, or other liabilities that materially affect your monthly flexibility.",
-          fields: [
-            {
-              key: "label",
-              label: "Name",
-              placeholder: "Apartment mortgage, KfW loan, premium finance"
-            },
-            {
-              key: "category",
-              label: "Category",
-              type: "select",
-              options: [
-                "Mortgage",
-                "Personal loan",
-                "Credit line",
-                "Insurance premium",
-                "Tax due",
-                "Other"
-              ]
-            },
-            {
-              key: "balance",
-              label: "Outstanding balance",
-              type: "number",
-              placeholder: "0"
-            },
-            {
-              key: "interestRate",
-              label: "Interest rate %",
-              type: "number",
-              placeholder: "0"
-            },
-            {
-              key: "monthlyPayment",
-              label: "Monthly payment",
-              type: "number",
-              placeholder: "0"
-            },
-            {
-              key: "notes",
-              label: "Notes",
-              type: "textarea",
-              rows: 2,
-              placeholder: "Optional details like fixed-rate end date, lender, or policy schedule"
-            }
-          ]
-        })}
-      </section>
-    `,
-    `
-      <section class="office-form-section">
-        <div class="office-panel-head">
-          <div>
-            <span class="eyebrow">Assets</span>
-            <h3>Holdings you actually own</h3>
-            <p class="section-copy">Add positions one by one. Include ETFs, stocks, crypto, or even a cash sleeve if you want the brief to reflect it.</p>
-          </div>
-        </div>
-        <div class="office-inline-stats">
-          <article class="context-item">
-            <span>Holdings count</span>
-            <strong>${profile.holdings.length}</strong>
-          </article>
-          <article class="context-item">
-            <span>Holdings value</span>
-            <strong>${formatCurrency(onboardingSummary.holdingsTotal)}</strong>
-          </article>
-        </div>
-        ${renderProfileCollectionSection({
-          collection: "holdings",
-          title: "Holdings",
-          copy: "Securities, ETFs, crypto, and cash sleeves",
-          addLabel: "Add holding",
-          emptyCopy: "Start with a few real positions. You do not need a perfect export for the app to become useful.",
-          fields: [
-            {
-              key: "ticker",
-              label: "Ticker or label",
-              placeholder: "VWCE, MSFT, BTC, Cash"
-            },
-            {
-              key: "category",
-              label: "Category",
-              type: "select",
-              options: ["Stock", "ETF", "Fund", "Crypto", "Cash", "Bond", "Other"]
-            },
-            {
-              key: "accountType",
-              label: "Account / wrapper",
-              type: "select",
-              options: [
-                "Brokerage",
-                "Retirement account",
-                "Pension wrapper",
-                "Savings account",
-                "Cold wallet",
-                "Other"
-              ]
-            },
-            {
-              key: "currentValue",
-              label: "Current value",
-              type: "number",
-              placeholder: "0"
-            },
-            {
-              key: "costBasis",
-              label: "Cost basis",
-              type: "number",
-              placeholder: "0"
-            },
-            {
-              key: "notes",
-              label: "Notes",
-              type: "textarea",
-              rows: 2,
-              placeholder: "Optional context like core position, long-term sleeve, or concentration note"
-            }
-          ]
-        })}
-      </section>
-    `
-  ];
 
   return `
     <main class="office-content">
@@ -5649,23 +5676,275 @@ function renderSetupPage() {
           `
           : ""
       }
+      <section class="office-panel today-hero-panel">
+        <div class="today-hero-grid">
+          <div class="today-hero-copy">
+            <span class="eyebrow">Portfolio</span>
+            <h2>Set up the desk with the minimum that matters</h2>
+            <p>Start with your watchlist and what you own. Everything else is optional and can be added later when you want sharper advice.</p>
+          </div>
+          <div class="today-hero-stats">
+            <article class="today-stat-card">
+              <span>Tracked assets</span>
+              <strong>${onboardingSummary.trackedAssetCount}</strong>
+              <small>${(profile.watchlist || []).length} watchlist names</small>
+            </article>
+            <article class="today-stat-card">
+              <span>Holdings value</span>
+              <strong>${formatCurrency(onboardingSummary.holdingsTotal)}</strong>
+              <small>${profile.holdings.length} holdings saved</small>
+            </article>
+            <article class="today-stat-card">
+              <span>Safety buffer</span>
+              <strong>${formatCurrency(profile.emergencyFund || 0)}</strong>
+              <small>${profile.targetEmergencyFundMonths || 6} target months</small>
+            </article>
+            <article class="today-stat-card">
+              <span>Setup progress</span>
+              <strong>${setupState.completedCount}/4</strong>
+              <small>${setupState.nextStep?.title || "All core steps covered"}</small>
+            </article>
+          </div>
+        </div>
+      </section>
       <section class="office-grid office-grid-sidebar">
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
               <span class="eyebrow">Portfolio</span>
-              <h2>Portfolio setup</h2>
+              <h2>Essentials first</h2>
+              <p class="section-copy">If you only fill one section, make it the basics below. The app becomes useful quickly once it knows your names and general frame.</p>
             </div>
           </div>
           <form class="operator-form office-form" data-profile-form>
-            ${renderOnboardingStepCards(currentStep)}
-            ${onboardingPanels[currentStep] || onboardingPanels[0]}
+            <section class="office-form-section">
+              <div class="office-panel-head">
+                <div>
+                  <span class="eyebrow">Basics</span>
+                  <h3>Investor frame and watchlist</h3>
+                </div>
+              </div>
+              <div class="field-grid">
+                <label class="form-field">
+                  <span>Investor name</span>
+                  <input name="investorName" value="${escapeHtml(profile.investorName || "")}" placeholder="Your name or household label" />
+                </label>
+                <label class="form-field">
+                  <span>Risk tolerance</span>
+                  <input name="riskTolerance" value="${escapeHtml(profile.riskTolerance || "Moderate")}" placeholder="Conservative, Moderate, Growth..." />
+                </label>
+                <label class="form-field">
+                  <span>Investment horizon</span>
+                  <input name="investmentHorizon" value="${escapeHtml(profile.investmentHorizon || "")}" placeholder="10+ years, 3 years, liquidity reserve..." />
+                </label>
+                <label class="form-field">
+                  <span>Liquidity needs</span>
+                  <input name="liquidityNeeds" value="${escapeHtml(profile.liquidityNeeds || "")}" placeholder="Low, medium, high" />
+                </label>
+              </div>
+              <label class="form-field">
+                <span>Watchlist tickers</span>
+                <input
+                  name="watchlist"
+                  value="${escapeHtml((profile.watchlist || []).join(", "))}"
+                  placeholder="NVDA, BTC, VWCE, MSFT"
+                />
+              </label>
+              <label class="form-field">
+                <span>Goals</span>
+                <input
+                  name="goals"
+                  value="${escapeHtml((profile.goals || []).join(", "))}"
+                  placeholder="Retirement, preserve liquidity, home purchase"
+                />
+              </label>
+              <label class="form-field">
+                <span>Notes</span>
+                <textarea name="notes" rows="3" placeholder="Anything the advisor should keep in mind about concentration, liquidity, or personal constraints.">${escapeHtml(profile.notes || "")}</textarea>
+              </label>
+            </section>
+            <section class="office-form-section">
+              <div class="office-panel-head">
+                <div>
+                  <span class="eyebrow">Holdings</span>
+                  <h3>What you actually own</h3>
+                </div>
+              </div>
+              ${renderProfileCollectionSection({
+                collection: "holdings",
+                title: "Holdings",
+                copy: "Stocks, ETFs, crypto, cash sleeves, and any core positions you want the desk to prioritize.",
+                addLabel: "Add holding",
+                emptyCopy: "Start with a few real positions. You can always add the rest later.",
+                fields: [
+                  {
+                    key: "ticker",
+                    label: "Ticker or label",
+                    placeholder: "VWCE, MSFT, BTC, Cash"
+                  },
+                  {
+                    key: "category",
+                    label: "Category",
+                    type: "select",
+                    options: ["Stock", "ETF", "Fund", "Crypto", "Cash", "Bond", "Other"]
+                  },
+                  {
+                    key: "accountType",
+                    label: "Account / wrapper",
+                    type: "select",
+                    options: [
+                      "Brokerage",
+                      "Retirement account",
+                      "Pension wrapper",
+                      "Savings account",
+                      "Cold wallet",
+                      "Other"
+                    ]
+                  },
+                  {
+                    key: "currentValue",
+                    label: "Current value",
+                    type: "number",
+                    placeholder: "0"
+                  },
+                  {
+                    key: "costBasis",
+                    label: "Cost basis",
+                    type: "number",
+                    placeholder: "0"
+                  },
+                  {
+                    key: "notes",
+                    label: "Notes",
+                    type: "textarea",
+                    rows: 2,
+                    placeholder: "Core position, long-term sleeve, concentration note..."
+                  }
+                ]
+              })}
+            </section>
+            <details class="office-disclosure">
+              <summary>Optional: cash, safety buffer, and liabilities</summary>
+              <section class="office-form-section">
+                <div class="field-grid">
+                  <label class="form-field">
+                    <span>Monthly net income</span>
+                    <input type="number" step="0.01" name="monthlyNetIncome" value="${profile.monthlyNetIncome ?? 0}" />
+                  </label>
+                  <label class="form-field">
+                    <span>Monthly expenses</span>
+                    <input type="number" step="0.01" name="monthlyExpenses" value="${profile.monthlyExpenses ?? 0}" />
+                  </label>
+                  <label class="form-field">
+                    <span>Emergency fund</span>
+                    <input type="number" step="0.01" name="emergencyFund" value="${profile.emergencyFund ?? 0}" />
+                  </label>
+                  <label class="form-field">
+                    <span>Target emergency months</span>
+                    <input type="number" step="0.1" name="targetEmergencyFundMonths" value="${profile.targetEmergencyFundMonths ?? 6}" />
+                  </label>
+                </div>
+                ${renderProfileCollectionSection({
+                  collection: "liabilities",
+                  title: "Liabilities",
+                  copy: "Loans, mortgages, premiums, or other obligations that affect flexibility.",
+                  addLabel: "Add liability",
+                  emptyCopy: "Optional. Add these later if you want the advice to reflect fixed commitments more precisely.",
+                  fields: [
+                    {
+                      key: "label",
+                      label: "Name",
+                      placeholder: "Apartment mortgage, KfW loan"
+                    },
+                    {
+                      key: "category",
+                      label: "Category",
+                      type: "select",
+                      options: ["Mortgage", "Personal loan", "Credit line", "Insurance premium", "Tax due", "Other"]
+                    },
+                    {
+                      key: "balance",
+                      label: "Outstanding balance",
+                      type: "number",
+                      placeholder: "0"
+                    },
+                    {
+                      key: "interestRate",
+                      label: "Interest rate %",
+                      type: "number",
+                      placeholder: "0"
+                    },
+                    {
+                      key: "monthlyPayment",
+                      label: "Monthly payment",
+                      type: "number",
+                      placeholder: "0"
+                    },
+                    {
+                      key: "notes",
+                      label: "Notes",
+                      type: "textarea",
+                      rows: 2,
+                      placeholder: "Optional details like fixed-rate end date or lender"
+                    }
+                  ]
+                })}
+              </section>
+            </details>
+            <details class="office-disclosure">
+              <summary>Optional: long-term products and pension wrappers</summary>
+              <section class="office-form-section">
+                ${renderProfileCollectionSection({
+                  collection: "retirementProducts",
+                  title: "Insurance and pensions",
+                  copy: "Private pensions, bAV, wrappers, and other long-term products.",
+                  addLabel: "Add product",
+                  emptyCopy: "Optional. Add these if you want the app to reflect more of your total balance sheet.",
+                  fields: [
+                    {
+                      key: "label",
+                      label: "Product name",
+                      placeholder: "Private pension, BU policy, life insurance"
+                    },
+                    {
+                      key: "type",
+                      label: "Type",
+                      type: "select",
+                      options: ["Private Rentenversicherung", "bAV", "Life insurance", "Disability insurance", "Health insurance", "Other"]
+                    },
+                    {
+                      key: "provider",
+                      label: "Provider",
+                      placeholder: "Allianz, Alte Leipziger, employer plan"
+                    },
+                    {
+                      key: "currentValue",
+                      label: "Current value",
+                      type: "number",
+                      placeholder: "0"
+                    },
+                    {
+                      key: "monthlyContribution",
+                      label: "Monthly contribution",
+                      type: "number",
+                      placeholder: "0"
+                    },
+                    {
+                      key: "notes",
+                      label: "Notes",
+                      type: "textarea",
+                      rows: 2,
+                      placeholder: "Guarantees, surrender limits, tax treatment..."
+                    }
+                  ]
+                })}
+              </section>
+            </details>
             <div class="office-form-actions">
-              <button class="mini-chip" type="button" data-onboarding-prev ${currentStep === 0 ? "disabled" : ""}>Previous</button>
-              <button class="mini-chip" type="button" data-onboarding-next ${currentStep === onboardingPanels.length - 1 ? "disabled" : ""}>Next</button>
               <button class="refresh-button" type="submit" ${state.isSavingProfile ? "disabled" : ""}>
                 ${state.isSavingProfile ? "Saving..." : "Save portfolio"}
               </button>
+              <button class="mini-chip" type="button" data-view="signals">Open Feed</button>
             </div>
           </form>
         </section>
@@ -5714,10 +5993,10 @@ function renderSetupPage() {
                 <h3>After saving</h3>
               </div>
             </div>
-            <p>Go to the Signals tab, import a few real posts, run the pipeline, then return to Overview for the review queue.</p>
+            <p>Open Feed, import a few real posts, run the pipeline, then come back to Today or Decisions.</p>
             <div class="office-form-actions">
-              <button class="mini-chip" data-view="signals">Open signals</button>
-              <button class="mini-chip" data-view="dashboard">Back to overview</button>
+              <button class="mini-chip" data-view="signals">Open Feed</button>
+              <button class="mini-chip" data-view="dashboard">Back to Today</button>
             </div>
           </section>
         </aside>
@@ -5750,14 +6029,15 @@ function renderSignalsPage() {
       <section class="office-panel office-summary-panel">
         <div class="office-panel-head">
           <div>
-            <span class="eyebrow">Signals</span>
-            <h2>Feed input and latest imports</h2>
+            <span class="eyebrow">Feed</span>
+            <h2>Bring in posts and see what the desk noticed</h2>
+            <p class="section-copy">Use this page to bring signal input into the app, then inspect the posts that are shaping the current brief.</p>
           </div>
           <div class="office-form-actions">
             <button class="mini-chip" type="button" data-run-pipeline ${state.isRunningPipeline ? "disabled" : ""}>
               ${state.isRunningPipeline ? "Running..." : "Run pipeline"}
             </button>
-            <button class="mini-chip" data-view="dashboard">Back to overview</button>
+            <button class="mini-chip" data-view="dashboard">Back to Today</button>
           </div>
         </div>
         <div class="office-summary-grid">
@@ -5787,7 +6067,7 @@ function renderSignalsPage() {
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Manual import</span>
+              <span class="eyebrow">Import</span>
               <h3>Paste posts, links, or notes</h3>
             </div>
           </div>
@@ -5837,7 +6117,7 @@ function renderSignalsPage() {
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Store breakdown</span>
+              <span class="eyebrow">Coverage</span>
               <h3>Posts by source</h3>
             </div>
           </div>
@@ -5855,9 +6135,10 @@ function renderSignalsPage() {
       <section class="office-panel">
         <div class="office-panel-head">
           <div>
-            <span class="eyebrow">Latest analysed posts</span>
-            <h3>Current feed window</h3>
+            <span class="eyebrow">Latest posts</span>
+            <h3>What the desk is currently reading</h3>
           </div>
+          <button class="mini-chip" data-view="decisions">Open Decisions</button>
         </div>
         <table class="office-table">
           <thead>
@@ -5945,6 +6226,7 @@ function renderAdvisorView() {
           <div>
             <span class="eyebrow">Advisor</span>
             <h2>Focused portfolio questions</h2>
+            <p class="section-copy">Use this page when you want a grounded answer on one asset, with your saved portfolio and the latest approved context in view.</p>
           </div>
           <div class="office-inline-meta">
             ${suggestedTickers.slice(0, 4).map((ticker) => `<span>${ticker}</span>`).join("")}
@@ -6809,6 +7091,10 @@ function renderContent() {
 
   if (state.view === "signals") {
     return renderSignalsPage();
+  }
+
+  if (state.view === "decisions") {
+    return renderDecisionsPage();
   }
 
   if (state.view === "tests") {

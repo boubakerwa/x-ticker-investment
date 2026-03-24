@@ -1,23 +1,23 @@
 :root {
-  --bg: #f5f0e8;
-  --bg-alt: #efe5d1;
-  --panel: rgba(255, 251, 245, 0.86);
-  --panel-strong: #fffaf0;
-  --ink: #1d2433;
-  --muted: #5d6678;
-  --line: rgba(40, 55, 84, 0.12);
+  --bg: #eef4f8;
+  --bg-alt: #e4edf4;
+  --panel: rgba(255, 255, 255, 0.92);
+  --panel-strong: #ffffff;
+  --ink: #162231;
+  --muted: #617181;
+  --line: rgba(26, 43, 67, 0.1);
   --buy: #0f8b6f;
   --hold: #d48c14;
   --sell: #b7473a;
-  --accent: #0c506d;
-  --accent-soft: #dceef5;
-  --shadow: 0 18px 48px rgba(22, 31, 49, 0.12);
+  --accent: #0f617f;
+  --accent-soft: #dcecf4;
+  --shadow: 0 20px 45px rgba(17, 29, 44, 0.08);
   --radius-xl: 32px;
   --radius-lg: 24px;
   --radius-md: 18px;
   --radius-sm: 14px;
   --font-display: "Avenir Next", "Segoe UI", sans-serif;
-  --font-body: "Iowan Old Style", "Palatino Linotype", serif;
+  --font-body: "Avenir Next", "Helvetica Neue", sans-serif;
 }
 
 * {
@@ -32,9 +32,9 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(11, 92, 118, 0.18), transparent 36%),
-    radial-gradient(circle at bottom right, rgba(183, 71, 58, 0.14), transparent 28%),
-    linear-gradient(160deg, #f5f0e8 0%, #efe5d1 56%, #f3ede1 100%);
+    radial-gradient(circle at top left, rgba(15, 97, 127, 0.14), transparent 32%),
+    radial-gradient(circle at top right, rgba(20, 34, 49, 0.08), transparent 26%),
+    linear-gradient(180deg, #f4f8fb 0%, #edf3f8 100%);
   color: var(--ink);
   font-family: var(--font-body);
 }
@@ -1831,30 +1831,37 @@ body {
 }
 
 body {
-  background: #eef2f5;
+  background:
+    radial-gradient(circle at top left, rgba(15, 97, 127, 0.11), transparent 28%),
+    radial-gradient(circle at top right, rgba(23, 34, 47, 0.08), transparent 24%),
+    linear-gradient(180deg, #f7fafc 0%, #eef4f7 100%);
   color: #17212b;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-family: var(--font-body);
 }
 
 .page-shell {
-  max-width: 1520px;
-  padding: 1rem 1.25rem 2rem;
+  max-width: 1400px;
+  padding: 1rem 1rem 2rem;
 }
 
 .office-header {
+  position: sticky;
+  top: 0.8rem;
+  z-index: 20;
   display: grid;
   gap: 1rem;
-  margin-bottom: 1rem;
-  padding: 1rem 1.25rem;
-  border: 1px solid #d8e0e8;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: none;
+  margin-bottom: 1.15rem;
+  padding: 1rem 1.15rem 1.15rem;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 20px 44px rgba(18, 32, 49, 0.1);
+  backdrop-filter: blur(16px);
 }
 
 .office-titlebar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
 }
@@ -1863,6 +1870,7 @@ body {
   display: flex;
   align-items: center;
   min-width: 0;
+  gap: 1rem;
 }
 
 .office-logo-lockup {
@@ -1894,6 +1902,7 @@ body {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .office-meta-item {
@@ -1920,33 +1929,35 @@ body {
 
 .office-tabs {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.65rem;
   flex-wrap: wrap;
-  padding-top: 0.75rem;
-  border-top: 1px solid #eef2f5;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .office-tab {
   display: grid;
-  gap: 0.1rem;
-  min-width: 120px;
-  padding: 0.7rem 0.85rem;
-  border: 1px solid #d8e0e8;
-  border-radius: 10px;
-  background: #f8fafc;
+  gap: 0.16rem;
+  min-width: 128px;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(26, 43, 67, 0.08);
+  border-radius: 16px;
+  background: rgba(247, 250, 252, 0.94);
   color: #22303d;
   text-align: left;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
 }
 
 .office-tab:hover {
-  background: #f1f5f8;
-  transform: none;
+  background: rgba(239, 246, 250, 0.98);
+  transform: translateY(-1px);
 }
 
 .office-tab.is-active {
-  background: #1e2933;
-  border-color: #1e2933;
+  background: linear-gradient(135deg, #17222f, #1f3343);
+  border-color: #17222f;
   color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .office-tab small {
@@ -1956,15 +1967,16 @@ body {
 
 .office-content {
   display: grid;
-  gap: 1rem;
+  gap: 1.1rem;
 }
 
 .office-panel {
-  padding: 1rem 1.25rem;
-  border: 1px solid #d8e0e8;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: none;
+  padding: 1.15rem 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 16px 38px rgba(18, 32, 49, 0.06);
+  backdrop-filter: blur(14px);
 }
 
 .office-panel-head {
@@ -1972,7 +1984,7 @@ body {
   align-items: start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 0.9rem;
+  margin-bottom: 1rem;
 }
 
 .office-panel-head h2,
@@ -1986,7 +1998,7 @@ body {
 .office-summary-grid,
 .office-inline-stats {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.85rem;
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -1997,10 +2009,10 @@ body {
 .office-metric {
   display: grid;
   gap: 0.2rem;
-  padding: 0.85rem 0.95rem;
-  border: 1px solid #e4ebf2;
-  border-radius: 10px;
-  background: #f9fbfc;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(26, 43, 67, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(248, 251, 253, 0.98), rgba(241, 247, 250, 0.94));
 }
 
 .office-metric span,
@@ -2256,7 +2268,7 @@ body {
 
 .office-grid {
   display: grid;
-  gap: 1rem;
+  gap: 1.05rem;
 }
 
 .office-grid-two {
@@ -2280,7 +2292,11 @@ body {
 
 .office-form-section {
   display: grid;
-  gap: 0.9rem;
+  gap: 0.95rem;
+  padding: 1.05rem;
+  border: 1px solid rgba(26, 43, 67, 0.08);
+  border-radius: 18px;
+  background: rgba(248, 251, 253, 0.86);
 }
 
 .office-form-actions {
@@ -2292,18 +2308,21 @@ body {
 
 .office-checklist {
   display: grid;
+  gap: 0.75rem;
 }
 
 .office-checklist-row {
   display: grid;
-  gap: 0.2rem;
-  padding: 0.85rem 0;
-  border-top: 1px solid #eef2f5;
+  gap: 0.22rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(26, 43, 67, 0.08);
+  border-radius: 16px;
+  background: rgba(248, 251, 253, 0.9);
 }
 
 .office-checklist-row:first-child {
-  border-top: 0;
-  padding-top: 0;
+  border-top: 1px solid rgba(26, 43, 67, 0.08);
+  padding-top: 0.95rem;
 }
 
 .office-checklist-row span {
@@ -2326,7 +2345,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.7rem 0;
+  padding: 0.82rem 0.1rem;
   border-top: 1px solid #eef2f5;
 }
 
@@ -2342,10 +2361,10 @@ body {
 }
 
 .office-inline-meta span {
-  padding: 0.25rem 0.55rem;
-  border: 1px solid #d8e0e8;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid rgba(26, 43, 67, 0.08);
   border-radius: 999px;
-  background: #f7f9fb;
+  background: rgba(247, 250, 252, 0.94);
   color: #55616d;
   font-size: 0.8rem;
 }
@@ -2609,6 +2628,300 @@ body {
   }
 
   .math-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.page-shell {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 1.2rem 1.25rem 2rem;
+}
+
+.office-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+  padding: 1rem 1.25rem 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 14px 36px rgba(18, 32, 49, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.office-titlebar {
+  align-items: flex-start;
+}
+
+.office-brand {
+  gap: 1rem;
+}
+
+.office-brand-copy {
+  display: grid;
+  gap: 0.2rem;
+  max-width: 32rem;
+}
+
+.office-brand-copy strong {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+
+.office-brand-copy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.office-meta {
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.office-meta-pill {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 124px;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(26, 43, 67, 0.08);
+  border-radius: 14px;
+  background: rgba(246, 249, 252, 0.95);
+}
+
+.office-meta-pill span {
+  color: var(--muted);
+  font-size: 0.73rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.office-meta-pill strong {
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.developer-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0.72rem 1rem;
+  border: 1px solid rgba(15, 97, 127, 0.18);
+  border-radius: 14px;
+  background: rgba(220, 236, 244, 0.72);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+}
+
+.developer-toggle.is-active {
+  background: #17222f;
+  border-color: #17222f;
+  color: #ffffff;
+}
+
+.office-tabs {
+  gap: 0.6rem;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.office-tab {
+  min-width: 132px;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(26, 43, 67, 0.08);
+  border-radius: 16px;
+  background: rgba(247, 250, 252, 0.94);
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.office-tab:hover {
+  background: rgba(239, 246, 250, 0.98);
+}
+
+.office-tab.is-active {
+  background: linear-gradient(135deg, #17222f, #1f3343);
+  border-color: #17222f;
+}
+
+.developer-tray {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(26, 43, 67, 0.08);
+}
+
+.developer-tray p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+}
+
+.developer-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.developer-chip {
+  border: 1px solid rgba(26, 43, 67, 0.08);
+  background: rgba(247, 250, 252, 0.94);
+  color: var(--ink);
+}
+
+.developer-chip.is-active {
+  background: #17222f;
+  border-color: #17222f;
+  color: #fff;
+}
+
+.office-panel {
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 16px 36px rgba(18, 32, 49, 0.06);
+}
+
+.today-hero-panel,
+.decisions-hero-panel {
+  padding: 1.35rem 1.5rem;
+  background:
+    radial-gradient(circle at top right, rgba(15, 97, 127, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 252, 0.94));
+}
+
+.today-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.95fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.today-hero-copy h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 3vw, 2.7rem);
+  line-height: 1.05;
+}
+
+.today-hero-copy p {
+  max-width: 48ch;
+  margin: 0 0 1rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.today-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.today-stat-card {
+  display: grid;
+  gap: 0.2rem;
+  padding: 1rem;
+  border: 1px solid rgba(26, 43, 67, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.today-stat-card span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.today-stat-card strong {
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+}
+
+.today-stat-card small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.today-checklist {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.office-checklist-row {
+  gap: 0.45rem;
+}
+
+.office-disclosure {
+  border: 1px solid rgba(26, 43, 67, 0.08);
+  border-radius: 18px;
+  background: rgba(248, 251, 253, 0.9);
+}
+
+.office-disclosure summary {
+  cursor: pointer;
+  padding: 1rem 1.1rem;
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  list-style: none;
+}
+
+.office-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.office-disclosure[open] summary {
+  border-bottom: 1px solid rgba(26, 43, 67, 0.08);
+}
+
+.office-disclosure .office-form-section {
+  margin: 0;
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.research-dossier-grid.compact-grid,
+.cluster-grid.compact-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 980px) {
+  .today-hero-grid,
+  .research-dossier-grid.compact-grid,
+  .cluster-grid.compact-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .developer-tray {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  .page-shell {
+    padding: 0.85rem 0.85rem 1.5rem;
+  }
+
+  .office-brand {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .office-meta {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .office-meta-pill,
+  .developer-toggle {
+    width: 100%;
+  }
+
+  .today-hero-stats,
+  .today-checklist {
     grid-template-columns: 1fr;
   }
 }
