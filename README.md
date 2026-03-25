@@ -156,7 +156,7 @@ The most important knobs are:
 - Market enrichment
   `MARKET_DATA_PROVIDER`, `MARKET_DATA_TIMEOUT_MS`
 - Scheduler
-  `PIPELINE_SCHEDULE_TIMES`, `PIPELINE_SCHEDULE_TIMEZONE`, `PIPELINE_INTERVAL_MINUTES`
+  `PIPELINE_SCHEDULE_TIMES`, `PIPELINE_SCHEDULE_TIMEZONE`, `PIPELINE_INTERVAL_MINUTES`, `MANUAL_FEED_CRON_INTERVAL_HOURS`, `MANUAL_FEED_CRON_MAX_POST_AGE_HOURS`
 - Notifications
   `NOTIFICATION_PROVIDER`, `NOTIFICATIONS_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_COMMANDS_ENABLED`
 - Local / hosted LLM routing
@@ -175,7 +175,7 @@ If `PIPELINE_SCHEDULE_TIMES` is empty, the app falls back to `PIPELINE_INTERVAL_
 
 ## Telegram Bot Commands
 
-The runtime can answer a small set of Telegram bot commands through long polling, so you do not need to expose a public webhook for local use.
+The runtime can answer a small set of Telegram bot commands through long polling, so you do not need to expose a public webhook for local use. The same bot can also act as a manual signal inbox when you want to paste posts yourself instead of relying on the X API.
 
 Enable it with:
 
@@ -204,8 +204,38 @@ Supported commands:
   Returns the latest pipeline, scheduler, and approval-queue status
 - `/digest`
   Sends the latest operator digest into the chat
+- `/ingest`
+  Queues pasted posts into the manual feed without processing them immediately
+- `/process`
+  Processes queued manual posts that are still within the active 24-hour window
 
 The command runner is active only while the local server is running.
+
+If you want Telegram to be the primary feed path instead of X sync:
+
+```bash
+FEED_PROVIDER=manual
+PIPELINE_SCHEDULE_TIMES=
+PIPELINE_INTERVAL_MINUTES=0
+```
+
+Use `/ingest append` to keep building the feed over time, or `/ingest replace` to replace the current manual feed. Each pasted block should start with the original poster handle:
+
+```text
+/ingest append
+@semiflow: Broadening risk appetite keeps semis bid; still constructive on NVDA.
+
+2026-03-24T11:45:00Z | @btcwatch: BTC positioning still looks louder than spot demand.
+```
+
+Separate multiple posts with a blank line. The bot will create missing sources automatically and queue the posts in the existing manual feed. Use `/process` when you want to batch-run the queue immediately.
+
+When the saved feed is manual, a separate backlog sweep also runs every 6 hours by default. It only looks at manual posts that are still unprocessed and not older than 24 hours. You can tune that with:
+
+```bash
+MANUAL_FEED_CRON_INTERVAL_HOURS=6
+MANUAL_FEED_CRON_MAX_POST_AGE_HOURS=24
+```
 
 ## Local API
 

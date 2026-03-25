@@ -78,23 +78,48 @@ Practical ways to get the chat id:
 5. Add the Telegram config to `.env`:
 
 ```bash
+FEED_PROVIDER=manual
+PIPELINE_SCHEDULE_TIMES=
+PIPELINE_INTERVAL_MINUTES=0
+MANUAL_FEED_CRON_INTERVAL_HOURS=6
+MANUAL_FEED_CRON_MAX_POST_AGE_HOURS=24
 NOTIFICATION_PROVIDER=telegram
 NOTIFICATIONS_ENABLED=1
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_CHAT_ID=your_chat_id_here
 TELEGRAM_API_BASE_URL=https://api.telegram.org
+TELEGRAM_COMMANDS_ENABLED=1
 ```
 
 6. Restart the server after changing `.env`.
 7. In the app, go to `Operations` and click `Test notification`.
 8. If that works, click `Send digest` to verify the daily digest format.
+9. Send `/ingest help` to the bot to see the import format.
+10. Use `/process` whenever you want to batch-process the queued manual tweets immediately.
+
+Example Telegram import:
+
+```text
+/ingest append
+@semiflow: Broadening risk appetite keeps semis bid; still constructive on NVDA.
+
+@btcwatch
+BTC positioning still looks louder than spot demand.
+```
+
+Notes:
+- `append` keeps prior imported posts; use `replace` if you want the Telegram message to replace the current manual feed
+- each post block should start with the original handle, ideally as `@handle: ...`
+- the bot creates missing sources automatically and queues the tweets after import
+- use `/process` to process the queued tweets on demand
+- a separate manual-feed cron checks every 6 hours for still-unprocessed manual posts that are not older than 24 hours
 
 ## Recommended first-use workflow
 
 1. Complete the `Portfolio` tab with your real holdings, liabilities, and any pension or insurance products that matter for decision-making.
-2. Use `Signals` to import a few real posts and validate the flow before trusting live X sync.
-3. Enable the X API feed once the manual signal flow looks sensible.
-4. Enable Telegram only after the digest content feels right.
+2. Use `Signals` or Telegram `/ingest` to import a few real posts and validate the flow before trusting live X sync.
+3. If the manual flow already fits your workflow, keep `FEED_PROVIDER=manual` and leave the scheduler off.
+4. Only enable the X API feed later if you still want automatic syncing.
 
 ## Optional local-model setup
 

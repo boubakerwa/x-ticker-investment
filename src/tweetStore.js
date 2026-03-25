@@ -254,16 +254,11 @@ export function replaceTweetStore({ mode = "manual-sync", seededAt = new Date().
   };
 }
 
-export function importManualPosts({
-  sourceId,
+export function importAttributedManualPosts({
   posts,
   replaceExisting = true,
   seededAt = new Date().toISOString()
 }) {
-  if (!sourceId) {
-    throw new Error("A sourceId is required for manual imports.");
-  }
-
   const parsedPosts = Array.isArray(posts) ? posts : [];
 
   if (!parsedPosts.length) {
@@ -274,6 +269,17 @@ export function importManualPosts({
   const basePosts = replaceExisting ? [] : currentStore.posts;
   const existingIds = new Set(basePosts.map((post) => post.id));
   const importedPosts = parsedPosts.map((post, index) => {
+    const sourceId = String(post.sourceId || "").trim();
+    const body = String(post.body || "").trim();
+
+    if (!sourceId) {
+      throw new Error("Each manual post must include a sourceId.");
+    }
+
+    if (!body) {
+      throw new Error("Each manual post must include body text.");
+    }
+
     const createdAt = normalizeCreatedAt(post.createdAt, buildImportedCreatedAt(index, seededAt));
     const id = String(post.id || "").trim() || buildPostId(existingIds);
 
@@ -283,7 +289,7 @@ export function importManualPosts({
       id,
       sourceId,
       createdAt,
-      body: String(post.body || "").trim(),
+      body,
       actionable: Boolean(post.actionable),
       claimType: String(post.claimType || "Operator commentary").trim(),
       direction: String(post.direction || "Mixed").trim(),
@@ -305,6 +311,26 @@ export function importManualPosts({
     ...nextStore,
     importedCount: importedPosts.length
   };
+}
+
+export function importManualPosts({
+  sourceId,
+  posts,
+  replaceExisting = true,
+  seededAt = new Date().toISOString()
+}) {
+  if (!sourceId) {
+    throw new Error("A sourceId is required for manual imports.");
+  }
+
+  return importAttributedManualPosts({
+    replaceExisting,
+    seededAt,
+    posts: (Array.isArray(posts) ? posts : []).map((post) => ({
+      ...post,
+      sourceId
+    }))
+  });
 }
 
 export function readTweetStore() {

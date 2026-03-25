@@ -14,6 +14,12 @@ import {
   stopBackgroundPipelineRunner
 } from "./src/backgroundPipelineRunner.js";
 import {
+  getManualFeedCronConfig,
+  getManualFeedCronStatus,
+  startManualFeedCronRunner,
+  stopManualFeedCronRunner
+} from "./src/manualFeedCronRunner.js";
+import {
   buildCurrentDecisionReviewState,
   decorateDecisionHistoryWithReviews,
   DECISION_REVIEW_STATUSES,
@@ -724,6 +730,7 @@ async function getPersistedAppState() {
       runtime: {
         bootstrap: getBootstrapStatus(),
         scheduler: getBackgroundPipelineStatus(),
+        manualFeedCron: getManualFeedCronStatus(),
         orchestrator: getOrchestratorStatus(),
         telegramBot: getTelegramBotStatus()
       },
@@ -773,6 +780,7 @@ createServer(async (request, response) => {
         latestRunId: latestSnapshot?.runId || "",
         bootstrap: getBootstrapStatus(),
         scheduler: getBackgroundPipelineStatus(),
+        manualFeedCron: getManualFeedCronStatus(),
         notifications: getNotificationStatus().config,
         telegramBot: getTelegramBotStatus()
       });
@@ -854,6 +862,7 @@ createServer(async (request, response) => {
       sendJson(response, 200, {
         ok: true,
         scheduler: getBackgroundPipelineStatus(),
+        manualFeedCron: getManualFeedCronStatus(),
         orchestrator: getOrchestratorStatus(),
         telegramBot: getTelegramBotStatus()
       });
@@ -1146,23 +1155,13 @@ createServer(async (request, response) => {
         posts: importedPosts,
         replaceExisting: payload.replaceExisting !== false
       });
-      const pipelineResult = await executePipelineJob({
-        trigger: "manual-ingest",
-        reason: source.id,
-        meta: {
-          importedCount: importedPosts.length,
-          replaceExisting: payload.replaceExisting !== false
-        }
-      });
 
       sendJson(response, 200, {
         ok: true,
         source,
         importedCount: importedPosts.length,
         feedMode: store.mode,
-        seededAt: store.seededAt,
-        pipelineJobId: pipelineResult.jobId,
-        pipelineRunId: pipelineResult.run.id
+        seededAt: store.seededAt
       });
       return;
     }
@@ -1438,9 +1437,11 @@ createServer(async (request, response) => {
 
     if (request.method === "POST" && requestUrl.pathname === "/api/admin/runtime/pause") {
       stopBackgroundPipelineRunner();
+      stopManualFeedCronRunner();
       sendJson(response, 200, {
         ok: true,
-        scheduler: getBackgroundPipelineStatus()
+        scheduler: getBackgroundPipelineStatus(),
+        manualFeedCron: getManualFeedCronStatus()
       });
       return;
     }
@@ -1455,9 +1456,16 @@ createServer(async (request, response) => {
         timezone:
           payload.timezone ?? process.env.PIPELINE_SCHEDULE_TIMEZONE
       });
+      const manualFeedCron = startManualFeedCronRunner({
+        intervalHours:
+          payload.manualFeedCronIntervalHours ?? getManualFeedCronConfig().intervalHours,
+        maxPostAgeHours:
+          payload.manualFeedCronMaxPostAgeHours ?? getManualFeedCronConfig().maxPostAgeHours
+      });
       sendJson(response, 200, {
         ok: true,
-        scheduler
+        scheduler,
+        manualFeedCron
       });
       return;
     }
@@ -1539,6 +1547,7 @@ createServer(async (request, response) => {
     }
 
     startBackgroundPipelineRunner();
+    startManualFeedCronRunner();
     await startTelegramBotRunner();
 
     if (startupWarning) {
