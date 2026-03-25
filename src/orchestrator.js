@@ -3,6 +3,8 @@ import { runPipeline } from "./pipelineRunner.js";
 import { readFinancialProfile } from "./financialProfileStore.js";
 import { buildDailyDigest, buildFailureAlert, buildPipelineAlert } from "./reportBuilder.js";
 import { getNotificationStatus, sendNotification } from "./notificationProvider.js";
+import { getFeedProviderConfig } from "./feedProvider.js";
+import { listPendingManualPosts, markManualPostsProcessed } from "./manualPostProcessingStore.js";
 import {
   createRuntimeJob,
   getActiveRuntimeJob,
@@ -11,6 +13,45 @@ import {
   markRuntimeJobFailed,
   markRuntimeJobRunning
 } from "./runtimeJobStore.js";
+
+const DEFAULT_STALE_JOB_MINUTES = 30;
+const SILENT_PIPELINE_NOTIFICATION_TRIGGERS = new Set(["telegram-manual-process"]);
+
+function getStaleJobThresholdMs() {
+  const configuredMinutes = Number(process.env.RUNTIME_JOB_STALE_MINUTES || DEFAULT_STALE_JOB_MINUTES);
+
+  if (!Number.isFinite(configuredMinutes) || configuredMinutes <= 0) {
+    return DEFAULT_STALE_JOB_MINUTES * 60 * 1000;
+  }
+
+  return Math.max(1, Math.round(configuredMinutes)) * 60 * 1000;
+}
+
+function getJobReferenceTimeMs(job) {
+  const candidate = new Date(job?.startedAt || job?.requestedAt || "").getTime();
+  return Number.isFinite(candidate) ? candidate : Number.NaN;
+}
+
+function shouldRecoverStaleActiveJob(activeJob) {
+  if (!activeJob) {
+    return false;
+  }
+
+  const referenceTimeMs = getJobReferenceTimeMs(activeJob);
+
+  if (!Number.isFinite(referenceTimeMs)) {
+    return false;
+  }
+
+  const latestSnapshot = getLatestPipelineSnapshot();
+  const latestSnapshotTimeMs = new Date(latestSnapshot?.generatedAt || "").getTime();
+
+  if (Number.isFinite(latestSnapshotTimeMs) && latestSnapshotTimeMs > referenceTimeMs) {
+    return true;
+  }
+
+  return Date.now() - referenceTimeMs > getStaleJobThresholdMs();
+}
 
 function buildJobConflictError({ jobType, trigger, reason, activeJob }) {
   const error = new Error(
@@ -23,7 +64,20 @@ function buildJobConflictError({ jobType, trigger, reason, activeJob }) {
 }
 
 function assertNoActiveJob(jobType, trigger, reason) {
-  const activeJob = getActiveRuntimeJob(jobType);
+  let activeJob = getActiveRuntimeJob(jobType);
+
+  if (shouldRecoverStaleActiveJob(activeJob)) {
+    markRuntimeJobFailed(
+      activeJob.id,
+      new Error(
+        `Recovered stale ${jobType} job after it outlived the active runtime window without a completion marker.`
+      ),
+      {
+        finishedAt: new Date().toISOString()
+      }
+    );
+    activeJob = getActiveRuntimeJob(jobType);
+  }
 
   if (activeJob) {
     throw buildJobConflictError({
@@ -45,8 +99,19 @@ export function getOrchestratorStatus() {
   };
 }
 
+function shouldSendPipelineNotifications(trigger) {
+  return !SILENT_PIPELINE_NOTIFICATION_TRIGGERS.has(String(trigger || "").trim());
+}
+
 export async function executePipelineJob({ trigger = "manual", reason = "", meta = {} } = {}) {
   assertNoActiveJob("pipeline.refresh", trigger, reason);
+  const pendingManualState =
+    getFeedProviderConfig().activeProvider === "manual"
+      ? listPendingManualPosts()
+      : {
+          pendingPosts: []
+        };
+  const pendingManualPosts = pendingManualState.pendingPosts || [];
 
   const job = createRuntimeJob({
     type: "pipeline.refresh",
@@ -64,18 +129,25 @@ export async function executePipelineJob({ trigger = "manual", reason = "", meta
       trigger,
       reason
     });
-    const financialProfile = readFinancialProfile();
+    if (pendingManualPosts.length) {
+      markManualPostsProcessed(pendingManualPosts, {
+        processedAt: run.generatedAt
+      });
+    }
+    if (shouldSendPipelineNotifications(trigger)) {
+      const financialProfile = readFinancialProfile();
 
-    await sendNotification({
-      eventType: "pipeline.completed",
-      message: buildPipelineAlert(run, {
-        financialProfile
-      }),
-      payload: {
-        runId: run.id,
-        trigger
-      }
-    });
+      await sendNotification({
+        eventType: "pipeline.completed",
+        message: buildPipelineAlert(run, {
+          financialProfile
+        }),
+        payload: {
+          runId: run.id,
+          trigger
+        }
+      });
+    }
 
     markRuntimeJobCompleted(job.id, {
       relatedRunId: run.id,
@@ -90,24 +162,26 @@ export async function executePipelineJob({ trigger = "manual", reason = "", meta
       run
     };
   } catch (error) {
-    await sendNotification({
-      eventType: "pipeline.failed",
-      message: buildFailureAlert({
-        title: "Pipeline run failed",
-        summary: `The ${trigger} pipeline refresh did not complete.`,
-        errorMessage: error instanceof Error ? error.message : String(error || "Unknown pipeline error."),
-        facts: [
-          {
-            label: "Trigger",
-            value: trigger
-          }
-        ]
-      }),
-      payload: {
-        trigger,
-        reason
-      }
-    });
+    if (shouldSendPipelineNotifications(trigger)) {
+      await sendNotification({
+        eventType: "pipeline.failed",
+        message: buildFailureAlert({
+          title: "Pipeline run failed",
+          summary: `The ${trigger} pipeline refresh did not complete.`,
+          errorMessage: error instanceof Error ? error.message : String(error || "Unknown pipeline error."),
+          facts: [
+            {
+              label: "Trigger",
+              value: trigger
+            }
+          ]
+        }),
+        payload: {
+          trigger,
+          reason
+        }
+      });
+    }
 
     markRuntimeJobFailed(job.id, error);
     throw error;

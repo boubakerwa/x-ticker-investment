@@ -105,6 +105,14 @@ function normalizeTickerList(values) {
   return [...new Set((values || []).map((value) => normalizeTicker(value)).filter(Boolean))];
 }
 
+function getAccountBucketLookup(financialProfile = {}) {
+  return new Map(
+    (Array.isArray(financialProfile.accountBuckets) ? financialProfile.accountBuckets : [])
+      .map((bucket) => [String(bucket?.id || "").trim(), bucket])
+      .filter(([bucketId]) => bucketId)
+  );
+}
+
 function buildTrackedSourceLabel({ isHolding = false, isWatchlist = false } = {}) {
   if (isHolding && isWatchlist) {
     return "Portfolio + watchlist";
@@ -121,7 +129,7 @@ function buildTrackedSourceLabel({ isHolding = false, isWatchlist = false } = {}
   return "";
 }
 
-function buildWatchedUniverseAsset(ticker, baseAsset, holding, isWatchlist) {
+function buildWatchedUniverseAsset(ticker, baseAsset, holding, isWatchlist, bucketLookup = new Map()) {
   const normalizedTicker = normalizeTicker(ticker);
 
   if (!normalizedTicker) {
@@ -133,13 +141,14 @@ function buildWatchedUniverseAsset(ticker, baseAsset, holding, isWatchlist) {
   const personalNotes = String(holding?.notes || "").trim();
   const personalCategory = String(holding?.category || "").trim();
   const personalLabel = String(holding?.label || "").trim();
+  const personalBucket = String(bucketLookup.get(String(holding?.accountBucketId || "").trim())?.label || "").trim();
 
   return {
     ...(baseAsset || {}),
     ticker: normalizedTicker,
     name: baseAsset?.name || personalLabel || normalizedTicker,
     type: baseAsset?.type || personalCategory || "Custom tracked asset",
-    bucket: baseAsset?.bucket || trackingLabel || "Tracked asset",
+    bucket: baseAsset?.bucket || personalBucket || trackingLabel || "Tracked asset",
     thesis: baseAsset?.thesis || personalNotes || "",
     riskFlag: baseAsset?.riskFlag || "",
     isCurated: Boolean(baseAsset),
@@ -158,6 +167,7 @@ export function buildImpactCandidateUniverse(financialProfile = {}) {
     ...(financialProfile.holdings || []).map((holding) => holding.ticker),
     ...(financialProfile.watchlist || [])
   ]);
+  const accountBucketLookup = getAccountBucketLookup(financialProfile);
   const holdingsByTicker = new Map(
     (financialProfile.holdings || [])
       .map((holding) => [normalizeTicker(holding.ticker), holding])
@@ -177,7 +187,8 @@ export function buildImpactCandidateUniverse(financialProfile = {}) {
       ticker,
       baseByTicker.get(ticker) || null,
       holdingsByTicker.get(ticker) || null,
-      watchlistSet.has(ticker)
+      watchlistSet.has(ticker),
+      accountBucketLookup
     );
 
     if (watchedAsset && !seen.has(ticker)) {
@@ -197,7 +208,8 @@ export function buildImpactCandidateUniverse(financialProfile = {}) {
       ticker,
       asset,
       holdingsByTicker.get(ticker) || null,
-      watchlistSet.has(ticker)
+      watchlistSet.has(ticker),
+      accountBucketLookup
     );
 
     if (watchedAsset) {

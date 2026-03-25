@@ -188,6 +188,16 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_runtime_jobs_type
       ON runtime_jobs(type);
 
+    CREATE TABLE IF NOT EXISTS manual_post_processing (
+      post_id TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL,
+      processed_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_manual_post_processing_processed_at
+      ON manual_post_processing(processed_at DESC);
+
     CREATE TABLE IF NOT EXISTS notification_events (
       id TEXT PRIMARY KEY,
       channel TEXT NOT NULL,

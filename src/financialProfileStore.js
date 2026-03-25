@@ -26,12 +26,23 @@ function normalizeStringArray(value) {
   return [];
 }
 
+function normalizeAccountBucket(input = {}, index = 0) {
+  return {
+    id: normalizeString(input.id, `bucket-${index + 1}`),
+    label: normalizeString(input.label || input.name, `Bucket ${index + 1}`),
+    bucketType: normalizeString(input.bucketType || input.type || "Brokerage"),
+    custodian: normalizeString(input.custodian || input.provider || ""),
+    notes: normalizeString(input.notes)
+  };
+}
+
 function normalizeHolding(input = {}, index = 0) {
   return {
     id: normalizeString(input.id, `holding-${index + 1}`),
     label: normalizeString(input.label || input.name, `Holding ${index + 1}`),
     ticker: normalizeString(input.ticker).toUpperCase(),
     category: normalizeString(input.category || input.assetType || "Other"),
+    accountBucketId: normalizeString(input.accountBucketId || input.bucketId || ""),
     accountType: normalizeString(input.accountType || "Brokerage"),
     currentValue: Number(toNumber(input.currentValue, 0).toFixed(2)),
     costBasis: Number(toNumber(input.costBasis, 0).toFixed(2)),
@@ -56,6 +67,7 @@ function normalizeRetirementProduct(input = {}, index = 0) {
     id: normalizeString(input.id, `retirement-${index + 1}`),
     label: normalizeString(input.label || input.name, `Retirement product ${index + 1}`),
     type: normalizeString(input.type || input.category || "Pension / Insurance"),
+    accountBucketId: normalizeString(input.accountBucketId || input.bucketId || ""),
     provider: normalizeString(input.provider || input.insurer || ""),
     currentValue: Number(toNumber(input.currentValue, 0).toFixed(2)),
     monthlyContribution: Number(toNumber(input.monthlyContribution, 0).toFixed(2)),
@@ -83,6 +95,9 @@ export function normalizeFinancialProfile(input = {}, existingProfile = {}) {
     investmentHorizon: normalizeString(input.investmentHorizon || existingProfile.investmentHorizon || "3-5 years"),
     liquidityNeeds: normalizeString(input.liquidityNeeds || existingProfile.liquidityNeeds || "Medium"),
     watchlist: normalizeStringArray(input.watchlist ?? existingProfile.watchlist),
+    accountBuckets: (input.accountBuckets ?? existingProfile.accountBuckets ?? []).map((item, index) =>
+      normalizeAccountBucket(item, index)
+    ),
     monthlyNetIncome: Number(toNumber(input.monthlyNetIncome ?? existingProfile.monthlyNetIncome, 0).toFixed(2)),
     monthlyExpenses: Number(toNumber(input.monthlyExpenses ?? existingProfile.monthlyExpenses, 0).toFixed(2)),
     emergencyFund: Number(toNumber(input.emergencyFund ?? existingProfile.emergencyFund, 0).toFixed(2)),
@@ -113,6 +128,7 @@ function createDefaultProfile() {
     investmentHorizon: "3-5 years",
     liquidityNeeds: "Medium",
     watchlist: [],
+    accountBuckets: [],
     monthlyNetIncome: 0,
     monthlyExpenses: 0,
     emergencyFund: 0,

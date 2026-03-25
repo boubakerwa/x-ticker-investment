@@ -114,6 +114,7 @@ const EMPTY_DATA = {
       investmentHorizon: "",
       liquidityNeeds: "",
       watchlist: [],
+      accountBuckets: [],
       monthlyNetIncome: 0,
       monthlyExpenses: 0,
       emergencyFund: 0,
@@ -292,6 +293,32 @@ const isDecisionsView = (view = state.view) => DECISIONS_VIEWS.includes(view);
 const isPrimaryView = (view = state.view) => PRIMARY_VIEWS.includes(view);
 const getPrimaryView = (view = state.view) =>
   isDecisionsView(view) ? "decisions" : isPrimaryView(view) ? view : "";
+const PAGE_VIEW_CLASS_MAP = {
+  dashboard: "today",
+  setup: "portfolio",
+  signals: "feed",
+  decisions: "decisions",
+  advisor: "advisor",
+  research: "decisions-detail",
+  assets: "decisions-detail",
+  admin: "developer",
+  tests: "developer",
+  sources: "developer",
+  logs: "developer",
+  docs: "developer"
+};
+const getPageShellClassNames = (view = state.view) => {
+  const page = PAGE_VIEW_CLASS_MAP[view] || "app";
+
+  return [
+    "page-shell",
+    `page-${page}`,
+    isDeveloperView(view) ? "is-developer-shell" : "",
+    state.developerMode ? "is-developer-enabled" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+};
 const formatPercent = (value) => `${Math.round(value * 100)}%`;
 const formatScorePercent = (value) => `${Math.round((value || 0) * 100)}%`;
 const formatSignedReturn = (value) =>
@@ -380,6 +407,56 @@ function normalizeTickerList(items) {
   return [...new Set((items || []).map((item) => normalizeTicker(item)).filter(Boolean))];
 }
 
+function normalizeBucketId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getAccountBuckets(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
+  return Array.isArray(profile.accountBuckets) ? profile.accountBuckets : [];
+}
+
+function getAccountBucketLookup(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
+  return new Map(
+    getAccountBuckets(profile)
+      .map((bucket) => [String(bucket.id || "").trim(), bucket])
+      .filter(([bucketId]) => bucketId)
+  );
+}
+
+function getAccountBucketLabel(profile, bucketId, fallbackLabel = "") {
+  if (!bucketId) {
+    return fallbackLabel;
+  }
+
+  const bucket = getAccountBucketLookup(profile).get(String(bucketId).trim());
+  return String(bucket?.label || fallbackLabel || "").trim();
+}
+
+function getProfileAccountBucketOptions(profile = getProfileDraft()) {
+  const bucketOptions = getAccountBuckets(profile).map((bucket) => ({
+    value: String(bucket.id || "").trim(),
+    label: [bucket.label || bucket.id || "Bucket", bucket.bucketType].filter(Boolean).join(" · ")
+  }));
+
+  return [{ value: "", label: "Unassigned" }, ...bucketOptions];
+}
+
+function getAccountBucketTypeOptions() {
+  return [
+    "Brokerage",
+    "Fund platform",
+    "Savings account",
+    "Retirement pension",
+    "Crypto wallet",
+    "Bank cash",
+    "Other"
+  ];
+}
+
 function buildTrackedSourceLabel({ isHolding = false, isWatchlist = false } = {}) {
   if (isHolding && isWatchlist) {
     return "Portfolio + watchlist";
@@ -396,7 +473,7 @@ function buildTrackedSourceLabel({ isHolding = false, isWatchlist = false } = {}
   return "";
 }
 
-function buildWatchedUniverseAsset(ticker, baseAsset, holding, isWatchlist) {
+function buildWatchedUniverseAsset(ticker, baseAsset, holding, isWatchlist, bucketLookup = new Map()) {
   const normalizedTicker = normalizeTicker(ticker);
 
   if (!normalizedTicker) {
@@ -408,8 +485,9 @@ function buildWatchedUniverseAsset(ticker, baseAsset, holding, isWatchlist) {
   const personalNotes = String(holding?.notes || "").trim();
   const personalCategory = String(holding?.category || "").trim();
   const personalLabel = String(holding?.label || "").trim();
+  const personalBucket = String(bucketLookup.get(String(holding?.accountBucketId || "").trim())?.label || "").trim();
   const personalAssetCopy = isHolding
-    ? "This asset comes from your saved portfolio."
+    ? `This asset comes from your saved portfolio${personalBucket ? ` in ${personalBucket}` : ""}.`
     : "This asset comes from your saved watchlist.";
   const personalNotesCopy = personalNotes
     ? personalNotes
@@ -420,7 +498,7 @@ function buildWatchedUniverseAsset(ticker, baseAsset, holding, isWatchlist) {
     ticker: normalizedTicker,
     name: baseAsset?.name || personalLabel || normalizedTicker,
     type: baseAsset?.type || personalCategory || "Custom tracked asset",
-    bucket: baseAsset?.bucket || trackingLabel || "Tracked asset",
+    bucket: baseAsset?.bucket || personalBucket || trackingLabel || "Tracked asset",
     thesis: baseAsset?.thesis || personalNotesCopy,
     riskFlag:
       baseAsset?.riskFlag ||
@@ -460,6 +538,7 @@ function getTrackedAssetTickers(profile = getAdvisor().financialProfile || EMPTY
 function getWatchedUniverse(profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile) {
   const baseUniverse = Array.isArray(getData().monitoredUniverse) ? getData().monitoredUniverse : [];
   const trackedTickers = getTrackedAssetTickers(profile);
+  const accountBucketLookup = getAccountBucketLookup(profile);
   const holdingsByTicker = new Map(
     (profile.holdings || [])
       .map((holding) => [normalizeTicker(holding.ticker), holding])
@@ -479,7 +558,8 @@ function getWatchedUniverse(profile = getAdvisor().financialProfile || EMPTY_DAT
       ticker,
       baseByTicker.get(ticker) || null,
       holdingsByTicker.get(ticker) || null,
-      watchlistSet.has(ticker)
+      watchlistSet.has(ticker),
+      accountBucketLookup
     );
 
     if (watchedAsset && !seen.has(ticker)) {
@@ -499,7 +579,8 @@ function getWatchedUniverse(profile = getAdvisor().financialProfile || EMPTY_DAT
       ticker,
       asset,
       holdingsByTicker.get(ticker) || null,
-      watchlistSet.has(ticker)
+      watchlistSet.has(ticker),
+      accountBucketLookup
     );
 
     if (watchedAsset) {
@@ -1585,12 +1666,23 @@ function getProfileDocumentDraft() {
 }
 
 function getDefaultProfileCollectionItem(collection) {
+  if (collection === "accountBuckets") {
+    return {
+      id: "",
+      label: "",
+      bucketType: "Brokerage",
+      custodian: "",
+      notes: ""
+    };
+  }
+
   if (collection === "holdings") {
     return {
       ticker: "",
       category: "Stock",
       currentValue: "",
       costBasis: "",
+      accountBucketId: "",
       accountType: "Brokerage",
       notes: "",
       label: ""
@@ -1601,6 +1693,7 @@ function getDefaultProfileCollectionItem(collection) {
     return {
       label: "",
       type: "Private Rentenversicherung",
+      accountBucketId: "",
       provider: "",
       currentValue: "",
       monthlyContribution: "",
@@ -1655,12 +1748,26 @@ function updateProfileCollectionItem(collection, index, field, value) {
   nextItem[field] =
     collection === "holdings" && field === "ticker"
       ? normalizeTicker(value)
-      : numericFields.has(field)
-        ? Number(value || 0)
-        : value;
+      : collection === "accountBuckets" && field === "id"
+        ? normalizeBucketId(value)
+        : numericFields.has(field)
+          ? Number(value || 0)
+          : value;
 
   if (collection === "holdings" && field === "ticker" && !nextItem.label) {
     nextItem.label = nextItem.ticker || "Holding";
+  }
+
+  if (collection === "accountBuckets" && field === "label" && !nextItem.id) {
+    nextItem.id = normalizeBucketId(value);
+  }
+
+  if ((collection === "holdings" || collection === "retirementProducts") && field === "accountBucketId") {
+    const bucket = getAccountBucketLookup(profileDraft).get(String(value || "").trim());
+
+    if (collection === "holdings" && bucket?.bucketType) {
+      nextItem.accountType = bucket.bucketType;
+    }
   }
 
   currentItems[itemIndex] = nextItem;
@@ -1683,12 +1790,18 @@ function syncProfileCollectionFields(form) {
 }
 
 function getProfileCollectionCardTitle(collection, item, index, title) {
+  if (collection === "accountBuckets") {
+    return item.label || item.custodian || `Bucket ${index + 1}`;
+  }
+
   if (collection === "holdings") {
-    return item.ticker || item.notes || `Holding ${index + 1}`;
+    const bucketLabel = getAccountBucketLabel(getProfileDraft(), item.accountBucketId, item.accountType);
+    return [item.ticker || item.notes || `Holding ${index + 1}`, bucketLabel].filter(Boolean).join(" · ");
   }
 
   if (collection === "retirementProducts") {
-    return item.label || item.provider || item.type || `${title} ${index + 1}`;
+    const bucketLabel = getAccountBucketLabel(getProfileDraft(), item.accountBucketId, "");
+    return [item.label || item.provider || item.type || `${title} ${index + 1}`, bucketLabel].filter(Boolean).join(" · ");
   }
 
   if (collection === "liabilities") {
@@ -1701,16 +1814,27 @@ function getProfileCollectionCardTitle(collection, item, index, title) {
 function renderProfileCollectionField(collection, index, item, field) {
   const baseAttributes = `data-profile-item-field data-collection="${collection}" data-index="${index}" data-field="${field.key}"`;
   const value = item[field.key] ?? "";
+  const rawOptions = typeof field.options === "function" ? field.options(getProfileDraft(), item, index) : field.options;
+  const options = Array.isArray(rawOptions)
+    ? rawOptions.map((option) =>
+        typeof option === "string"
+          ? { value: option, label: option }
+          : {
+              value: option?.value ?? "",
+              label: option?.label ?? option?.value ?? ""
+            }
+      )
+    : [];
 
   if (field.type === "select") {
     return `
       <label class="form-field">
         <span>${field.label}</span>
         <select ${baseAttributes}>
-          ${field.options
+          ${options
             .map(
               (option) => `
-                <option value="${escapeHtml(option)}" ${option === value ? "selected" : ""}>${escapeHtml(option)}</option>
+                <option value="${escapeHtml(option.value)}" ${String(option.value) === String(value) ? "selected" : ""}>${escapeHtml(option.label)}</option>
               `
             )
             .join("")}
@@ -2373,7 +2497,9 @@ async function importManualFeed(form) {
 
     const result = await response.json();
     state.selectedSource = result.source?.id || state.selectedSource;
-  }, payload.replaceExisting ? "Manual feed imported and replaced the current store." : "Manual feed appended.");
+  }, payload.replaceExisting
+    ? "Manual queue imported and replaced the current store. Use Run pipeline or wait for the cron to process it."
+    : "Manual queue appended. Use Run pipeline or wait for the cron to process it.");
 }
 
 async function togglePostVerificationOverride(postId, enabled) {
@@ -3101,6 +3227,10 @@ function attachListeners() {
 
     input.addEventListener("change", () => {
       updateProfileCollectionItem(input.dataset.collection, input.dataset.index, input.dataset.field, input.value);
+
+      if (input.dataset.collection === "accountBuckets" || input.dataset.field === "accountBucketId") {
+        render();
+      }
     });
   });
 
@@ -3418,7 +3548,7 @@ function renderAdminPage() {
   ];
 
   return `
-    <main class="office-content">
+    <main class="office-content page-main page-feed-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
       <section class="office-panel office-summary-panel">
@@ -3529,6 +3659,7 @@ function buildOnboardingSummary(profile) {
   const liabilitiesTotal = (profile.liabilities || []).reduce((sum, item) => sum + Number(item.balance || 0), 0);
 
   return {
+    accountBucketCount: getAccountBuckets(profile).length,
     holdingsTotal,
     retirementTotal,
     liabilitiesTotal,
@@ -3560,6 +3691,7 @@ function buildSingleUserSetupState(profile = getAdvisor().financialProfile || EM
       profile.liquidityNeeds
   );
   const hasPortfolioContext = Boolean(
+    summary.accountBucketCount ||
     summary.trackedAssetCount ||
       (profile.retirementProducts || []).length ||
       summary.documentCount
@@ -3588,10 +3720,10 @@ function buildSingleUserSetupState(profile = getAdvisor().financialProfile || EM
       key: "portfolio",
       title: "Portfolio context",
       body: hasPortfolioContext
-        ? `${summary.trackedAssetCount} tracked assets and ${formatCurrency(
+        ? `${summary.accountBucketCount || 0} buckets, ${summary.trackedAssetCount} tracked assets, and ${formatCurrency(
             summary.holdingsTotal + summary.retirementTotal
           )} of invested assets are in scope.`
-        : "Add holdings, pensions, or insurance wrappers so the brief can prioritize real positions.",
+        : "Add account buckets, holdings, pensions, or insurance wrappers so the brief can prioritize real positions.",
       complete: hasPortfolioContext,
       actionView: "setup"
     },
@@ -4070,7 +4202,7 @@ function renderTestsPage() {
   const sourceOptions = getData().sources || [];
 
   return `
-    <main class="office-content">
+    <main class="office-content page-main page-developer-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
       <section class="office-panel office-summary-panel">
@@ -4309,7 +4441,7 @@ function renderTestsPage() {
 
 function renderDocsPage() {
   return `
-    <main class="content-shell">
+    <main class="content-shell page-main page-developer-main">
       ${renderStatusBanner()}
       <section class="hero-panel docs-hero">
         <div>
@@ -4721,42 +4853,43 @@ function renderDashboard() {
   }
 
   return `
-    <main class="office-content">
+    <main class="office-content page-main page-today-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
       <section class="office-panel today-hero-panel">
         <div class="today-hero-grid">
           <div class="today-hero-copy">
             <span class="eyebrow">Today</span>
-            <h2>${reviewSummary.proposedCount ? "Start with the queue" : trackedAssets.length ? "Your daily brief is ready" : "Set up the desk in a few minutes"}</h2>
+            <h2>${reviewSummary.proposedCount ? "What needs attention now" : trackedAssets.length ? "Your morning brief is ready" : "Build the desk in a few minutes"}</h2>
             <p>${nextAction}</p>
-            <div class="office-form-actions">
-              <button class="refresh-button" type="button" data-view="${reviewSummary.proposedCount ? "decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "setup" : "signals"}">
-                ${reviewSummary.proposedCount ? "Open Decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Open Portfolio" : "Open Feed"}
-              </button>
-              <button class="mini-chip" type="button" data-view="advisor">Ask Advisor</button>
+            <div class="briefing-kicker-row">
+              <span class="tag">${reviewSummary.proposedCount ? `${reviewSummary.proposedCount} approvals waiting` : "Queue clear"}</span>
+              <span class="tag">${getRecentAnalysedPosts().length} recent posts</span>
+              <span class="tag">${trackedAssets.length ? `${trackedAssets.length} tracked names` : "Portfolio first"}</span>
             </div>
           </div>
-          <div class="today-hero-stats">
-            <article class="today-stat-card">
-              <span>Pending approvals</span>
-              <strong>${reviewSummary.proposedCount}</strong>
-              <small>${reviewSummary.reviewedCount} reviewed so far</small>
+          <div class="today-hero-rail">
+            <article class="briefing-action-card">
+              <span class="eyebrow">Do this next</span>
+              <strong>${reviewSummary.proposedCount ? "Review the approval queue" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Finish portfolio essentials" : !setupState.hasRealSignalInput ? "Bring in real feed input" : "Stay in the daily loop"}</strong>
+              <p>${nextAction}</p>
+              <div class="office-form-actions">
+                <button class="refresh-button" type="button" data-view="${reviewSummary.proposedCount ? "decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "setup" : "signals"}">
+                  ${reviewSummary.proposedCount ? "Open Decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Open Portfolio" : "Open Feed"}
+                </button>
+                <button class="mini-chip" type="button" data-view="advisor">Ask Advisor</button>
+              </div>
             </article>
-            <article class="today-stat-card">
-              <span>Tracked assets</span>
-              <strong>${trackedAssets.length}</strong>
-              <small>${profile.holdings.length} holdings and ${(profile.watchlist || []).length} watchlist names</small>
+            <article class="briefing-summary-card">
+              <span>Queue pulse</span>
+              <strong>${reviewSummary.proposedCount ? `${reviewSummary.proposedCount} waiting` : "Clear"}</strong>
+              <p>${reviewSummary.reviewedCount} reviewed so far. ${featuredResearch ? `Lead thesis: ${escapeHtml(getResearchDossierHeadline(featuredResearch))}.` : "No lead thesis yet."}</p>
             </article>
-            <article class="today-stat-card">
-              <span>Feed</span>
-              <strong>${formatEnumLabel(feedMode)}</strong>
-              <small>${getRecentAnalysedPosts().length} recent analysed posts</small>
-            </article>
-            <article class="today-stat-card">
-              <span>Safety buffer</span>
-              <strong>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths}m` : "Pending"}</strong>
-              <small>${cashSummary.monthlyBurn > 0 ? `${formatCurrency(cashSummary.monthlyBurn)} burn gap` : "Cash flow okay"}</small>
+            <article class="briefing-summary-card">
+              <span>Desk readiness</span>
+              <strong>${trackedAssets.length ? `${trackedAssets.length} names tracked` : "Portfolio first"}</strong>
+              <p>${formatEnumLabel(feedMode)} feed, ${profile.holdings.length} holdings, ${(profile.watchlist || []).length} watchlist names.</p>
+              <small>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths} months emergency cover` : "Add cash context for stronger advice"}</small>
             </article>
           </div>
         </div>
@@ -5062,7 +5195,7 @@ function renderDecisionsPage() {
   ).slice(0, 6);
 
   return `
-    <main class="office-content">
+    <main class="office-content page-main page-decisions-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
       <section class="office-panel decisions-hero-panel">
@@ -5104,8 +5237,8 @@ function renderDecisionsPage() {
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Approval queue</span>
-              <h3>Decide what moves forward</h3>
+              <span class="eyebrow">Ready for review</span>
+              <h3>Decide what can move forward</h3>
             </div>
             ${
               state.developerMode
@@ -5116,36 +5249,36 @@ function renderDecisionsPage() {
           ${
             visibleQueue.length
               ? `
-                <table class="office-table">
-                  <thead>
-                    <tr>
-                      <th>Asset</th>
-                      <th>Action</th>
-                      <th>Confidence</th>
-                      <th>Research</th>
-                      <th>Review</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${visibleQueue
-                      .map(
-                        (item) => `
-                          <tr>
-                            <td><button class="inline-link" data-asset="${item.asset}">${item.asset}</button></td>
-                            <td>${item.action}</td>
-                            <td>${formatPercent(item.confidence || 0)}</td>
-                            <td>${
+                <div class="decision-room-list">
+                  ${visibleQueue
+                    .map(
+                      (item) => `
+                        <article class="decision-room-card">
+                          <div class="decision-topline">
+                            <div>
+                              <strong><button class="inline-link" data-asset="${item.asset}">${item.asset}</button> ${item.action}</strong>
+                              <p>${escapeHtml(item.summary || "No rationale captured yet.")}</p>
+                            </div>
+                            ${renderDecisionReviewTag(item.reviewStatus)}
+                          </div>
+                          <div class="chip-row">
+                            <span class="tag">${formatPercent(item.confidence || 0)}</span>
+                            <span class="tag">${item.relatedPostCount || 0} posts</span>
+                            ${
                               item.linkedResearch
-                                ? `${escapeHtml(getResearchDossierHeadline(item.linkedResearch))} ${renderLifecyclePill(item.linkedResearch.status || item.linkedResearch.stage)}`
-                                : '<span class="subtle">Research missing</span>'
-                            }</td>
-                            <td>${renderDecisionReviewGate(item.id, item.reviewStatus, item, item.linkedResearch)}</td>
-                          </tr>
-                        `
-                      )
-                      .join("")}
-                  </tbody>
-                </table>
+                                ? `<span class="tag">${escapeHtml(getResearchDossierHeadline(item.linkedResearch))}</span>`
+                                : '<span class="tag tag-warning">Research missing</span>'
+                            }
+                          </div>
+                          ${renderDecisionMathSummary(getDecisionMath(item))}
+                          <div class="office-form-actions">
+                            ${renderDecisionReviewGate(item.id, item.reviewStatus, item, item.linkedResearch)}
+                          </div>
+                        </article>
+                      `
+                    )
+                    .join("")}
+                </div>
               `
               : `<article class="status-inline"><strong>No pending approvals</strong><p>When a validated thesis produces a candidate call, it will show up here first.</p></article>`
           }
@@ -5153,7 +5286,7 @@ function renderDecisionsPage() {
         <section class="office-panel">
           <div class="office-panel-head">
             <div>
-              <span class="eyebrow">Research</span>
+              <span class="eyebrow">Needs research</span>
               <h3>Theses moving toward approval</h3>
             </div>
             <div class="office-form-actions">
@@ -5190,8 +5323,8 @@ function renderDecisionsPage() {
       <section class="office-panel">
         <div class="office-panel-head">
           <div>
-            <span class="eyebrow">Asset follow-up</span>
-            <h3>Names the desk is currently watching</h3>
+            <span class="eyebrow">Follow-up</span>
+            <h3>Names the desk is actively watching</h3>
           </div>
           <div class="office-form-actions">
             <button class="mini-chip" data-view="setup">Open Portfolio</button>
@@ -5238,7 +5371,7 @@ function renderResearchView() {
     "Collect thesis evidence here before it becomes a candidate recommendation.";
 
   return `
-    <main class="office-content research-content">
+    <main class="office-content research-content page-main page-decisions-detail-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
       <section class="office-panel office-summary-panel research-hero">
@@ -5496,7 +5629,7 @@ function renderAssetsView() {
     : getData().clusters.filter((cluster) => cluster.mappedAssets.includes(asset.ticker));
 
   return `
-    <main class="content-shell">
+    <main class="content-shell page-main page-decisions-detail-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
       <section class="section-card asset-shell">
@@ -5654,7 +5787,7 @@ function renderSetupPage() {
   const setupState = buildSingleUserSetupState(profile);
 
   return `
-    <main class="office-content">
+    <main class="office-content page-main page-portfolio-main">
       ${renderStatusBanner()}
       ${
         state.advisorError
@@ -5681,13 +5814,13 @@ function renderSetupPage() {
           <div class="today-hero-copy">
             <span class="eyebrow">Portfolio</span>
             <h2>Set up the desk with the minimum that matters</h2>
-            <p>Start with your watchlist and what you own. Everything else is optional and can be added later when you want sharper advice.</p>
+            <p>Start with your watchlist, where your assets are held, and what sits inside each bucket. Everything else can be layered in later.</p>
           </div>
           <div class="today-hero-stats">
             <article class="today-stat-card">
-              <span>Tracked assets</span>
-              <strong>${onboardingSummary.trackedAssetCount}</strong>
-              <small>${(profile.watchlist || []).length} watchlist names</small>
+              <span>Account buckets</span>
+              <strong>${onboardingSummary.accountBucketCount}</strong>
+              <small>Scalable, FFB, savings, pensions, and more</small>
             </article>
             <article class="today-stat-card">
               <span>Holdings value</span>
@@ -5695,9 +5828,9 @@ function renderSetupPage() {
               <small>${profile.holdings.length} holdings saved</small>
             </article>
             <article class="today-stat-card">
-              <span>Safety buffer</span>
-              <strong>${formatCurrency(profile.emergencyFund || 0)}</strong>
-              <small>${profile.targetEmergencyFundMonths || 6} target months</small>
+              <span>Tracked assets</span>
+              <strong>${onboardingSummary.trackedAssetCount}</strong>
+              <small>${(profile.watchlist || []).length} watchlist names</small>
             </article>
             <article class="today-stat-card">
               <span>Setup progress</span>
@@ -5766,6 +5899,46 @@ function renderSetupPage() {
             <section class="office-form-section">
               <div class="office-panel-head">
                 <div>
+                  <span class="eyebrow">Buckets</span>
+                  <h3>Where your assets are held</h3>
+                </div>
+              </div>
+              ${renderProfileCollectionSection({
+                collection: "accountBuckets",
+                title: "Account buckets",
+                copy: "Add the places where you hold assets first, then attach holdings and pension products to the right bucket.",
+                addLabel: "Add bucket",
+                emptyCopy: "Examples: Scalable Capital, FFB, Savings account, Retirement pensions.",
+                fields: [
+                  {
+                    key: "label",
+                    label: "Bucket name",
+                    placeholder: "Scalable Capital"
+                  },
+                  {
+                    key: "bucketType",
+                    label: "Bucket type",
+                    type: "select",
+                    options: () => getAccountBucketTypeOptions()
+                  },
+                  {
+                    key: "custodian",
+                    label: "Institution / provider",
+                    placeholder: "Scalable Capital, FFB, your bank, pension provider"
+                  },
+                  {
+                    key: "notes",
+                    label: "Notes",
+                    type: "textarea",
+                    rows: 2,
+                    placeholder: "Single stocks + crypto + cash, long-term funds, emergency reserve..."
+                  }
+                ]
+              })}
+            </section>
+            <section class="office-form-section">
+              <div class="office-panel-head">
+                <div>
                   <span class="eyebrow">Holdings</span>
                   <h3>What you actually own</h3>
                 </div>
@@ -5789,17 +5962,10 @@ function renderSetupPage() {
                     options: ["Stock", "ETF", "Fund", "Crypto", "Cash", "Bond", "Other"]
                   },
                   {
-                    key: "accountType",
-                    label: "Account / wrapper",
+                    key: "accountBucketId",
+                    label: "Held in",
                     type: "select",
-                    options: [
-                      "Brokerage",
-                      "Retirement account",
-                      "Pension wrapper",
-                      "Savings account",
-                      "Cold wallet",
-                      "Other"
-                    ]
+                    options: () => getProfileAccountBucketOptions()
                   },
                   {
                     key: "currentValue",
@@ -5906,16 +6072,22 @@ function renderSetupPage() {
                       label: "Product name",
                       placeholder: "Private pension, BU policy, life insurance"
                     },
-                    {
-                      key: "type",
-                      label: "Type",
-                      type: "select",
-                      options: ["Private Rentenversicherung", "bAV", "Life insurance", "Disability insurance", "Health insurance", "Other"]
-                    },
-                    {
-                      key: "provider",
-                      label: "Provider",
-                      placeholder: "Allianz, Alte Leipziger, employer plan"
+                  {
+                    key: "type",
+                    label: "Type",
+                    type: "select",
+                    options: ["Private Rentenversicherung", "bAV", "Life insurance", "Disability insurance", "Health insurance", "Other"]
+                  },
+                  {
+                    key: "accountBucketId",
+                    label: "Held in",
+                    type: "select",
+                    options: () => getProfileAccountBucketOptions()
+                  },
+                  {
+                    key: "provider",
+                    label: "Provider",
+                    placeholder: "Allianz, Alte Leipziger, employer plan"
                     },
                     {
                       key: "currentValue",
@@ -5978,6 +6150,7 @@ function renderSetupPage() {
               </div>
             </div>
             <div class="office-summary-list">
+              <div><span>Account buckets</span><strong>${onboardingSummary.accountBucketCount}</strong></div>
               <div><span>Holdings</span><strong>${profile.holdings.length}</strong></div>
               <div><span>Insurance & pensions</span><strong>${formatCurrency(onboardingSummary.retirementTotal)}</strong></div>
               <div><span>Watchlist</span><strong>${(profile.watchlist || []).length}</strong></div>
@@ -6023,7 +6196,7 @@ function renderSignalsPage() {
     .join("");
 
   return `
-    <main class="office-content">
+    <main class="office-content page-main page-feed-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
       <section class="office-panel office-summary-panel">
@@ -6132,7 +6305,7 @@ function renderSignalsPage() {
           </table>
         </section>
       </section>
-      <section class="office-panel">
+      <section class="office-panel feed-stream-panel">
         <div class="office-panel-head">
           <div>
             <span class="eyebrow">Latest posts</span>
@@ -6140,38 +6313,35 @@ function renderSignalsPage() {
           </div>
           <button class="mini-chip" data-view="decisions">Open Decisions</button>
         </div>
-        <table class="office-table">
-          <thead>
-            <tr>
-              <th>Source</th>
-              <th>Time</th>
-              <th>Claim</th>
-              <th>Mapped assets</th>
-              <th>Post</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              recentPosts.length
-                ? recentPosts
-                    .map((post) => {
-                      const source = getSource(post.sourceId);
+        <div class="feed-list feed-stream-list">
+          ${
+            recentPosts.length
+              ? recentPosts
+                  .map((post) => {
+                    const source = getSource(post.sourceId);
 
-                      return `
-                        <tr>
-                          <td>${source?.handle || post.sourceId}</td>
-                          <td>${formatGeneratedAt(post.createdAt)}</td>
-                          <td>${post.claimType || "Unknown"}</td>
-                          <td>${renderAssetMappingCell(post)}</td>
-                          <td>${post.body}</td>
-                        </tr>
-                      `;
-                    })
-                    .join("")
-                : '<tr><td colspan="5">No analysed posts yet.</td></tr>'
-            }
-          </tbody>
-        </table>
+                    return `
+                      <article class="feed-item feed-stream-card">
+                        <div class="feed-head">
+                          <strong>${source?.handle || post.sourceId}</strong>
+                          <span>${formatGeneratedAt(post.createdAt)}</span>
+                        </div>
+                        <p>${escapeHtml(post.body)}</p>
+                        <div class="tag-row">
+                          <span class="tag">${escapeHtml(post.claimType || "Unknown")}</span>
+                          <span class="tag">${escapeHtml(post.direction || "Pending")}</span>
+                          ${renderMappedAssetButtons(post)}
+                          ${renderAssetMappingStatusTag(post)}
+                        </div>
+                        ${renderAssetMappingNote(post)}
+                        ${renderLikelyImpactInline(post)}
+                      </article>
+                    `;
+                  })
+                  .join("")
+              : '<article class="status-inline"><strong>No analysed posts yet</strong><p>Import a few real posts and the feed will turn into a live reading stream.</p></article>'
+          }
+        </div>
       </section>
     </main>
   `;
@@ -6199,7 +6369,7 @@ function renderAdvisorView() {
     : null;
 
   return `
-    <main class="office-content">
+    <main class="office-content page-main page-advisor-main">
       ${renderStatusBanner()}
       ${
         state.advisorError
@@ -6313,7 +6483,7 @@ function renderAdvisorView() {
               : ""
           }
         </section>
-        <section class="office-panel">
+        <section class="office-panel advisor-answer-panel">
           <div class="office-panel-head">
             <div>
               <span class="eyebrow">Latest answer</span>
@@ -6458,7 +6628,7 @@ function renderSourceCards() {
   };
 
   return `
-    <main class="content-shell">
+    <main class="content-shell page-main page-developer-main">
       ${renderStatusBanner()}
       <section class="section-card asset-shell">
         <div class="asset-rail">
@@ -6646,7 +6816,7 @@ function renderLogs() {
   const selectedScenarioCases = selectedEval?.scenarioCases || [];
 
   return `
-    <main class="content-shell">
+    <main class="content-shell page-main page-developer-main">
       ${renderStatusBanner()}
       <section class="hero-panel logs-hero">
         <div>
@@ -7126,7 +7296,7 @@ function renderContent() {
 
 function render() {
   app.innerHTML = `
-    <div class="page-shell">
+    <div class="${getPageShellClassNames()}">
       ${renderNav()}
       ${renderContent()}
     </div>
