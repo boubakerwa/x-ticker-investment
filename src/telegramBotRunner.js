@@ -5,6 +5,7 @@ import {
 import { buildCurrentDecisionReviewState } from "./decisionReviewStore.js";
 import { monitoredUniverse } from "./data.js";
 import { readFinancialProfile } from "./financialProfileStore.js";
+import { createLinkedinDraft } from "./linkedinComposer.js";
 import { executePipelineJob, getOrchestratorStatus } from "./orchestrator.js";
 import {
   callTelegramApi,
@@ -17,6 +18,7 @@ import { buildDailyDigest } from "./reportBuilder.js";
 import { createSource, listSources } from "./sourceStore.js";
 import { listPendingManualPosts } from "./manualPostProcessingStore.js";
 import { importAttributedManualPosts } from "./tweetStore.js";
+import { extractFirstXPostUrl } from "./xPostResolver.js";
 
 const TELEGRAM_BOT_COMMANDS = [
   {
@@ -40,6 +42,10 @@ const TELEGRAM_BOT_COMMANDS = [
     description: "Process queued manual tweets"
   },
   {
+    command: "linkedin",
+    description: "Draft a LinkedIn post from an X link or pasted text"
+  },
+  {
     command: "help",
     description: "Show available commands"
   }
@@ -48,6 +54,7 @@ const TELEGRAM_BOT_COMMANDS = [
 const DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const RETRY_DELAY_MS = 3000;
 const TELEGRAM_IMPORT_DEFAULT_RELIABILITY = 0.62;
+const TELEGRAM_TEXT_SOFT_LIMIT = 2800;
 
 let pollLoopPromise = null;
 let state = {
@@ -94,6 +101,96 @@ function normalizeTelegramImportText(value) {
   return String(value || "")
     .replace(/\r\n?/g, "\n")
     .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
+}
+
+function truncateTelegramPreview(value, maxLength = 220) {
+  const text = normalizeTelegramImportText(value).replace(/\s+/g, " ").trim();
+
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function splitLongTelegramSegment(segment, maxLength = TELEGRAM_TEXT_SOFT_LIMIT) {
+  const normalizedSegment = normalizeTelegramImportText(segment).trim();
+
+  if (!normalizedSegment) {
+    return [];
+  }
+
+  if (normalizedSegment.length <= maxLength) {
+    return [normalizedSegment];
+  }
+
+  const sentences =
+    normalizedSegment.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((item) => item.trim()).filter(Boolean) || [
+      normalizedSegment
+    ];
+  const chunks = [];
+  let currentChunk = "";
+
+  for (const sentence of sentences) {
+    const candidate = currentChunk ? `${currentChunk} ${sentence}` : sentence;
+
+    if (candidate.length <= maxLength) {
+      currentChunk = candidate;
+      continue;
+    }
+
+    if (currentChunk) {
+      chunks.push(currentChunk);
+    }
+
+    if (sentence.length <= maxLength) {
+      currentChunk = sentence;
+      continue;
+    }
+
+    for (let index = 0; index < sentence.length; index += maxLength) {
+      chunks.push(sentence.slice(index, index + maxLength).trim());
+    }
+
+    currentChunk = "";
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks.filter(Boolean);
+}
+
+function splitTelegramText(value, maxLength = TELEGRAM_TEXT_SOFT_LIMIT) {
+  const paragraphs = normalizeTelegramImportText(value)
+    .split(/\n\s*\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .flatMap((item) => splitLongTelegramSegment(item, maxLength));
+  const chunks = [];
+  let currentChunk = "";
+
+  for (const paragraph of paragraphs) {
+    const candidate = currentChunk ? `${currentChunk}\n\n${paragraph}` : paragraph;
+
+    if (candidate.length <= maxLength) {
+      currentChunk = candidate;
+      continue;
+    }
+
+    if (currentChunk) {
+      chunks.push(currentChunk);
+    }
+
+    currentChunk = paragraph;
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks.filter(Boolean);
 }
 
 function parseTelegramImportHeader(line) {
@@ -522,10 +619,89 @@ function buildHelpMessage() {
   return {
     title: "X-Ticker commands",
     summary: "Use the bot as a lightweight operator console for the local research desk.",
-    highlights: TELEGRAM_BOT_COMMANDS.map((item) => `/${item.command} · ${item.description}`),
+    highlights: [
+      ...TELEGRAM_BOT_COMMANDS.map((item) => `/${item.command} · ${item.description}`),
+      "You can also send a raw public X post URL to create a LinkedIn draft."
+    ],
     footer:
       "Commands are limited to the configured operator chat while the local server is running. Use /ingest help for the queue format."
   };
+}
+
+function buildLinkedinHelpMessage() {
+  return {
+    title: "LinkedIn draft flow",
+    summary:
+      "Send a public X post URL to the bot, or use /linkedin with either an X URL or manually pasted text.",
+    highlights: [
+      "/linkedin https://x.com/googleresearch/status/2036533564158910740",
+      "/linkedin Paste the post text here if public X parsing does not work.",
+      "You can also send the raw X post URL without a command.",
+      "Media previews are captured when X exposes them publicly."
+    ],
+    footer:
+      "This flow avoids the paid X API. Review the latest result in the local page at /linkedin-composer.html."
+  };
+}
+
+function buildLinkedinDraftMessage(draft) {
+  const sourceLabel =
+    draft?.source?.authorHandle || draft?.source?.authorName || (draft?.source?.type === "manual" ? "Manual paste" : "Unknown source");
+  const generationLabel =
+    draft?.draft?.generation?.mode === "model"
+      ? `${draft.draft.generation.model || "Model"}`
+      : "Template fallback";
+
+  return {
+    title: "LinkedIn draft ready",
+    summary:
+      draft?.source?.type === "x-post"
+        ? `Built from a post by ${sourceLabel} using public X parsing.`
+        : "Built from manually pasted source text.",
+    facts: [
+      {
+        label: "Voice",
+        value: String(draft?.voice || "professional")
+      },
+      {
+        label: "Media",
+        value: String(draft?.source?.manualMediaNotes ? "Manual media notes" : draft?.source?.mediaSummary || "None")
+      },
+      {
+        label: "Generation",
+        value: generationLabel
+      }
+    ],
+    highlights: [
+      truncateTelegramPreview(draft?.draft?.headline || ""),
+      truncateTelegramPreview(draft?.draft?.hook || ""),
+      truncateTelegramPreview(draft?.draft?.fullPost || "", 280)
+    ].filter(Boolean),
+    footer: "Open /linkedin-composer.html locally to review and copy the latest draft."
+  };
+}
+
+function buildLinkedinErrorMessage(error) {
+  return {
+    title: "LinkedIn draft failed",
+    summary:
+      error instanceof Error
+        ? error.message
+        : "The bot could not build a LinkedIn draft from that message.",
+    footer:
+      "If the X post is unavailable publicly, use /linkedin and paste the post text manually."
+  };
+}
+
+async function createLinkedinDraftFromTelegramMessage(messageText, origin) {
+  const normalizedText = normalizeTelegramImportText(messageText).trim();
+  const xUrl = extractFirstXPostUrl(normalizedText);
+
+  return createLinkedinDraft({
+    xUrl,
+    manualText: xUrl ? "" : normalizedText,
+    origin
+  });
 }
 
 function buildStatusMessage() {
@@ -621,6 +797,50 @@ async function sendCommandReply(chatId, message) {
   });
 }
 
+async function sendLinkedinDraftReply(chatId, draft) {
+  await sendCommandReply(chatId, buildLinkedinDraftMessage(draft));
+
+  const fullPost = normalizeTelegramImportText(draft?.draft?.fullPost || "").trim();
+
+  if (!fullPost) {
+    return;
+  }
+
+  const chunks = splitTelegramText(fullPost);
+
+  for (const [index, chunk] of chunks.entries()) {
+    const title =
+      chunks.length > 1 ? `LinkedIn Post Text ${index + 1}/${chunks.length}` : "LinkedIn Post Text";
+
+    await sendCommandReply(chatId, {
+      title,
+      summary: chunk,
+      footer:
+        index === chunks.length - 1
+          ? "The same draft is also saved in /linkedin-composer.html."
+          : ""
+    });
+  }
+}
+
+async function ensureAllowedChat(chatId) {
+  if (!chatId) {
+    return false;
+  }
+
+  if (chatId === state.allowedChatId) {
+    return true;
+  }
+
+  await sendCommandReply(chatId, {
+    title: "X-Ticker access restricted",
+    summary: "This bot is currently limited to its configured operator chat.",
+    footer: "Update TELEGRAM_ALLOWED_CHAT_ID if you want to move it to a different chat."
+  });
+
+  return false;
+}
+
 async function syncTelegramCommands(config = getTelegramBotRunnerConfig()) {
   await callTelegramApi(
     "setMyCommands",
@@ -636,16 +856,7 @@ async function syncTelegramCommands(config = getTelegramBotRunnerConfig()) {
 async function handleTelegramCommand(command, message) {
   const chatId = String(message?.chat?.id || "").trim();
 
-  if (!chatId) {
-    return;
-  }
-
-  if (chatId !== state.allowedChatId) {
-    await sendCommandReply(chatId, {
-      title: "X-Ticker access restricted",
-      summary: "This bot is currently limited to its configured operator chat.",
-      footer: "Update TELEGRAM_ALLOWED_CHAT_ID if you want to move it to a different chat."
-    });
+  if (!(await ensureAllowedChat(chatId))) {
     return;
   }
 
@@ -700,6 +911,24 @@ async function handleTelegramCommand(command, message) {
     return;
   }
 
+  if (command === "linkedin") {
+    const commandPayload = getCommandPayload(String(message?.text || ""));
+
+    if (!commandPayload || /^help\b/i.test(commandPayload)) {
+      await sendCommandReply(chatId, buildLinkedinHelpMessage());
+      return;
+    }
+
+    try {
+      const draft = await createLinkedinDraftFromTelegramMessage(commandPayload, "telegram-command");
+      await sendLinkedinDraftReply(chatId, draft);
+    } catch (error) {
+      await sendCommandReply(chatId, buildLinkedinErrorMessage(error));
+    }
+
+    return;
+  }
+
   await sendCommandReply(chatId, {
     title: "Unknown command",
     summary: `/${command} is not configured yet.`,
@@ -711,7 +940,36 @@ async function handleTelegramUpdate(update) {
   const message = update?.message;
   const text = String(message?.text || "").trim();
 
+  if (!text) {
+    return;
+  }
+
   if (!text.startsWith("/")) {
+    const xUrl = extractFirstXPostUrl(text);
+
+    if (!xUrl) {
+      return;
+    }
+
+    const chatId = String(message?.chat?.id || "").trim();
+
+    if (!(await ensureAllowedChat(chatId))) {
+      return;
+    }
+
+    state.lastCommandAt = new Date().toISOString();
+    state.lastCommand = "linkedin";
+
+    try {
+      const draft = await createLinkedinDraft({
+        xUrl,
+        origin: "telegram-link"
+      });
+      await sendLinkedinDraftReply(chatId, draft);
+    } catch (error) {
+      await sendCommandReply(chatId, buildLinkedinErrorMessage(error));
+    }
+
     return;
   }
 
