@@ -231,6 +231,21 @@ function initializeSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_advisor_answers_created_at
       ON advisor_answers(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS linkedin_drafts (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_linkedin_drafts_created_at
+      ON linkedin_drafts(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_linkedin_drafts_status
+      ON linkedin_drafts(status);
   `);
 }
 

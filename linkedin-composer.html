@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LinkedIn Draft Library</title>
+    <meta name="theme-color" content="#111827" />
+    <meta
+      name="description"
+      content="Build, browse, and rewrite personal-brand LinkedIn drafts from public X posts or manual source text."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/linkedin-composer.css" />
+  </head>
+  <body>
+    <div class="page-noise" aria-hidden="true"></div>
+    <main class="library-shell">
+      <section class="hero-panel surface-card">
+        <a
+          class="linkedin-launch"
+          href="https://www.linkedin.com/feed/"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open LinkedIn post composer"
+          title="Open LinkedIn"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4.98 3.5C4.98 4.88 3.86 6 2.49 6S0 4.88 0 3.5 1.11 1 2.49 1s2.49 1.12 2.49 2.5ZM.5 8h4V24h-4V8Zm7 0h3.83v2.18h.05c.53-1.01 1.84-2.18 3.79-2.18C19.22 8 20 10.66 20 14.11V24h-4v-8.31c0-1.98-.04-4.53-2.76-4.53-2.77 0-3.19 2.16-3.19 4.39V24h-4V8Z"
+            />
+          </svg>
+          <span>LinkedIn</span>
+        </a>
+        <div class="hero-copy">
+          <p class="kicker">LinkedIn Library</p>
+          <h1>Build a reusable library of post ideas, not just one-off drafts.</h1>
+          <p class="hero-text">
+            Capture source posts from Telegram or manual paste, organize them by personal-brand
+            pillar, revisit older drafts, and ask AI to rewrite any version with fresh instructions.
+          </p>
+          <div class="hero-badges" id="capability-badges"></div>
+        </div>
+        <aside class="hero-side">
+          <div class="side-note">
+            <span>Telegram bot</span>
+            <strong id="telegram-status">Checking bot status…</strong>
+          </div>
+          <div class="side-note">
+            <span>Posting model</span>
+            <strong>Your voice reacting to a source, never impersonating it</strong>
+          </div>
+          <div class="side-note">
+            <span>Workflow</span>
+            <strong>Capture → filter → refine → copy</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section class="creation-grid">
+        <section class="surface-card compose-panel">
+          <div class="section-heading">
+            <p class="kicker">Create</p>
+            <h2>Capture a new source</h2>
+          </div>
+          <form id="composer-form" class="compose-form">
+            <label class="field">
+              <span>X post URL</span>
+              <input
+                id="x-url"
+                name="xUrl"
+                type="url"
+                placeholder="https://x.com/handle/status/1234567890"
+              />
+            </label>
+
+            <div class="field-grid">
+              <label class="field">
+                <span>Voice</span>
+                <select id="voice" name="voice">
+                  <option value="professional">Professional</option>
+                  <option value="operator">Operator</option>
+                  <option value="founder">Founder</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Manual author</span>
+                <input
+                  id="manual-author"
+                  name="manualAuthor"
+                  type="text"
+                  placeholder="Source name or handle"
+                />
+              </label>
+            </div>
+
+            <label class="field">
+              <span>Manual fallback text</span>
+              <textarea
+                id="manual-text"
+                name="manualText"
+                rows="8"
+                placeholder="Paste the source text here if public parsing is unavailable."
+              ></textarea>
+            </label>
+
+            <label class="field">
+              <span>Image or video notes</span>
+              <input
+                id="manual-media-notes"
+                name="manualMediaNotes"
+                type="text"
+                placeholder="Optional note about attached visuals"
+              />
+            </label>
+
+            <div class="action-row">
+              <button id="generate-button" class="primary-button" type="submit">Generate Draft</button>
+              <button id="refresh-button" class="ghost-button" type="button">Refresh Library</button>
+            </div>
+          </form>
+          <div id="form-feedback" class="feedback-strip" aria-live="polite"></div>
+        </section>
+
+        <section class="surface-card tools-panel">
+          <div class="section-heading">
+            <p class="kicker">Tools</p>
+            <h2>PR specialist helpers</h2>
+          </div>
+          <div id="rewrite-presets" class="chip-grid"></div>
+          <div id="helper-tools" class="helper-list"></div>
+          <div id="latest-meta" class="meta-card"></div>
+        </section>
+      </section>
+
+      <section class="library-grid">
+        <aside class="surface-card filters-panel">
+          <div class="section-heading">
+            <p class="kicker">Browse</p>
+            <h2>Categories</h2>
+          </div>
+          <div class="filter-block">
+            <span class="filter-label">Pillar</span>
+            <div id="pillar-nav" class="filter-nav"></div>
+          </div>
+          <div class="filter-block">
+            <span class="filter-label">Format</span>
+            <div id="format-nav" class="filter-nav"></div>
+          </div>
+          <div class="filter-block">
+            <span class="filter-label">Status</span>
+            <div id="status-nav" class="filter-nav"></div>
+          </div>
+        </aside>
+
+        <section class="surface-card library-panel">
+          <div class="panel-topline">
+            <div class="section-heading">
+              <p class="kicker">Library</p>
+              <h2>Potential posts</h2>
+            </div>
+            <div id="library-summary" class="inline-summary"></div>
+          </div>
+          <div id="draft-library" class="library-list">
+            <div class="empty-state">No drafts saved yet.</div>
+          </div>
+        </section>
+
+        <section class="surface-card detail-panel">
+          <div class="panel-topline">
+            <div class="section-heading">
+              <p class="kicker">Detail</p>
+              <h2 id="detail-title">Select a draft</h2>
+            </div>
+            <button id="copy-button" class="ghost-button" type="button">Copy Selected</button>
+          </div>
+
+          <div id="draft-detail" class="empty-state">
+            Choose a draft from the library to inspect the source, full post text, and revision history.
+          </div>
+
+          <section class="rewrite-workbench">
+            <div class="section-heading">
+              <p class="kicker">Rewrite</p>
+              <h2>Modify this draft with AI</h2>
+            </div>
+            <form id="rewrite-form" class="compose-form">
+              <div class="field-grid">
+                <label class="field">
+                  <span>Rewrite voice</span>
+                  <select id="rewrite-voice" name="rewriteVoice">
+                    <option value="professional">Professional</option>
+                    <option value="operator">Operator</option>
+                    <option value="founder">Founder</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="field">
+                <span>Rewrite instructions</span>
+                <textarea
+                  id="rewrite-instructions"
+                  name="rewriteInstructions"
+                  rows="5"
+                  placeholder="Example: Make this more opinionated, tighten it to 150 words, and push the operator lesson harder."
+                ></textarea>
+              </label>
+
+              <div class="action-row">
+                <button id="rewrite-button" class="primary-button" type="submit">Rewrite With AI</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="version-panel">
+            <div class="section-heading">
+              <p class="kicker">History</p>
+              <h2>Version timeline</h2>
+            </div>
+            <div id="draft-versions" class="version-list">
+              <div class="empty-state">Version history will appear here.</div>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/src/linkedin-composer.js"></script>
+  </body>
+</html>

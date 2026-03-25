@@ -31,6 +31,17 @@ import { listAdvisorAnswers } from "./src/advisorStore.js";
 import { runExtractionEval } from "./src/evalHarness.js";
 import { getEvalRun, getLatestEvalRun, listEvalRuns } from "./src/evalStore.js";
 import { readFinancialProfile, updateFinancialProfile } from "./src/financialProfileStore.js";
+import {
+  createLinkedinDraft,
+  getLinkedinComposerCapabilities,
+  getLinkedinComposerTools,
+  rewriteLinkedinDraft
+} from "./src/linkedinComposer.js";
+import {
+  getLinkedinDraft,
+  getLatestLinkedinDraft,
+  listLinkedinDrafts
+} from "./src/linkedinDraftStore.js";
 import { buildClaimExtractionReplay } from "./src/modelClaimExtractor.js";
 import { buildImpactMappingReplay } from "./src/modelImpactMapper.js";
 import { getNotificationStatus, sendNotification } from "./src/notificationProvider.js";
@@ -793,6 +804,83 @@ createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname === "/api/linkedin-composer/state" && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        capabilities: getLinkedinComposerCapabilities(),
+        tools: getLinkedinComposerTools(),
+        latestDraft: getLatestLinkedinDraft(),
+        drafts: listLinkedinDrafts(60),
+        recentDrafts: listLinkedinDrafts(12),
+        telegramBot: getTelegramBotStatus()
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/linkedin-composer/drafts" && request.method === "POST") {
+      const payload = await readJsonBody(request);
+      const draft = await createLinkedinDraft({
+        xUrl: payload.xUrl,
+        manualText: payload.manualText,
+        manualAuthor: payload.manualAuthor,
+        manualMediaNotes: payload.manualMediaNotes,
+        voice: payload.voice,
+        origin: payload.origin || "ui"
+      });
+
+      sendJson(response, 201, {
+        ok: true,
+        capabilities: getLinkedinComposerCapabilities(),
+        tools: getLinkedinComposerTools(),
+        draft
+      });
+      return;
+    }
+
+    if (requestUrl.pathname.startsWith("/api/linkedin-composer/drafts/")) {
+      const tail = requestUrl.pathname.replace("/api/linkedin-composer/drafts/", "");
+      const draftId = decodeURIComponent(tail.replace(/\/rewrite$/, ""));
+      const isRewriteRoute = requestUrl.pathname.endsWith("/rewrite");
+
+      if (!draftId) {
+        sendError(response, 400, "LinkedIn draft id is required.");
+        return;
+      }
+
+      if (request.method === "GET" && !isRewriteRoute) {
+        const draft = getLinkedinDraft(draftId);
+
+        if (!draft) {
+          sendError(response, 404, "LinkedIn draft not found.");
+          return;
+        }
+
+        sendJson(response, 200, {
+          ok: true,
+          draft
+        });
+        return;
+      }
+
+      if (request.method === "POST" && isRewriteRoute) {
+        const payload = await readJsonBody(request);
+        const draft = await rewriteLinkedinDraft({
+          draftId,
+          instructions: payload.instructions,
+          voice: payload.voice,
+          origin: payload.origin || "ui-rewrite"
+        });
+
+        sendJson(response, 201, {
+          ok: true,
+          capabilities: getLinkedinComposerCapabilities(),
+          tools: getLinkedinComposerTools(),
+          draft
+        });
+        return;
+      }
+    }
+
     if (requestUrl.pathname === "/api/analysed-posts") {
       const days = Number(requestUrl.searchParams.get("days") || 3);
       const limit = Number(requestUrl.searchParams.get("limit") || 100);
@@ -1522,7 +1610,8 @@ createServer(async (request, response) => {
     return;
   }
 
-  const filePath = resolvePath(requestUrl.pathname);
+  const staticPath = requestUrl.pathname === "/linkedin-composer" ? "/linkedin-composer.html" : requestUrl.pathname;
+  const filePath = resolvePath(staticPath);
 
   if (!filePath.startsWith(root) || !existsSync(filePath) || statSync(filePath).isDirectory()) {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
