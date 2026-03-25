@@ -78,6 +78,8 @@ flowchart TD
   Decision summary, linked research, operator review controls, and a watched universe that blends the curated list with your saved portfolio/watchlist
 - `Advisor`
   Portfolio-aware asset questions grounded in the latest snapshot and governance state
+- `Polymarket Bets`
+  Prediction-market research, bounded bet analysis, and optional live order placement with Telegram alerts
 - `Operations`
   Pipeline runs, evals, source registry, replay tools, scheduler, and notifications
 
@@ -159,6 +161,8 @@ The most important knobs are:
   `PIPELINE_SCHEDULE_TIMES`, `PIPELINE_SCHEDULE_TIMEZONE`, `PIPELINE_INTERVAL_MINUTES`, `MANUAL_FEED_CRON_INTERVAL_HOURS`, `MANUAL_FEED_CRON_MAX_POST_AGE_HOURS`
 - Notifications
   `NOTIFICATION_PROVIDER`, `NOTIFICATIONS_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_COMMANDS_ENABLED`
+- Polymarket
+  `POLYMARKET_GAMMA_API_BASE_URL`, `POLYMARKET_CLOB_API_BASE_URL`, `POLYMARKET_SITE_BASE_URL`, `POLYMARKET_AGENT_MODEL`, `POLYMARKET_PRIVATE_KEY`, `POLYMARKET_SIGNATURE_TYPE`, `POLYMARKET_FUNDER_ADDRESS`, `POLYMARKET_API_KEY`, `POLYMARKET_API_SECRET`, `POLYMARKET_API_PASSPHRASE`
 - Local / hosted LLM routing
   `LLM_PROVIDER`, `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_API_KEY`, `LOCAL_LLM_MODEL`, `FINANCIAL_ADVISOR_MODEL`
 
@@ -204,6 +208,8 @@ Supported commands:
   Returns the latest pipeline, scheduler, and approval-queue status
 - `/digest`
   Sends the latest operator digest into the chat
+- `/polymarket`
+  Returns the latest Polymarket bet-desk summary and order status
 - `/ingest`
   Queues pasted posts into the manual feed without processing them immediately
 - `/process`
@@ -270,6 +276,10 @@ Advisor and debugging:
 
 - `GET /api/advisor/history`
 - `POST /api/advisor/ask`
+- `GET /api/polymarket/status`
+- `GET /api/polymarket/markets`
+- `POST /api/polymarket/analyse`
+- `POST /api/polymarket/orders`
 - `GET /api/engine/extraction-replay?postId=<id>&live=1`
 
 Admin / runtime:

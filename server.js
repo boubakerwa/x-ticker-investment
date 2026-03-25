@@ -58,6 +58,13 @@ import { monitoredUniverse } from "./src/data.js";
 import { getTelegramBotStatus, startTelegramBotRunner } from "./src/telegramBotRunner.js";
 import { hasTweetsForSource, importManualPosts, readTweetStore, reseedTweetStore } from "./src/tweetStore.js";
 import {
+  analyzePolymarketBet,
+  buildStoredPolymarketState,
+  getPolymarketMarkets,
+  getPolymarketStatus,
+  placePolymarketOrder
+} from "./src/polymarketDesk.js";
+import {
   createSource,
   deleteSource,
   listSources,
@@ -766,6 +773,7 @@ async function getPersistedAppState() {
         financialProfile,
         history: advisorHistory
       },
+      polymarket: buildStoredPolymarketState(),
       placeholders: buildPlaceholders(decoratedDecisionHistory, evalRuns)
     },
     storeStatus: {
@@ -1271,6 +1279,80 @@ createServer(async (request, response) => {
       sendJson(response, 200, {
         ok: true,
         answer
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/polymarket/status" && request.method === "GET") {
+      sendJson(response, 200, {
+        ok: true,
+        ...(await getPolymarketStatus())
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/polymarket/markets" && request.method === "GET") {
+      const limit = Number(requestUrl.searchParams.get("limit") || 24);
+      const activeParam = requestUrl.searchParams.get("active");
+      const closedParam = requestUrl.searchParams.get("closed");
+      const result = await getPolymarketMarkets({
+        search: String(requestUrl.searchParams.get("search") || "").trim(),
+        limit: Number.isFinite(limit) && limit > 0 ? Math.min(60, Math.round(limit)) : 24,
+        active:
+          activeParam == null || activeParam === ""
+            ? true
+            : activeParam === "1" || activeParam === "true",
+        closed: closedParam === "1" || closedParam === "true"
+      });
+
+      sendJson(response, 200, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/polymarket/analyse" && request.method === "POST") {
+      const payload = await readJsonBody(request);
+
+      if (!String(payload.marketId || payload.marketSlug || "").trim()) {
+        sendError(response, 400, "marketId or marketSlug is required.");
+        return;
+      }
+
+      const result = await analyzePolymarketBet({
+        marketId: String(payload.marketId || "").trim(),
+        marketSlug: String(payload.marketSlug || "").trim(),
+        preferredOutcome: String(payload.preferredOutcome || "").trim(),
+        thesisNote: String(payload.thesisNote || "").trim(),
+        maxRiskUsd: Number(payload.maxRiskUsd || 25),
+        trigger: String(payload.trigger || "ui").trim() || "ui"
+      });
+
+      sendJson(response, 201, {
+        ok: true,
+        ...result
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/polymarket/orders" && request.method === "POST") {
+      const payload = await readJsonBody(request);
+      const result = await placePolymarketOrder({
+        analysisId: String(payload.analysisId || "").trim(),
+        marketId: String(payload.marketId || "").trim(),
+        marketSlug: String(payload.marketSlug || "").trim(),
+        outcomeName: String(payload.outcomeName || "").trim(),
+        price: Number(payload.price),
+        size: Number(payload.size),
+        side: String(payload.side || "BUY").trim(),
+        orderType: String(payload.orderType || "GTC").trim(),
+        trigger: String(payload.trigger || "ui").trim() || "ui"
+      });
+
+      sendJson(response, 201, {
+        ok: true,
+        ...result
       });
       return;
     }

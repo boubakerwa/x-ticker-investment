@@ -11,5 +11,9 @@
     "evals:strict": "node --env-file-if-exists=.env scripts/run-evals.js --strict",
     "evals:model": "node --env-file-if-exists=.env scripts/run-model-evals.js",
     "evals:model:strict": "node --env-file-if-exists=.env scripts/run-model-evals.js --strict"
+  },
+  "dependencies": {
+    "@polymarket/clob-client": "^5.8.1",
+    "viem": "^2.47.6"
   }
 }

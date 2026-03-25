@@ -232,6 +232,36 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_advisor_answers_created_at
       ON advisor_answers(created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS polymarket_analyses (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      market_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_polymarket_analyses_created_at
+      ON polymarket_analyses(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_polymarket_analyses_market_id
+      ON polymarket_analyses(market_id);
+
+    CREATE TABLE IF NOT EXISTS polymarket_orders (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      market_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_polymarket_orders_created_at
+      ON polymarket_orders(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_polymarket_orders_market_id
+      ON polymarket_orders(market_id);
+
     CREATE TABLE IF NOT EXISTS linkedin_drafts (
       id TEXT PRIMARY KEY,
       created_at TEXT NOT NULL,
@@ -249,6 +279,41 @@ function initializeSchema(db) {
   `);
 }
 
+function tableHasColumn(db, tableName, columnName) {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  return rows.some((row) => row.name === columnName);
+}
+
+function ensureColumn(db, tableName, columnName, columnDefinition) {
+  if (tableHasColumn(db, tableName, columnName)) {
+    return;
+  }
+
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+}
+
+function migratePolymarketSchema(db) {
+  ensureColumn(db, "polymarket_analyses", "token_id", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "polymarket_analyses", "slug", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "polymarket_analyses", "status", "TEXT NOT NULL DEFAULT 'recorded'");
+  ensureColumn(db, "polymarket_analyses", "stance", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "polymarket_orders", "market_id", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "polymarket_orders", "status", "TEXT NOT NULL DEFAULT 'pending'");
+  ensureColumn(db, "polymarket_orders", "payload", "TEXT NOT NULL DEFAULT '{}'");
+  ensureColumn(db, "polymarket_orders", "updated_at", "TEXT NOT NULL DEFAULT ''");
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_polymarket_analyses_status
+      ON polymarket_analyses(status);
+
+    CREATE INDEX IF NOT EXISTS idx_polymarket_analyses_token_id
+      ON polymarket_analyses(token_id);
+
+    CREATE INDEX IF NOT EXISTS idx_polymarket_orders_status
+      ON polymarket_orders(status);
+  `);
+}
+
 export function getDatabase() {
   if (database) {
     return database;
@@ -257,6 +322,7 @@ export function getDatabase() {
   ensureDirectory();
   database = new DatabaseSync(DATABASE_PATH);
   initializeSchema(database);
+  migratePolymarketSchema(database);
   return database;
 }
 

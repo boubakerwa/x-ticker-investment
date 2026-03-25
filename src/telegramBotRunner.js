@@ -19,6 +19,7 @@ import { createSource, listSources } from "./sourceStore.js";
 import { listPendingManualPosts } from "./manualPostProcessingStore.js";
 import { importAttributedManualPosts } from "./tweetStore.js";
 import { extractFirstXPostUrl } from "./xPostResolver.js";
+import { buildStoredPolymarketState } from "./polymarketDesk.js";
 
 const TELEGRAM_BOT_COMMANDS = [
   {
@@ -32,6 +33,10 @@ const TELEGRAM_BOT_COMMANDS = [
   {
     command: "digest",
     description: "Send the latest operator digest"
+  },
+  {
+    command: "polymarket",
+    description: "Show the latest Polymarket desk state"
   },
   {
     command: "ingest",
@@ -789,6 +794,46 @@ function buildDigestMessage() {
   });
 }
 
+function buildPolymarketMessage() {
+  const polymarket = buildStoredPolymarketState();
+  const latestAnalysis = polymarket.recentAnalyses[0] || null;
+  const latestOrder = polymarket.recentOrders[0] || null;
+
+  return {
+    title: "Polymarket desk",
+    summary: latestAnalysis
+      ? `${latestAnalysis.question} -> ${latestAnalysis.decision} ${latestAnalysis.selectedOutcome}.`
+      : "No Polymarket analyses are recorded yet.",
+    facts: [
+      {
+        label: "Analyses",
+        value: String(polymarket.summary.analysisCount || 0)
+      },
+      {
+        label: "Buy-ready",
+        value: String(polymarket.summary.buyReadyCount || 0)
+      },
+      {
+        label: "Orders",
+        value: String(polymarket.summary.orderCount || 0)
+      },
+      {
+        label: "Submitted",
+        value: String(polymarket.summary.submittedCount || 0)
+      }
+    ],
+    highlights: latestAnalysis
+      ? [
+          `${latestAnalysis.selectedOutcome} · ${Math.round((latestAnalysis.marketImpliedProbability || 0) * 100)}% market · ${Math.round((latestAnalysis.estimatedProbability || 0) * 100)}% estimate`,
+          ...(latestAnalysis.rationale || []).slice(0, 2)
+        ]
+      : ["Run the Polymarket tab analysis flow to populate the desk."],
+    footer: latestOrder
+      ? `Latest order: ${latestOrder.status}${latestOrder.providerOrderId ? ` · ${latestOrder.providerOrderId}` : ""}`
+      : "Telegram push alerts also fire for new analyses and order attempts."
+  };
+}
+
 async function sendCommandReply(chatId, message) {
   return sendTelegramTextMessage({
     chatId,
@@ -872,6 +917,11 @@ async function handleTelegramCommand(command, message) {
 
   if (command === "digest") {
     await sendCommandReply(chatId, buildDigestMessage());
+    return;
+  }
+
+  if (command === "polymarket") {
+    await sendCommandReply(chatId, buildPolymarketMessage());
     return;
   }
 

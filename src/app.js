@@ -128,6 +128,34 @@ const EMPTY_DATA = {
     },
     history: []
   },
+  polymarket: {
+    config: {
+      gammaApiBaseUrl: "",
+      clobApiBaseUrl: "",
+      siteBaseUrl: "",
+      timeoutMs: 0,
+      defaultMarketLimit: 0,
+      defaultActiveOnly: true,
+      chainId: 137,
+      signatureType: 0,
+      signatureLabel: "",
+      privateKeyConfigured: false,
+      funderAddressConfigured: false,
+      apiCredsConfigured: false,
+      tradingConfigured: false
+    },
+    summary: {
+      analysisCount: 0,
+      buyReadyCount: 0,
+      orderCount: 0,
+      submittedCount: 0,
+      failedCount: 0,
+      lastAnalysisAt: "",
+      lastOrderAt: ""
+    },
+    recentAnalyses: [],
+    recentOrders: []
+  },
   ingestion: null,
   market: null,
   placeholders: {
@@ -201,6 +229,14 @@ const state = {
   operatorNotice: "",
   advisorNotice: "",
   advisorError: "",
+  polymarketStatus: null,
+  polymarketMarkets: [],
+  polymarketSearch: "",
+  selectedPolymarketMarketId: "",
+  polymarketError: "",
+  isPolymarketLoading: false,
+  isRunningPolymarketAnalysis: false,
+  isSubmittingPolymarketOrder: false,
   profileOnboardingStep: 0,
   profileDocumentDraft: [],
   profileDraft: null,
@@ -219,7 +255,7 @@ const app = document.querySelector("#app");
 const actionFilters = ["ALL", "BUY", "HOLD", "SELL"];
 const DEVELOPER_VIEWS = ["admin", "tests", "sources", "logs", "docs"];
 const DECISIONS_VIEWS = ["decisions", "research", "assets"];
-const PRIMARY_VIEWS = ["dashboard", "setup", "signals", "decisions", "advisor"];
+const PRIMARY_VIEWS = ["dashboard", "setup", "signals", "decisions", "polymarket", "advisor"];
 const docsPrinciples = [
   {
     title: "Bounded agents, not free-form autonomy",
@@ -287,6 +323,7 @@ const getEvaluation = () => getData().evaluation || EMPTY_DATA.evaluation;
 const getResearch = () => getData().research || EMPTY_DATA.research;
 const getReviews = () => getData().reviews || EMPTY_DATA.reviews;
 const getAdvisor = () => getData().advisor || EMPTY_DATA.advisor;
+const getPolymarket = () => getData().polymarket || EMPTY_DATA.polymarket;
 const getRuntime = () => getData().runtime || EMPTY_DATA.runtime;
 const isDeveloperView = (view = state.view) => DEVELOPER_VIEWS.includes(view);
 const isDecisionsView = (view = state.view) => DECISIONS_VIEWS.includes(view);
@@ -298,6 +335,7 @@ const PAGE_VIEW_CLASS_MAP = {
   setup: "portfolio",
   signals: "feed",
   decisions: "decisions",
+  polymarket: "polymarket",
   advisor: "advisor",
   research: "decisions-detail",
   assets: "decisions-detail",
@@ -1606,6 +1644,23 @@ function renderJsonBlock(value) {
   return `<pre class="code-block">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
 }
 
+function renderPolymarketTextList(title, items = []) {
+  const cleanedItems = (items || []).map((item) => String(item || "").trim()).filter(Boolean);
+
+  if (!cleanedItems.length) {
+    return "";
+  }
+
+  return `
+    <div class="polymarket-text-block">
+      <strong>${escapeHtml(title)}</strong>
+      <ul class="research-evidence-list">${cleanedItems
+        .map((item) => `<li>${escapeHtml(item)}</li>`)
+        .join("")}</ul>
+    </div>
+  `;
+}
+
 function getSourceBeingEdited() {
   return getData().sources.find((source) => source.id === state.editingSourceId) || null;
 }
@@ -1618,6 +1673,42 @@ function getLatestAdvisorAnswer() {
   return state.advisorAnswer || getAdvisor().history[0] || null;
 }
 
+function getPolymarketStatusData() {
+  return (
+    state.polymarketStatus || {
+      config: getPolymarket().config || EMPTY_DATA.polymarket.config,
+      summary: getPolymarket().summary || EMPTY_DATA.polymarket.summary,
+      recentAnalyses: getPolymarket().recentAnalyses || [],
+      recentOrders: getPolymarket().recentOrders || [],
+      geoblock: null
+    }
+  );
+}
+
+function getPolymarketRecentAnalyses() {
+  return getPolymarket().recentAnalyses || [];
+}
+
+function getPolymarketRecentOrders() {
+  return getPolymarket().recentOrders || [];
+}
+
+function getSelectedPolymarketMarket() {
+  return (
+    state.polymarketMarkets.find((market) => market.id === state.selectedPolymarketMarketId) ||
+    state.polymarketMarkets[0] ||
+    null
+  );
+}
+
+function getLatestPolymarketAnalysisForMarket(marketId) {
+  return getPolymarketRecentAnalyses().find((analysis) => analysis.marketId === marketId) || null;
+}
+
+function getLatestPolymarketOrderForMarket(marketId) {
+  return getPolymarketRecentOrders().find((orderAttempt) => orderAttempt.marketId === marketId) || null;
+}
+
 function formatCurrency(value) {
   const numericValue = Number(value || 0);
   return Number.isFinite(numericValue)
@@ -1627,6 +1718,40 @@ function formatCurrency(value) {
         maximumFractionDigits: 0
       })
     : "€0";
+}
+
+function formatUsdValue(value) {
+  const numericValue = Number(value || 0);
+  return Number.isFinite(numericValue)
+    ? numericValue.toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: numericValue >= 100 ? 0 : 2,
+        maximumFractionDigits: numericValue >= 100 ? 0 : 2
+      })
+    : "$0.00";
+}
+
+function formatPolymarketProbability(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return "Pending";
+  }
+
+  return `${(numericValue * 100).toFixed(1)}%`;
+}
+
+function buildSuggestedPolymarketSize(market, analysis = null) {
+  const minimumSize = Number(market?.orderMinSize || 0);
+  const price = Number(analysis?.limitPrice || market?.displayProbability || market?.outcomes?.[0]?.price || 0);
+  const maxRiskUsd = Number(analysis?.maxRiskUsd || 0);
+
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(maxRiskUsd) || maxRiskUsd <= 0) {
+    return minimumSize || 5;
+  }
+
+  return Math.max(minimumSize || 0, Number((maxRiskUsd / price).toFixed(2)));
 }
 
 function buildProfileDocumentDraft(profile = EMPTY_DATA.advisor.financialProfile) {
@@ -2590,6 +2715,164 @@ async function askAdvisor(form) {
   }
 }
 
+async function loadPolymarketWorkspace({
+  search = state.polymarketSearch,
+  silent = false
+} = {}) {
+  state.isPolymarketLoading = true;
+  state.polymarketError = "";
+  state.polymarketSearch = String(search || "").trim();
+
+  if (!silent) {
+    render();
+  }
+
+  try {
+    const searchParams = new URLSearchParams({
+      limit: "24"
+    });
+
+    if (state.polymarketSearch) {
+      searchParams.set("search", state.polymarketSearch);
+    }
+
+    const [statusResponse, marketsResponse] = await Promise.all([
+      fetch("/api/polymarket/status", {
+        cache: "no-store"
+      }),
+      fetch(`/api/polymarket/markets?${searchParams.toString()}`, {
+        cache: "no-store"
+      })
+    ]);
+
+    if (!statusResponse.ok) {
+      throw new Error(await parseError(statusResponse, "Failed to load the Polymarket status."));
+    }
+
+    if (!marketsResponse.ok) {
+      throw new Error(await parseError(marketsResponse, "Failed to load Polymarket markets."));
+    }
+
+    state.polymarketStatus = await statusResponse.json();
+    state.polymarketMarkets = (await marketsResponse.json()).markets || [];
+
+    if (
+      !state.selectedPolymarketMarketId ||
+      !state.polymarketMarkets.some((market) => market.id === state.selectedPolymarketMarketId)
+    ) {
+      state.selectedPolymarketMarketId = state.polymarketMarkets[0]?.id || "";
+    }
+  } catch (error) {
+    state.polymarketError =
+      error instanceof Error ? error.message : "Failed to load the Polymarket workspace.";
+  } finally {
+    state.isPolymarketLoading = false;
+    render();
+  }
+}
+
+function setPolymarketMarket(marketId) {
+  state.selectedPolymarketMarketId = String(marketId || "").trim();
+  state.polymarketError = "";
+  render();
+}
+
+async function runPolymarketAnalysis(form) {
+  const formData = new FormData(form);
+
+  state.isRunningPolymarketAnalysis = true;
+  state.polymarketError = "";
+  state.operatorNotice = "";
+  render();
+
+  try {
+    const response = await fetch("/api/polymarket/analyse", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        marketId: String(formData.get("marketId") || "").trim(),
+        preferredOutcome: String(formData.get("preferredOutcome") || "").trim(),
+        thesisNote: String(formData.get("thesisNote") || "").trim(),
+        maxRiskUsd: Number(formData.get("maxRiskUsd") || 25),
+        trigger: "ui"
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to run the Polymarket bet agent."));
+    }
+
+    const payload = await response.json();
+    state.selectedPolymarketMarketId = payload.analysis?.marketId || state.selectedPolymarketMarketId;
+    state.operatorNotice = `Polymarket analysis saved for ${payload.analysis?.question || "the selected market"}.`;
+
+    await Promise.all([
+      loadData({ refresh: true }),
+      loadPolymarketWorkspace({
+        search: state.polymarketSearch,
+        silent: true
+      })
+    ]);
+  } catch (error) {
+    state.polymarketError =
+      error instanceof Error ? error.message : "Failed to run the Polymarket bet agent.";
+  } finally {
+    state.isRunningPolymarketAnalysis = false;
+    render();
+  }
+}
+
+async function submitPolymarketOrder(form) {
+  const formData = new FormData(form);
+
+  state.isSubmittingPolymarketOrder = true;
+  state.polymarketError = "";
+  state.operatorNotice = "";
+  render();
+
+  try {
+    const response = await fetch("/api/polymarket/orders", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        analysisId: String(formData.get("analysisId") || "").trim(),
+        marketId: String(formData.get("marketId") || "").trim(),
+        outcomeName: String(formData.get("outcomeName") || "").trim(),
+        price: Number(formData.get("price") || 0),
+        size: Number(formData.get("size") || 0),
+        side: "BUY",
+        orderType: String(formData.get("orderType") || "GTC").trim(),
+        trigger: "ui"
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to place the Polymarket order."));
+    }
+
+    const payload = await response.json();
+    state.operatorNotice = `Polymarket order recorded for ${payload.orderAttempt?.selectedOutcome || "the selected outcome"}.`;
+
+    await Promise.all([
+      loadData({ refresh: true }),
+      loadPolymarketWorkspace({
+        search: state.polymarketSearch,
+        silent: true
+      })
+    ]);
+  } catch (error) {
+    state.polymarketError =
+      error instanceof Error ? error.message : "Failed to place the Polymarket order.";
+  } finally {
+    state.isSubmittingPolymarketOrder = false;
+    render();
+  }
+}
+
 async function submitSourceForm(form) {
   const formData = new FormData(form);
   const payload = {
@@ -2964,6 +3247,12 @@ function setView(view) {
       });
     }
   }
+  if (view === "polymarket" && (!state.polymarketStatus || !state.polymarketMarkets.length)) {
+    loadPolymarketWorkspace({
+      search: state.polymarketSearch,
+      silent: true
+    });
+  }
   render();
 }
 
@@ -3269,6 +3558,44 @@ function attachListeners() {
       askAdvisor(form);
     });
   });
+
+  document.querySelectorAll("[data-polymarket-refresh]").forEach((button) => {
+    button.addEventListener("click", () => {
+      loadPolymarketWorkspace({
+        search: state.polymarketSearch
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-select-polymarket-market]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setPolymarketMarket(button.dataset.selectPolymarketMarket);
+    });
+  });
+
+  document.querySelectorAll("[data-polymarket-search-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const formData = new FormData(form);
+      loadPolymarketWorkspace({
+        search: String(formData.get("search") || "").trim()
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-polymarket-analyse-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      runPolymarketAnalysis(form);
+    });
+  });
+
+  document.querySelectorAll("[data-polymarket-order-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitPolymarketOrder(form);
+    });
+  });
 }
 
 function renderEmptyState(title, copy) {
@@ -3395,6 +3722,7 @@ function renderNav() {
   const setupState = buildSingleUserSetupState(profile);
   const researchSummary = getResearchSummary();
   const reviewSummary = getReviewSummary();
+  const polymarketSummary = getPolymarket().summary || EMPTY_DATA.polymarket.summary;
   const trackedAssets = buildTrackedPortfolioAnalytics(profile).trackedAssets.length;
   const scheduler = getRuntime().scheduler || EMPTY_DATA.runtime.scheduler;
   const primaryItems = [
@@ -3410,6 +3738,15 @@ function renderNav() {
         getData().decisions.length ||
         0
       } active`
+    ],
+    [
+      "polymarket",
+      "Polymarket Bets",
+      polymarketSummary.buyReadyCount
+        ? `${polymarketSummary.buyReadyCount} live ideas`
+        : polymarketSummary.analysisCount
+          ? `${polymarketSummary.analysisCount} analysed`
+          : "Bet desk"
     ],
     ["advisor", "Advisor", getAdvisor().history.length ? `${getAdvisor().history.length} answers` : "Ask away"]
   ];
@@ -6347,6 +6684,524 @@ function renderSignalsPage() {
   `;
 }
 
+function renderPolymarketView() {
+  const status = getPolymarketStatusData();
+  const summary = status.summary || EMPTY_DATA.polymarket.summary;
+  const geoblock = status.geoblock || null;
+  const selectedMarket = getSelectedPolymarketMarket();
+  const selectedAnalysis = selectedMarket
+    ? getLatestPolymarketAnalysisForMarket(selectedMarket.id)
+    : getPolymarketRecentAnalyses()[0] || null;
+  const selectedOrder = selectedMarket
+    ? getLatestPolymarketOrderForMarket(selectedMarket.id)
+    : getPolymarketRecentOrders()[0] || null;
+  const selectedOutcome =
+    selectedAnalysis?.selectedOutcome || selectedMarket?.outcomes?.[0]?.name || "";
+  const selectedOutcomePrice =
+    selectedMarket?.outcomes?.find((outcome) => outcome.name === selectedOutcome)?.price ??
+    selectedMarket?.displayProbability ??
+    0.5;
+  const suggestedSize = buildSuggestedPolymarketSize(selectedMarket, selectedAnalysis);
+  const tradingDisabledReason = geoblock?.blocked
+    ? `Live order placement is blocked from ${geoblock.country || "this IP"}${geoblock.region ? `/${geoblock.region}` : ""}.`
+    : !status.config?.tradingConfigured
+      ? "Add Polymarket credentials in .env to enable live order placement."
+      : "";
+
+  return `
+    <main class="office-content page-main page-polymarket-main">
+      ${renderStatusBanner()}
+      ${renderOperatorNotice()}
+      ${
+        state.polymarketError
+          ? `
+            <article class="office-panel status-inline status-inline-error">
+              <strong>Polymarket issue</strong>
+              <p>${escapeHtml(state.polymarketError)}</p>
+            </article>
+          `
+          : ""
+      }
+      <section class="office-panel office-summary-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Polymarket Bets</span>
+            <h2>Run a bounded bet agent, then gate live orders through the same operator workflow</h2>
+          </div>
+          <div class="office-form-actions">
+            <button class="mini-chip" type="button" data-polymarket-refresh>
+              ${state.isPolymarketLoading ? "Refreshing..." : "Refresh markets"}
+            </button>
+          </div>
+        </div>
+        <div class="office-summary-grid">
+          <article class="office-metric">
+            <span>Analyses</span>
+            <strong>${summary.analysisCount || 0}</strong>
+            <small>${summary.buyReadyCount || 0} buy-ready ideas</small>
+          </article>
+          <article class="office-metric">
+            <span>Order attempts</span>
+            <strong>${summary.orderCount || 0}</strong>
+            <small>${summary.submittedCount || 0} submitted</small>
+          </article>
+          <article class="office-metric">
+            <span>Trading config</span>
+            <strong>${status.config?.tradingConfigured ? "Ready" : "Keys missing"}</strong>
+            <small>${escapeHtml(status.config?.signatureLabel || "eoa")}</small>
+          </article>
+          <article class="office-metric">
+            <span>Geoblock</span>
+            <strong>${
+              geoblock?.available === false
+                ? "Unknown"
+                : geoblock?.blocked
+                  ? "Blocked"
+                  : "Eligible"
+            }</strong>
+            <small>${
+              geoblock?.available === false
+                ? escapeHtml(geoblock.error || "Live check unavailable")
+                : geoblock?.country
+                  ? `${escapeHtml(geoblock.country)}${geoblock.region ? ` / ${escapeHtml(geoblock.region)}` : ""}`
+                  : "Awaiting lookup"
+            }</small>
+          </article>
+        </div>
+      </section>
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Market feed</span>
+              <h3>Search active Polymarket markets</h3>
+            </div>
+          </div>
+          <form class="operator-form office-form" data-polymarket-search-form>
+            <label class="form-field">
+              <span>Search</span>
+              <input
+                name="search"
+                value="${escapeHtml(state.polymarketSearch || "")}"
+                placeholder="Fed, tariffs, OpenAI, Ukraine, earnings..."
+              />
+            </label>
+            <div class="office-form-actions">
+              <button class="refresh-button" type="submit" ${
+                state.isPolymarketLoading ? "disabled" : ""
+              }>
+                ${state.isPolymarketLoading ? "Searching..." : "Search markets"}
+              </button>
+              <button class="mini-chip" type="button" data-polymarket-refresh>
+                Default view
+              </button>
+            </div>
+          </form>
+          ${
+            state.isPolymarketLoading && !state.polymarketMarkets.length
+              ? `
+                <article class="status-inline">
+                  <strong>Loading markets</strong>
+                  <p>Pulling the latest active Polymarket list and trading status.</p>
+                </article>
+              `
+              : state.polymarketMarkets.length
+                ? `
+                  <div class="operator-list">
+                    ${state.polymarketMarkets
+                      .map(
+                        (market) => `
+                          <button
+                            class="replay-button ${state.selectedPolymarketMarketId === market.id ? "is-active" : ""}"
+                            type="button"
+                            data-select-polymarket-market="${escapeHtml(market.id)}"
+                          >
+                            <strong>${escapeHtml(market.question)}</strong>
+                            <span>${escapeHtml(market.eventTitle || "Polymarket")}</span>
+                            <p>${escapeHtml(market.eventContext || market.description || "No market context available.")}</p>
+                            <div class="tag-row">
+                              ${market.outcomes
+                                .map(
+                                  (outcome) => `
+                                    <span class="tag">${escapeHtml(outcome.name)} ${formatPolymarketProbability(
+                                      outcome.price
+                                    )}</span>
+                                  `
+                                )
+                                .join("")}
+                              <span class="tag">${formatUsdValue(market.volume24hr || 0)} 24h</span>
+                              <span class="tag">Spread ${formatPolymarketProbability(market.spread || 0)}</span>
+                              <span class="tag">${market.feesEnabled ? "Fees on" : "Fee-free now"}</span>
+                            </div>
+                          </button>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                `
+                : `
+                  <article class="status-inline">
+                    <strong>No markets found</strong>
+                    <p>Broaden the search terms or reload the default active market feed.</p>
+                  </article>
+                `
+          }
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Bet workspace</span>
+              <h3>${selectedMarket ? escapeHtml(selectedMarket.question) : "Select a market"}</h3>
+            </div>
+          </div>
+          ${
+            selectedMarket
+              ? `
+                <div class="context-grid">
+                  <article class="context-item">
+                    <span>Displayed price</span>
+                    <strong>${formatPolymarketProbability(selectedMarket.displayProbability)}</strong>
+                  </article>
+                  <article class="context-item">
+                    <span>Source</span>
+                    <strong>${escapeHtml(selectedMarket.displayPriceSource || "midpoint")}</strong>
+                  </article>
+                  <article class="context-item">
+                    <span>Liquidity</span>
+                    <strong>${formatUsdValue(selectedMarket.liquidity || 0)}</strong>
+                  </article>
+                  <article class="context-item">
+                    <span>24h volume</span>
+                    <strong>${formatUsdValue(selectedMarket.volume24hr || 0)}</strong>
+                  </article>
+                  <article class="context-item">
+                    <span>Min size</span>
+                    <strong>${selectedMarket.orderMinSize || 0} shares</strong>
+                  </article>
+                  <article class="context-item">
+                    <span>Fees</span>
+                    <strong>${selectedMarket.feesEnabled ? "Enabled" : "Currently off"}</strong>
+                  </article>
+                </div>
+                <article class="research-linked-card">
+                  <div class="research-card-meta">
+                    <span class="tag">${selectedMarket.active ? "Active" : "Closed"}</span>
+                    <span class="tag">${selectedMarket.acceptingOrders ? "Accepting orders" : "Orders paused"}</span>
+                    ${
+                      selectedMarket.endDate
+                        ? `<span class="tag">Ends ${formatGeneratedAt(selectedMarket.endDate)}</span>`
+                        : ""
+                    }
+                  </div>
+                  <p>${escapeHtml(selectedMarket.eventContext || selectedMarket.description || "No market description available.")}</p>
+                  <div class="tag-row">
+                    ${selectedMarket.outcomes
+                      .map(
+                        (outcome) => `
+                          <span class="tag">
+                            ${escapeHtml(outcome.name)} ${formatPolymarketProbability(outcome.price)}
+                          </span>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                </article>
+                <form class="operator-form office-form" data-polymarket-analyse-form>
+                  <input type="hidden" name="marketId" value="${escapeHtml(selectedMarket.id)}" />
+                  <div class="field-grid">
+                    <label class="form-field">
+                      <span>Preferred outcome</span>
+                      <select name="preferredOutcome">
+                        ${selectedMarket.outcomes
+                          .map(
+                            (outcome) => `
+                              <option value="${escapeHtml(outcome.name)}" ${
+                                selectedOutcome === outcome.name ? "selected" : ""
+                              }>
+                                ${escapeHtml(outcome.name)}
+                              </option>
+                            `
+                          )
+                          .join("")}
+                      </select>
+                    </label>
+                    <label class="form-field">
+                      <span>Max risk (USDC)</span>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        name="maxRiskUsd"
+                        value="${escapeHtml(String(selectedAnalysis?.maxRiskUsd || 25))}"
+                      />
+                    </label>
+                  </div>
+                  <label class="form-field">
+                    <span>Operator thesis or fresh evidence</span>
+                    <textarea
+                      name="thesisNote"
+                      rows="5"
+                      placeholder="Why is this outcome mispriced? Paste the key evidence here."
+                    >${escapeHtml(selectedAnalysis?.operatorInput?.thesisNote || "")}</textarea>
+                  </label>
+                  <div class="office-form-actions">
+                    <button class="refresh-button" type="submit" ${
+                      state.isRunningPolymarketAnalysis ? "disabled" : ""
+                    }>
+                      ${state.isRunningPolymarketAnalysis ? "Running bet agent..." : "Run bet agent"}
+                    </button>
+                  </div>
+                </form>
+                ${
+                  selectedAnalysis
+                    ? `
+                      <article class="research-linked-card">
+                        <div class="research-card-head">
+                          <div>
+                            <strong>${escapeHtml(selectedAnalysis.headline || "Latest analysis")}</strong>
+                            <span>${formatGeneratedAt(selectedAnalysis.createdAt)}</span>
+                          </div>
+                          <span class="decision-badge decision-${
+                            selectedAnalysis.decision === "BUY" ? "buy" : "hold"
+                          }">
+                            ${escapeHtml(selectedAnalysis.decision)}
+                          </span>
+                        </div>
+                        <p>${escapeHtml(selectedAnalysis.thesis || "No thesis summary recorded yet.")}</p>
+                        <div class="context-grid">
+                          <article class="context-item">
+                            <span>Market</span>
+                            <strong>${formatPolymarketProbability(selectedAnalysis.marketImpliedProbability)}</strong>
+                          </article>
+                          <article class="context-item">
+                            <span>Estimate</span>
+                            <strong>${formatPolymarketProbability(selectedAnalysis.estimatedProbability)}</strong>
+                          </article>
+                          <article class="context-item">
+                            <span>Edge</span>
+                            <strong>${selectedAnalysis.edgePoints > 0 ? "+" : ""}${selectedAnalysis.edgePoints} pts</strong>
+                          </article>
+                          <article class="context-item">
+                            <span>Max risk</span>
+                            <strong>${formatUsdValue(selectedAnalysis.maxRiskUsd || 0)}</strong>
+                          </article>
+                        </div>
+                        <div class="tag-row">
+                          <span class="tag">${escapeHtml(selectedAnalysis.selectedOutcome || "Outcome")}</span>
+                          <span class="tag">${escapeHtml(selectedAnalysis.sizeBand || "watch")}</span>
+                          <span class="tag">Limit ${formatPolymarketProbability(selectedAnalysis.limitPrice)}</span>
+                        </div>
+                        ${renderPolymarketTextList("Why it matters", selectedAnalysis.rationale || [])}
+                        ${renderPolymarketTextList("Risks", selectedAnalysis.risks || [])}
+                      </article>
+                    `
+                    : `
+                      <article class="status-inline">
+                        <strong>No bet analysis yet</strong>
+                        <p>Pick a market, add your thesis, and run the bounded Polymarket agent.</p>
+                      </article>
+                    `
+                }
+              `
+              : `
+                <article class="status-inline">
+                  <strong>Select a market first</strong>
+                  <p>Choose one active market from the left column to run analysis and prepare an order.</p>
+                </article>
+              `
+          }
+        </section>
+      </section>
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Live order</span>
+              <h3>Submit a bounded limit order</h3>
+            </div>
+          </div>
+          ${
+            selectedMarket
+              ? `
+                <form class="operator-form office-form" data-polymarket-order-form>
+                  <input type="hidden" name="analysisId" value="${escapeHtml(selectedAnalysis?.id || "")}" />
+                  <input type="hidden" name="marketId" value="${escapeHtml(selectedMarket.id)}" />
+                  <div class="field-grid">
+                    <label class="form-field">
+                      <span>Outcome</span>
+                      <select name="outcomeName">
+                        ${selectedMarket.outcomes
+                          .map(
+                            (outcome) => `
+                              <option value="${escapeHtml(outcome.name)}" ${
+                                selectedOutcome === outcome.name ? "selected" : ""
+                              }>
+                                ${escapeHtml(outcome.name)}
+                              </option>
+                            `
+                          )
+                          .join("")}
+                      </select>
+                    </label>
+                    <label class="form-field">
+                      <span>Order type</span>
+                      <select name="orderType">
+                        <option value="GTC" selected>GTC</option>
+                      </select>
+                    </label>
+                    <label class="form-field">
+                      <span>Limit price</span>
+                      <input
+                        type="number"
+                        step="${escapeHtml(String(selectedMarket.orderPriceMinTickSize || 0.01))}"
+                        min="0.001"
+                        max="0.999"
+                        name="price"
+                        value="${escapeHtml(String(selectedAnalysis?.limitPrice || selectedOutcomePrice || 0.5))}"
+                      />
+                    </label>
+                    <label class="form-field">
+                      <span>Shares</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="${escapeHtml(String(selectedMarket.orderMinSize || 0))}"
+                        name="size"
+                        value="${escapeHtml(String(selectedAnalysis?.recommendedSize || suggestedSize))}"
+                      />
+                    </label>
+                  </div>
+                  <p class="subtle">
+                    ${
+                      tradingDisabledReason
+                        ? escapeHtml(tradingDisabledReason)
+                        : "The backend checks geoblock eligibility and records every attempt in Telegram notifications and local history."
+                    }
+                  </p>
+                  <div class="office-form-actions">
+                    <button
+                      class="refresh-button"
+                      type="submit"
+                      ${
+                        state.isSubmittingPolymarketOrder ||
+                        !selectedMarket.acceptingOrders ||
+                        Boolean(tradingDisabledReason)
+                          ? "disabled"
+                          : ""
+                      }
+                    >
+                      ${
+                        state.isSubmittingPolymarketOrder
+                          ? "Submitting order..."
+                          : "Place live bet"
+                      }
+                    </button>
+                  </div>
+                </form>
+              `
+              : `
+                <article class="status-inline">
+                  <strong>No market selected</strong>
+                  <p>Pick a market first so the order form can prefill its tick size and minimum size.</p>
+                </article>
+              `
+          }
+          ${
+            selectedOrder
+              ? `
+                <article class="research-linked-card">
+                  <div class="research-card-head">
+                    <div>
+                      <strong>Latest order attempt</strong>
+                      <span>${formatGeneratedAt(selectedOrder.createdAt)}</span>
+                    </div>
+                    <span class="tag">${escapeHtml(selectedOrder.status || "pending")}</span>
+                  </div>
+                  <p>${escapeHtml(selectedOrder.errorMessage || selectedOrder.question || "Most recent attempt recorded.")}</p>
+                  <div class="tag-row">
+                    <span class="tag">${escapeHtml(selectedOrder.selectedOutcome || "Outcome")}</span>
+                    <span class="tag">${selectedOrder.size || 0} shares</span>
+                    <span class="tag">${formatUsdValue(selectedOrder.estimatedCost || 0)}</span>
+                    ${
+                      selectedOrder.providerOrderId
+                        ? `<span class="tag">${escapeHtml(selectedOrder.providerOrderId)}</span>`
+                        : ""
+                    }
+                  </div>
+                </article>
+              `
+              : ""
+          }
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Recent activity</span>
+              <h3>Saved analyses and order attempts</h3>
+            </div>
+          </div>
+          <div class="operator-list">
+            ${
+              getPolymarketRecentAnalyses().length
+                ? getPolymarketRecentAnalyses()
+                    .slice(0, 6)
+                    .map(
+                      (analysis) => `
+                        <article class="operator-card">
+                          <div class="operator-card-head">
+                            <div>
+                              <strong>${escapeHtml(analysis.question || analysis.marketSlug || "Polymarket market")}</strong>
+                              <span>${formatGeneratedAt(analysis.createdAt)}</span>
+                            </div>
+                            <span class="decision-badge decision-${analysis.decision === "BUY" ? "buy" : "hold"}">
+                              ${escapeHtml(analysis.decision)}
+                            </span>
+                          </div>
+                          <p>${escapeHtml(analysis.thesis || analysis.telegramSummary || "No thesis recorded.")}</p>
+                          <div class="tag-row">
+                            <span class="tag">${escapeHtml(analysis.selectedOutcome || "Outcome")}</span>
+                            <span class="tag">${analysis.edgePoints > 0 ? "+" : ""}${analysis.edgePoints} pts</span>
+                            <span class="tag">${formatUsdValue(analysis.maxRiskUsd || 0)}</span>
+                          </div>
+                        </article>
+                      `
+                    )
+                    .join("")
+                : '<article class="status-inline"><strong>No Polymarket history yet</strong><p>Your analyses and order attempts will appear here after the first run.</p></article>'
+            }
+            ${
+              getPolymarketRecentOrders().length
+                ? getPolymarketRecentOrders()
+                    .slice(0, 4)
+                    .map(
+                      (orderAttempt) => `
+                        <article class="operator-card">
+                          <div class="operator-card-head">
+                            <div>
+                              <strong>${escapeHtml(orderAttempt.question || "Order attempt")}</strong>
+                              <span>${formatGeneratedAt(orderAttempt.createdAt)}</span>
+                            </div>
+                            <span class="tag">${escapeHtml(orderAttempt.status || "pending")}</span>
+                          </div>
+                          <p>${escapeHtml(orderAttempt.errorMessage || "Order attempt recorded.")}</p>
+                          <div class="tag-row">
+                            <span class="tag">${escapeHtml(orderAttempt.selectedOutcome || "Outcome")}</span>
+                            <span class="tag">${orderAttempt.size || 0} shares</span>
+                            <span class="tag">${formatUsdValue(orderAttempt.estimatedCost || 0)}</span>
+                          </div>
+                        </article>
+                      `
+                    )
+                    .join("")
+                : ""
+            }
+          </div>
+        </section>
+      </section>
+    </main>
+  `;
+}
+
 function renderAdvisorView() {
   const advisor = getAdvisor();
   const profile = advisor.financialProfile || EMPTY_DATA.advisor.financialProfile;
@@ -7265,6 +8120,10 @@ function renderContent() {
 
   if (state.view === "decisions") {
     return renderDecisionsPage();
+  }
+
+  if (state.view === "polymarket") {
+    return renderPolymarketView();
   }
 
   if (state.view === "tests") {

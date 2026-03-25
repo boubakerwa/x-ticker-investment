@@ -43,6 +43,15 @@ body {
   font-family: var(--font-body);
 }
 
+.polymarket-text-block {
+  margin-top: 1rem;
+}
+
+.polymarket-text-block strong {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
 button,
 input,
 select,
