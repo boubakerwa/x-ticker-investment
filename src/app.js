@@ -1029,6 +1029,13 @@ function renderDecisionMathBlock(decisionMath) {
   `;
 }
 
+function renderCorroborationBadge(sourceCount) {
+  if (!sourceCount) return "";
+  const label = sourceCount >= 3 ? `${sourceCount} sources` : sourceCount === 2 ? "2 sources" : "1 source";
+  const cls = sourceCount >= 3 ? "tag tag-corroboration-high" : sourceCount === 2 ? "tag tag-corroboration-mid" : "tag tag-warning";
+  return `<span class="${cls}">${label}</span>`;
+}
+
 function renderDecisionMathSummary(decisionMath) {
   if (!decisionMath) {
     return `<p class="subtle">Decision math pending.</p>`;
@@ -1232,7 +1239,7 @@ function renderDecisionReviewActions(reviewId, reviewStatus = "proposed", extraA
 
 function renderDecisionReviewGate(reviewId, reviewStatus, decision = null, research = null) {
   const researchAction = research
-    ? `<button class="mini-chip" type="button" data-view="decisions">Open Decisions</button>`
+    ? `<button class="mini-chip" type="button" data-view="research">Open Research</button>`
     : "";
 
   if (!isResearchEligibleForReview(research)) {
@@ -5120,32 +5127,76 @@ function renderDecisionsPage() {
               ? `
                 <div class="decision-room-list">
                   ${visibleQueue
-                    .map(
-                      (item) => `
+                    .map((item) => {
+                      const evidencePosts = sortPostsByCreatedAt(
+                        getData().posts.filter((post) =>
+                          getPostExposureTickers(post, profile).includes(item.asset)
+                        )
+                      ).slice(0, 2);
+                      const sourceCount = new Set(
+                        getData().posts
+                          .filter((post) => getPostExposureTickers(post, profile).includes(item.asset))
+                          .map((post) => post.sourceId)
+                      ).size;
+                      const counterArg = item.whyNot?.[0];
+                      const uncertaintyFlag = item.uncertainty?.[0];
+
+                      return `
                         <article class="decision-room-card">
                           <div class="decision-topline">
                             <div>
                               <strong><button class="inline-link" data-asset="${item.asset}">${item.asset}</button> ${item.action}</strong>
                               <p>${escapeHtml(item.summary || "No rationale captured yet.")}</p>
                             </div>
-                            ${renderDecisionReviewTag(item.reviewStatus)}
+                            <div class="decision-card-badges">
+                              ${renderDecisionReviewTag(item.reviewStatus)}
+                              ${renderCorroborationBadge(sourceCount)}
+                            </div>
                           </div>
                           <div class="chip-row">
                             <span class="tag">${formatPercent(item.confidence || 0)}</span>
-                            <span class="tag">${item.relatedPostCount || 0} posts</span>
+                            ${item.horizon ? `<span class="tag">${escapeHtml(item.horizon)}</span>` : ""}
                             ${
                               item.linkedResearch
                                 ? `<span class="tag">${escapeHtml(getResearchDossierHeadline(item.linkedResearch))}</span>`
-                                : '<span class="tag tag-warning">Research missing</span>'
+                                : '<span class="tag tag-warning">No linked research</span>'
                             }
                           </div>
+                          ${counterArg ? `
+                            <div class="decision-counter">
+                              <span class="decision-section-label">Counter</span>
+                              <p>${escapeHtml(counterArg)}</p>
+                            </div>
+                          ` : ""}
+                          ${evidencePosts.length ? `
+                            <div class="decision-evidence">
+                              <span class="decision-section-label">Signal evidence</span>
+                              ${evidencePosts.map((post) => {
+                                const src = getSource(post.sourceId);
+                                const snippet = post.body.length > 140 ? post.body.slice(0, 140) + "…" : post.body;
+                                return `
+                                  <div class="decision-evidence-item">
+                                    <span class="decision-evidence-source">${escapeHtml(src?.handle || post.sourceId)} · ${formatGeneratedAt(post.createdAt)}</span>
+                                    <p>${escapeHtml(snippet)}</p>
+                                  </div>
+                                `;
+                              }).join("")}
+                            </div>
+                          ` : ""}
+                          ${uncertaintyFlag ? `
+                            <div class="decision-uncertainty">
+                              <span class="decision-section-label">Watch</span>
+                              <p>${escapeHtml(uncertaintyFlag)}</p>
+                            </div>
+                          ` : ""}
                           ${renderDecisionMathSummary(getDecisionMath(item))}
                           <div class="office-form-actions">
                             ${renderDecisionReviewGate(item.id, item.reviewStatus, item, item.linkedResearch)}
+                            <button class="mini-chip" type="button" data-view="advisor">Ask Advisor</button>
                           </div>
                         </article>
-                      `
-                    )
+                      `;
+                    })
                     .join("")}
                 </div>
               `

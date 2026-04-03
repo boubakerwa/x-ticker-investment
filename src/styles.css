@@ -3158,8 +3158,96 @@ body {
 .decision-room-card,
 .feed-stream-card {
   display: grid;
-  gap: 0.6rem;
-  padding: 0.75rem 0.9rem;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem;
+}
+
+.decision-card-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.tag-corroboration-high {
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--buy);
+}
+
+.tag-corroboration-mid {
+  background: rgba(26, 43, 67, 0.08);
+  color: var(--muted);
+}
+
+.decision-section-label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+}
+
+.decision-counter,
+.decision-evidence,
+.decision-uncertainty {
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+}
+
+.decision-counter {
+  background: rgba(196, 75, 51, 0.06);
+  border-left: 2px solid rgba(196, 75, 51, 0.3);
+}
+
+.decision-counter p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #7a2f20;
+  line-height: 1.45;
+}
+
+.decision-evidence {
+  background: rgba(26, 43, 67, 0.04);
+  border-left: 2px solid var(--line);
+}
+
+.decision-evidence-item {
+  margin-top: 0.4rem;
+}
+
+.decision-evidence-item:first-of-type {
+  margin-top: 0;
+}
+
+.decision-evidence-source {
+  display: block;
+  margin-bottom: 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+
+.decision-evidence-item p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.decision-uncertainty {
+  background: rgba(212, 140, 20, 0.07);
+  border-left: 2px solid rgba(212, 140, 20, 0.4);
+}
+
+.decision-uncertainty p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #7a5200;
+  line-height: 1.45;
 }
 
 .decision-room-card .decision-topline,
