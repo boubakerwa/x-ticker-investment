@@ -218,8 +218,10 @@ const state = {
 const app = document.querySelector("#app");
 const actionFilters = ["ALL", "BUY", "HOLD", "SELL"];
 const DEVELOPER_VIEWS = ["admin", "tests", "sources", "logs", "docs"];
-const DECISIONS_VIEWS = ["decisions", "research", "assets"];
-const PRIMARY_VIEWS = ["dashboard", "setup", "signals", "decisions", "advisor"];
+const DECISIONS_VIEWS = ["decisions"];
+const RESEARCH_VIEWS = ["research", "assets"];
+const PRIMARY_VIEWS = ["dashboard", "signals", "research", "decisions"];
+const SETTINGS_VIEWS = ["setup", "advisor"];
 const docsPrinciples = [
   {
     title: "Bounded agents, not free-form autonomy",
@@ -290,17 +292,19 @@ const getAdvisor = () => getData().advisor || EMPTY_DATA.advisor;
 const getRuntime = () => getData().runtime || EMPTY_DATA.runtime;
 const isDeveloperView = (view = state.view) => DEVELOPER_VIEWS.includes(view);
 const isDecisionsView = (view = state.view) => DECISIONS_VIEWS.includes(view);
+const isResearchView = (view = state.view) => RESEARCH_VIEWS.includes(view);
+const isSettingsView = (view = state.view) => SETTINGS_VIEWS.includes(view);
 const isPrimaryView = (view = state.view) => PRIMARY_VIEWS.includes(view);
 const getPrimaryView = (view = state.view) =>
-  isDecisionsView(view) ? "decisions" : isPrimaryView(view) ? view : "";
+  isDecisionsView(view) ? "decisions" : isResearchView(view) ? "research" : isPrimaryView(view) ? view : "";
 const PAGE_VIEW_CLASS_MAP = {
   dashboard: "today",
   setup: "portfolio",
   signals: "feed",
   decisions: "decisions",
   advisor: "advisor",
-  research: "decisions-detail",
-  assets: "decisions-detail",
+  research: "research",
+  assets: "research",
   admin: "developer",
   tests: "developer",
   sources: "developer",
@@ -1025,6 +1029,13 @@ function renderDecisionMathBlock(decisionMath) {
   `;
 }
 
+function renderCorroborationBadge(sourceCount) {
+  if (!sourceCount) return "";
+  const label = sourceCount >= 3 ? `${sourceCount} sources` : sourceCount === 2 ? "2 sources" : "1 source";
+  const cls = sourceCount >= 3 ? "tag tag-corroboration-high" : sourceCount === 2 ? "tag tag-corroboration-mid" : "tag tag-warning";
+  return `<span class="${cls}">${label}</span>`;
+}
+
 function renderDecisionMathSummary(decisionMath) {
   if (!decisionMath) {
     return `<p class="subtle">Decision math pending.</p>`;
@@ -1228,7 +1239,7 @@ function renderDecisionReviewActions(reviewId, reviewStatus = "proposed", extraA
 
 function renderDecisionReviewGate(reviewId, reviewStatus, decision = null, research = null) {
   const researchAction = research
-    ? `<button class="mini-chip" type="button" data-view="decisions">Open Decisions</button>`
+    ? `<button class="mini-chip" type="button" data-view="research">Open Research</button>`
     : "";
 
   if (!isResearchEligibleForReview(research)) {
@@ -3399,19 +3410,9 @@ function renderNav() {
   const scheduler = getRuntime().scheduler || EMPTY_DATA.runtime.scheduler;
   const primaryItems = [
     ["dashboard", "Today", reviewSummary.proposedCount ? `${reviewSummary.proposedCount} to review` : "Clear"],
-    ["setup", "Portfolio", trackedAssets ? `${trackedAssets} tracked` : "Start here"],
     ["signals", "Feed", `${getRecentAnalysedPosts().length} posts`],
-    [
-      "decisions",
-      "Decisions",
-      `${
-        reviewSummary.proposedCount ||
-        researchSummary.candidateCount ||
-        getData().decisions.length ||
-        0
-      } active`
-    ],
-    ["advisor", "Advisor", getAdvisor().history.length ? `${getAdvisor().history.length} answers` : "Ask away"]
+    ["research", "Research", researchSummary.dossierCount ? `${researchSummary.dossierCount} dossiers` : "No theses yet"],
+    ["decisions", "Decisions", reviewSummary.proposedCount ? `${reviewSummary.proposedCount} pending` : "Queue clear"]
   ];
   const developerItems = [
     ["admin", "Operations"],
@@ -3426,40 +3427,12 @@ function renderNav() {
     <header class="office-header">
       <div class="office-titlebar">
         <div class="office-brand">
-          <img class="office-logo-lockup" src="/logo.svg" alt="X Ticker Investment" width="320" height="93" />
-          <div class="office-brand-copy">
-            <span class="eyebrow">Supervised AI investing desk</span>
-            <strong>Simple daily loop</strong>
-            <p>Feed, research, approval, and advice without the cockpit overload.</p>
-          </div>
+          <img class="office-logo-lockup" src="/logo.svg" alt="X Ticker Investment" width="220" height="64" />
         </div>
-        <div class="office-meta">
-          <div class="office-meta-pill">
-            <span>Updated</span>
-            <strong>${formatGeneratedAt(metadata.generatedAt)}</strong>
-          </div>
-          <div class="office-meta-pill">
-            <span>Feed</span>
-            <strong>${formatEnumLabel(feedMode)}</strong>
-          </div>
-          <div class="office-meta-pill">
-            <span>Scheduler</span>
-            <strong>${scheduler.active ? scheduler.scheduleDescription || "Scheduled" : "Manual"}</strong>
-          </div>
-          <div class="office-meta-pill">
-            <span>Setup</span>
-            <strong>${setupState.completedCount}/4</strong>
-          </div>
-          <button class="refresh-button office-refresh" data-refresh>
-            ${state.isRefreshing ? "Refreshing..." : "Refresh"}
-          </button>
-          <button
-            class="developer-toggle ${state.developerMode ? "is-active" : ""}"
-            type="button"
-            data-toggle-developer-mode="${state.developerMode ? "0" : "1"}"
-          >
-            ${state.developerMode ? "Developer mode on" : "Developer mode"}
-          </button>
+        <div class="office-meta-strip">
+          <span class="office-meta-line">Updated ${formatGeneratedAt(metadata.generatedAt)} · ${formatEnumLabel(feedMode)} feed${reviewSummary.proposedCount ? ` · ${reviewSummary.proposedCount} pending` : ""}</span>
+          <button class="office-refresh-sm" data-refresh title="${state.isRefreshing ? "Refreshing…" : "Refresh data"}" ${state.isRefreshing ? "disabled" : ""}>↺</button>
+          <button class="settings-gear-btn" data-view="setup" title="Portfolio &amp; Settings">⚙</button>
         </div>
       </div>
       <div class="office-tabs">
@@ -3478,10 +3451,6 @@ function renderNav() {
         state.developerMode
           ? `
             <div class="developer-tray">
-              <div>
-                <span class="eyebrow">Developer mode</span>
-                <p>Diagnostics and low-level tooling stay here so the main product flow stays focused.</p>
-              </div>
               <div class="developer-chip-row">
                 ${developerItems
                   .map(
@@ -4778,11 +4747,8 @@ function renderAnalysedTweetsWindow() {
 function renderDashboard() {
   const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
   const setupState = buildSingleUserSetupState(profile);
-  const latestAnswer = getLatestAdvisorAnswer();
   const feedMode = getFeedMode();
   const trackedTickers = getTrackedAssetTickers(profile);
-  const cashSummary = buildProfileCashSummary(profile);
-  const { trackedAssets, actionableAssets, urgentAssets } = buildTrackedPortfolioAnalytics(profile);
   const recentSignals = sortPostsByCreatedAt(
     (trackedTickers.length
       ? getData().posts.filter((post) =>
@@ -4792,25 +4758,7 @@ function renderDashboard() {
     ).slice(0, 3)
   );
   const reviewSummary = getReviewSummary();
-  const researchSummary = getResearchSummary();
-  const researchDossiers = getResearchDossiers();
-  const featuredResearch = researchDossiers.find(
-    (dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate"
-  ) || researchDossiers[0] || null;
   const reviewQueue = getDecisionReviewQueue().slice(0, 4);
-  const nextReviewItem = reviewQueue.find((item) => item.reviewStatus === "proposed") || null;
-  const nextAction =
-    !setupState.hasDecisionFrame || !setupState.hasPortfolioContext
-      ? "Finish the essentials in Portfolio so the brief can become personal."
-      : reviewSummary.proposedCount
-        ? `Approve or dismiss ${nextReviewItem?.asset || "the next queued call"} in Decisions.`
-        : !setupState.hasRealSignalInput
-          ? "Bring in a few real posts in Feed before trusting the brief."
-          : featuredResearch && !isResearchApproved(featuredResearch)
-            ? `Move ${escapeHtml(getResearchDossierHeadline(featuredResearch, "the lead thesis"))} forward in Decisions.`
-            : urgentAssets.length
-              ? `Review ${urgentAssets[0]?.ticker || "the highest-priority asset"} first.`
-              : "You’re ready for the daily loop: Feed, Decisions, then Advisor.";
   const attentionItems = [];
 
   if (!setupState.hasDecisionFrame || !setupState.hasPortfolioContext) {
@@ -4843,64 +4791,54 @@ function renderDashboard() {
     });
   });
 
-  if (!reviewQueue.length && featuredResearch) {
-    attentionItems.push({
-      title: "Advance the lead research packet",
-      body: featuredResearch.summary || featuredResearch.thesis || "The lead thesis still needs validation or approval.",
-      actionView: "decisions",
-      actionLabel: "Review research"
-    });
-  }
+  const isFirstRun = setupState.completedCount === 0;
 
   return `
     <main class="office-content page-main page-today-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
-      <section class="office-panel today-hero-panel">
-        <div class="today-hero-grid">
-          <div class="today-hero-copy">
-            <span class="eyebrow">Today</span>
-            <h2>${reviewSummary.proposedCount ? "What needs attention now" : trackedAssets.length ? "Your morning brief is ready" : "Build the desk in a few minutes"}</h2>
-            <p>${nextAction}</p>
-            <div class="briefing-kicker-row">
-              <span class="tag">${reviewSummary.proposedCount ? `${reviewSummary.proposedCount} approvals waiting` : "Queue clear"}</span>
-              <span class="tag">${getRecentAnalysedPosts().length} recent posts</span>
-              <span class="tag">${trackedAssets.length ? `${trackedAssets.length} tracked names` : "Portfolio first"}</span>
+      ${isFirstRun ? `
+        <section class="office-panel onboarding-panel">
+          <span class="eyebrow">Get started</span>
+          <h2>Three steps to your first recommendation</h2>
+          <div class="onboarding-steps">
+            <div class="onboarding-step ${setupState.hasPortfolioContext ? "is-done" : "is-active"}">
+              <span class="onboarding-step-num">1</span>
+              <div>
+                <strong>Set up your portfolio</strong>
+                <p>Add your watchlist, holdings, and investing context.</p>
+                <button class="mini-chip" data-view="setup">Open Portfolio →</button>
+              </div>
+            </div>
+            <div class="onboarding-step ${setupState.hasRealSignalInput ? "is-done" : setupState.hasPortfolioContext ? "is-active" : ""}">
+              <span class="onboarding-step-num">2</span>
+              <div>
+                <strong>Add signal sources</strong>
+                <p>Connect X accounts you trust for market signals.</p>
+                <button class="mini-chip" data-view="signals">Open Feed →</button>
+              </div>
+            </div>
+            <div class="onboarding-step ${reviewQueue.length ? "is-done" : ""}">
+              <span class="onboarding-step-num">3</span>
+              <div>
+                <strong>Run your first pipeline</strong>
+                <p>Generate your first analysis and decision candidates.</p>
+                <button class="mini-chip" data-view="signals">Open Feed →</button>
+              </div>
             </div>
           </div>
-          <div class="today-hero-rail">
-            <article class="briefing-action-card">
-              <span class="eyebrow">Do this next</span>
-              <strong>${reviewSummary.proposedCount ? "Review the approval queue" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Finish portfolio essentials" : !setupState.hasRealSignalInput ? "Bring in real feed input" : "Stay in the daily loop"}</strong>
-              <p>${nextAction}</p>
-              <div class="office-form-actions">
-                <button class="refresh-button" type="button" data-view="${reviewSummary.proposedCount ? "decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "setup" : "signals"}">
-                  ${reviewSummary.proposedCount ? "Open Decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Open Portfolio" : "Open Feed"}
-                </button>
-                <button class="mini-chip" type="button" data-view="advisor">Ask Advisor</button>
-              </div>
-            </article>
-            <article class="briefing-summary-card">
-              <span>Queue pulse</span>
-              <strong>${reviewSummary.proposedCount ? `${reviewSummary.proposedCount} waiting` : "Clear"}</strong>
-              <p>${reviewSummary.reviewedCount} reviewed so far. ${featuredResearch ? `Lead thesis: ${escapeHtml(getResearchDossierHeadline(featuredResearch))}.` : "No lead thesis yet."}</p>
-            </article>
-            <article class="briefing-summary-card">
-              <span>Desk readiness</span>
-              <strong>${trackedAssets.length ? `${trackedAssets.length} names tracked` : "Portfolio first"}</strong>
-              <p>${formatEnumLabel(feedMode)} feed, ${profile.holdings.length} holdings, ${(profile.watchlist || []).length} watchlist names.</p>
-              <small>${cashSummary.emergencyCoverageMonths ? `${cashSummary.emergencyCoverageMonths} months emergency cover` : "Add cash context for stronger advice"}</small>
-            </article>
-          </div>
-        </div>
-      </section>
+        </section>
+      ` : ""}
       <section class="office-panel">
         <div class="office-panel-head">
           <div>
             <span class="eyebrow">Next up</span>
-            <h3>What needs your attention</h3>
+            <h3>${reviewSummary.proposedCount ? "What needs your attention" : "You're in good shape"}</h3>
           </div>
-          <button class="mini-chip" data-view="decisions">Open Decisions</button>
+          <div class="office-form-actions">
+            <button class="mini-chip" data-view="decisions">Decisions</button>
+            <button class="mini-chip" data-view="advisor">Ask Advisor</button>
+          </div>
         </div>
         <div class="office-checklist today-checklist">
           ${attentionItems.length
@@ -4995,68 +4933,6 @@ function renderDashboard() {
                 : `<article class="status-inline"><strong>No live posts yet</strong><p>Use Feed to import a few real posts and the brief will become much more useful.</p></article>`
             }
           </div>
-        </section>
-      </section>
-      <section class="office-grid office-grid-two">
-        <section class="office-panel">
-          <div class="office-panel-head">
-            <div>
-              <span class="eyebrow">Research</span>
-              <h3>Lead thesis in motion</h3>
-            </div>
-            <button class="mini-chip" data-view="decisions">Open Decisions</button>
-          </div>
-          ${
-            featuredResearch
-              ? `
-                <article class="research-linked-card">
-                  <div class="decision-topline">
-                    <strong>${escapeHtml(getResearchDossierHeadline(featuredResearch))}</strong>
-                    ${renderLifecyclePill(featuredResearch.status || featuredResearch.stage)}
-                  </div>
-                  <p>${escapeHtml(featuredResearch.thesis || featuredResearch.summary || "No thesis summary provided yet.")}</p>
-                  <div class="chip-row">
-                    <span class="tag">${researchSummary.dossierCount || researchDossiers.length} dossiers</span>
-                    <span class="tag">${researchSummary.approvedCount || 0} approved</span>
-                  </div>
-                </article>
-              `
-              : `<article class="status-inline"><strong>No research dossiers yet</strong><p>Capture your first thesis in Decisions before promoting ideas into the queue.</p></article>`
-          }
-        </section>
-        <section class="office-panel">
-          <div class="office-panel-head">
-            <div>
-              <span class="eyebrow">Advisor</span>
-              <h3>${latestAnswer ? latestAnswer.answer.headline : "Portfolio-aware guidance is ready when you are"}</h3>
-            </div>
-            <button class="mini-chip" data-view="advisor">Open advisor</button>
-          </div>
-          ${
-            latestAnswer
-              ? `
-                <p>${latestAnswer.answer.answer}</p>
-                <div class="office-inline-meta">
-                  <span>${latestAnswer.assetTicker}</span>
-                  <span>${latestAnswer.answer.stance}</span>
-                  <span>${formatPercent(latestAnswer.answer.confidence || 0)}</span>
-                </div>
-              `
-              : `
-                <div class="office-checklist">
-                  <div class="office-checklist-row ${setupState.hasDecisionFrame ? "is-complete" : ""}">
-                    <strong>Decision frame</strong>
-                    <span>${setupState.hasDecisionFrame ? "Ready" : "Needs input"}</span>
-                    <p>Add your watchlist, horizon, and a little investing context.</p>
-                  </div>
-                  <div class="office-checklist-row ${setupState.hasCashContext ? "is-complete" : ""}">
-                    <strong>Cash context</strong>
-                    <span>${setupState.hasCashContext ? "Ready" : "Optional but recommended"}</span>
-                    <p>Income, expenses, and emergency cash help the advice stay realistic.</p>
-                  </div>
-                </div>
-              `
-          }
         </section>
       </section>
     </main>
@@ -5251,32 +5127,76 @@ function renderDecisionsPage() {
               ? `
                 <div class="decision-room-list">
                   ${visibleQueue
-                    .map(
-                      (item) => `
+                    .map((item) => {
+                      const evidencePosts = sortPostsByCreatedAt(
+                        getData().posts.filter((post) =>
+                          getPostExposureTickers(post, profile).includes(item.asset)
+                        )
+                      ).slice(0, 2);
+                      const sourceCount = new Set(
+                        getData().posts
+                          .filter((post) => getPostExposureTickers(post, profile).includes(item.asset))
+                          .map((post) => post.sourceId)
+                      ).size;
+                      const counterArg = item.whyNot?.[0];
+                      const uncertaintyFlag = item.uncertainty?.[0];
+
+                      return `
                         <article class="decision-room-card">
                           <div class="decision-topline">
                             <div>
                               <strong><button class="inline-link" data-asset="${item.asset}">${item.asset}</button> ${item.action}</strong>
                               <p>${escapeHtml(item.summary || "No rationale captured yet.")}</p>
                             </div>
-                            ${renderDecisionReviewTag(item.reviewStatus)}
+                            <div class="decision-card-badges">
+                              ${renderDecisionReviewTag(item.reviewStatus)}
+                              ${renderCorroborationBadge(sourceCount)}
+                            </div>
                           </div>
                           <div class="chip-row">
                             <span class="tag">${formatPercent(item.confidence || 0)}</span>
-                            <span class="tag">${item.relatedPostCount || 0} posts</span>
+                            ${item.horizon ? `<span class="tag">${escapeHtml(item.horizon)}</span>` : ""}
                             ${
                               item.linkedResearch
                                 ? `<span class="tag">${escapeHtml(getResearchDossierHeadline(item.linkedResearch))}</span>`
-                                : '<span class="tag tag-warning">Research missing</span>'
+                                : '<span class="tag tag-warning">No linked research</span>'
                             }
                           </div>
+                          ${counterArg ? `
+                            <div class="decision-counter">
+                              <span class="decision-section-label">Counter</span>
+                              <p>${escapeHtml(counterArg)}</p>
+                            </div>
+                          ` : ""}
+                          ${evidencePosts.length ? `
+                            <div class="decision-evidence">
+                              <span class="decision-section-label">Signal evidence</span>
+                              ${evidencePosts.map((post) => {
+                                const src = getSource(post.sourceId);
+                                const snippet = post.body.length > 140 ? post.body.slice(0, 140) + "…" : post.body;
+                                return `
+                                  <div class="decision-evidence-item">
+                                    <span class="decision-evidence-source">${escapeHtml(src?.handle || post.sourceId)} · ${formatGeneratedAt(post.createdAt)}</span>
+                                    <p>${escapeHtml(snippet)}</p>
+                                  </div>
+                                `;
+                              }).join("")}
+                            </div>
+                          ` : ""}
+                          ${uncertaintyFlag ? `
+                            <div class="decision-uncertainty">
+                              <span class="decision-section-label">Watch</span>
+                              <p>${escapeHtml(uncertaintyFlag)}</p>
+                            </div>
+                          ` : ""}
                           ${renderDecisionMathSummary(getDecisionMath(item))}
                           <div class="office-form-actions">
                             ${renderDecisionReviewGate(item.id, item.reviewStatus, item, item.linkedResearch)}
+                            <button class="mini-chip" type="button" data-view="advisor">Ask Advisor</button>
                           </div>
                         </article>
-                      `
-                    )
+                      `;
+                    })
                     .join("")}
                 </div>
               `
@@ -5371,7 +5291,7 @@ function renderResearchView() {
     "Collect thesis evidence here before it becomes a candidate recommendation.";
 
   return `
-    <main class="office-content research-content page-main page-decisions-detail-main">
+    <main class="office-content research-content page-main page-research-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
       <section class="office-panel office-summary-panel research-hero">
@@ -5381,7 +5301,7 @@ function renderResearchView() {
             <h2>Dossiers before candidate approval</h2>
             <p class="section-copy">This view makes the upstream work explicit: thesis evidence, source quality, and conservative math before a decision gets promoted.</p>
           </div>
-          <button class="mini-chip" data-view="decisions">Back to Decisions</button>
+          <button class="mini-chip" data-view="research">Research</button>
         </div>
         <div class="office-summary-grid research-summary-grid">
           <article class="office-metric">
@@ -5496,7 +5416,7 @@ function renderResearchView() {
               <button class="refresh-button" type="submit" ${state.isMutating ? "disabled" : ""}>
                 ${state.isMutating ? "Saving..." : editingResearch ? "Save dossier" : "Create dossier"}
               </button>
-              <button class="mini-chip" type="button" data-view="decisions">Back to Decisions</button>
+              <button class="mini-chip" type="button" data-view="research">Research</button>
             </div>
           </form>
         </section>
@@ -5586,7 +5506,7 @@ function renderResearchView() {
           </div>
           <div class="office-form-actions">
             <button class="mini-chip" data-view="signals">Open Feed</button>
-            <button class="mini-chip" data-view="decisions">Back to Decisions</button>
+            <button class="mini-chip" data-view="research">Research</button>
           </div>
         </div>
         ${
@@ -5629,7 +5549,7 @@ function renderAssetsView() {
     : getData().clusters.filter((cluster) => cluster.mappedAssets.includes(asset.ticker));
 
   return `
-    <main class="content-shell page-main page-decisions-detail-main">
+    <main class="content-shell page-main page-research-main">
       ${renderStatusBanner()}
       ${renderOperatorNotice()}
       <section class="section-card asset-shell">
@@ -7294,11 +7214,22 @@ function renderContent() {
   return renderDashboard();
 }
 
+function renderFooter() {
+  return `
+    <footer class="office-footer">
+      <button class="developer-toggle-link ${state.developerMode ? "is-active" : ""}" type="button" data-toggle-developer-mode="${state.developerMode ? "0" : "1"}">
+        ${state.developerMode ? "Exit developer mode" : "Developer tools"}
+      </button>
+    </footer>
+  `;
+}
+
 function render() {
   app.innerHTML = `
     <div class="${getPageShellClassNames()}">
       ${renderNav()}
       ${renderContent()}
+      ${renderFooter()}
     </div>
   `;
 

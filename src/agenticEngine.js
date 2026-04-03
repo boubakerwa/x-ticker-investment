@@ -1624,6 +1624,11 @@ function buildDecisionBook(clusters, posts, marketSnapshot) {
     const candidateAction = computeCandidateAction(asset, scores);
     const policyResult = applyPolicyOverrides(asset, scores, candidateAction, primaryCluster);
     const finalAction = policyResult.finalAction;
+
+    if (scores.mappedPosts.length === 0) {
+      continue;
+    }
+
     const decisionCopy = buildDecisionRationale(
       asset,
       primaryCluster,
@@ -1754,7 +1759,10 @@ export async function runAgenticEngine({
   });
   const verifiedPosts = sortByDateDescending(verificationResult.posts);
   const runtimeClusters = buildRuntimeClusters(enrichedPosts, generatedAt);
-  const decisionEligiblePosts = verifiedPosts.filter((post) => post.verification?.decisionEligible !== false);
+  const decisionEligiblePosts = verifiedPosts.filter((post) =>
+    post.verification?.decisionEligible !== false &&
+    post.actionable !== false
+  );
   const decisionClusters = buildRuntimeClusters(decisionEligiblePosts, generatedAt);
   const decisionBook = buildDecisionBook(decisionClusters, decisionEligiblePosts, marketSnapshot);
   const actionableCount = verifiedPosts.filter((post) => post.actionable).length;
