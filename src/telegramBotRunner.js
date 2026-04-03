@@ -15,10 +15,11 @@ import {
 } from "./notificationProvider.js";
 import { getLatestPipelineSnapshot, getPipelineRun } from "./pipelineStore.js";
 import { buildDailyDigest } from "./reportBuilder.js";
+import { listResearchDossiers } from "./researchStore.js";
 import { createSource, listSources } from "./sourceStore.js";
 import { listPendingManualPosts } from "./manualPostProcessingStore.js";
 import { importAttributedManualPosts } from "./tweetStore.js";
-import { extractFirstXPostUrl } from "./xPostResolver.js";
+import { extractFirstXPostUrl, resolveXPost } from "./xPostResolver.js";
 import { buildStoredPolymarketState } from "./polymarketDesk.js";
 
 const TELEGRAM_BOT_COMMANDS = [
@@ -33,6 +34,14 @@ const TELEGRAM_BOT_COMMANDS = [
   {
     command: "digest",
     description: "Send the latest operator digest"
+  },
+  {
+    command: "actions",
+    description: "Show aggregated actions for tracked holdings and watchlist names"
+  },
+  {
+    command: "detailed_actions",
+    description: "Show detailed actions for the full monitored asset space"
   },
   {
     command: "polymarket",
@@ -260,9 +269,30 @@ function parseTelegramImportBlock(block) {
   }
 
   return {
+    type: "manual",
     handle: header.handle,
     createdAt: header.createdAt,
     body
+  };
+}
+
+function isExactXPostUrlBlock(block) {
+  const normalizedBlock = normalizeTelegramImportText(block).trim();
+  const detectedUrl = extractFirstXPostUrl(normalizedBlock);
+  return Boolean(detectedUrl && detectedUrl === normalizedBlock);
+}
+
+function parseTelegramImportUrlBlock(block) {
+  const normalizedBlock = normalizeTelegramImportText(block).trim();
+  const xUrl = extractFirstXPostUrl(normalizedBlock);
+
+  if (!xUrl || xUrl !== normalizedBlock) {
+    throw new Error("Each URL import block must contain exactly one public X post URL.");
+  }
+
+  return {
+    type: "x-url",
+    xUrl
   };
 }
 
@@ -294,54 +324,20 @@ function parseTelegramImportRequest(text) {
     );
   }
 
-  const lines = normalizedRawPosts.split("\n");
-  const headerCount = lines.filter((line) => looksLikeTelegramImportHeader(line.trim())).length;
-
-  if (headerCount === 1) {
+  if (isExactXPostUrlBlock(normalizedRawPosts)) {
     return {
       showHelp: false,
       replaceExisting,
-      posts: [parseTelegramImportBlock(normalizedRawPosts)]
+      posts: [parseTelegramImportUrlBlock(normalizedRawPosts)]
     };
   }
 
-  const blocks = [];
-  let currentBlockLines = [];
+  const separatedBlocks = normalizedRawPosts
+    .split(/\n\s*\n+/)
+    .map((block) => block.trim())
+    .filter(Boolean);
 
-  for (const line of lines) {
-    const lineText = String(line || "");
-    const trimmedLine = lineText.trim();
-
-    if (!trimmedLine) {
-      if (currentBlockLines.length) {
-        currentBlockLines.push("");
-      }
-      continue;
-    }
-
-    if (looksLikeTelegramImportHeader(trimmedLine)) {
-      if (currentBlockLines.length) {
-        blocks.push(currentBlockLines.join("\n"));
-      }
-
-      currentBlockLines = [trimmedLine];
-      continue;
-    }
-
-    if (!currentBlockLines.length) {
-      throw new Error(
-        "Each imported post must start with @handle followed by a colon or line break."
-      );
-    }
-
-    currentBlockLines.push(lineText);
-  }
-
-  if (currentBlockLines.length) {
-    blocks.push(currentBlockLines.join("\n"));
-  }
-
-  if (!blocks.length) {
+  if (!separatedBlocks.length) {
     throw new Error(
       "Paste at least one post after /ingest. Use /ingest help to see the expected format."
     );
@@ -350,7 +346,9 @@ function parseTelegramImportRequest(text) {
   return {
     showHelp: false,
     replaceExisting,
-    posts: blocks.map((block) => parseTelegramImportBlock(block))
+    posts: separatedBlocks.map((block) =>
+      isExactXPostUrlBlock(block) ? parseTelegramImportUrlBlock(block) : parseTelegramImportBlock(block)
+    )
   };
 }
 
@@ -372,7 +370,7 @@ function buildTelegramImportSource(handle) {
   };
 }
 
-function resolveTelegramImportSource(handle, sourcesByHandle) {
+function resolveTelegramImportSource(handle, sourcesByHandle, sourceFactory = buildTelegramImportSource) {
   const normalizedHandle = String(handle || "").trim().toLowerCase();
   const existingSource = sourcesByHandle.get(normalizedHandle);
 
@@ -383,7 +381,7 @@ function resolveTelegramImportSource(handle, sourcesByHandle) {
     };
   }
 
-  const createdSource = createSource(buildTelegramImportSource(handle));
+  const createdSource = createSource(sourceFactory(handle));
   sourcesByHandle.set(normalizedHandle, createdSource);
 
   return {
@@ -395,16 +393,36 @@ function resolveTelegramImportSource(handle, sourcesByHandle) {
 function buildIngestHelpMessage() {
   return {
     title: "Telegram ingest",
-    summary: "Use /ingest to append or replace the manual queue with pasted posts.",
+    summary: "Use /ingest to append or replace the manual queue with either public X post URLs or pasted posts.",
     highlights: [
+      "/ingest https://x.com/googleresearch/status/2036533564158910740",
       "/ingest append",
       "@semiflow: Broadening risk appetite keeps semis bid; still constructive on NVDA.",
       "2026-03-24T11:45:00Z | @btcwatch: BTC positioning still looks louder than spot demand.",
-      "Separate multiple posts with a blank line.",
+      "Separate multiple URL imports or pasted posts with a blank line.",
       "Use /process to analyse the queued tweets."
     ],
     footer:
       "The scheduler can stay off when you use Telegram as the manual signal inbox."
+  };
+}
+
+function buildTelegramImportedSource(handle) {
+  const normalizedHandle = String(handle || "").trim();
+
+  return {
+    handle: normalizedHandle,
+    name: normalizedHandle.replace(/^@/, "") || normalizedHandle,
+    category: "Telegram / X URL Import",
+    baselineReliability: TELEGRAM_IMPORT_DEFAULT_RELIABILITY,
+    preferredHorizon: "0-3 days",
+    policyTemplate:
+      "Imported through the Telegram inbox from a public X post URL instead of the paid X API.",
+    relevantSectors: [],
+    allowedAssets: monitoredUniverse.map((asset) => asset.ticker),
+    specialHandling:
+      "Treat as third-party public X content. Calibrate trust at the source level and still require corroboration before high-conviction upgrades.",
+    tone: "Direct"
   };
 }
 
@@ -422,7 +440,53 @@ async function importPostsFromTelegramMessage(messageText) {
   );
   const sourceIds = new Set();
   let createdSourceCount = 0;
-  const attributedPosts = request.posts.map((post) => {
+  const attributedPosts = [];
+
+  for (const post of request.posts) {
+    if (post.type === "x-url") {
+      const resolvedPost = await resolveXPost(post.xUrl);
+      const authorHandle = String(resolvedPost.authorHandle || "").trim();
+
+      if (!authorHandle) {
+        throw new Error(
+          `The imported X post ${post.xUrl} did not expose a usable author handle.`
+        );
+      }
+
+      const resolvedSource = resolveTelegramImportSource(
+        authorHandle,
+        sourcesByHandle,
+        buildTelegramImportedSource
+      );
+
+      if (resolvedSource.created) {
+        createdSourceCount += 1;
+      }
+
+      sourceIds.add(resolvedSource.source.id);
+      attributedPosts.push({
+        sourceId: resolvedSource.source.id,
+        createdAt: resolvedPost.createdAt,
+        body: resolvedPost.text,
+        xUrl: resolvedPost.xUrl,
+        canonicalUrl: resolvedPost.canonicalUrl,
+        authorHandle: resolvedPost.authorHandle,
+        authorName: resolvedPost.authorName,
+        importMethod: `telegram-url:${resolvedPost.extractionMethod || "public-x"}`,
+        actionable: false,
+        claimType: "Operator commentary",
+        direction: "Mixed",
+        explicitness: "Explicit",
+        themes: [],
+        confidence: Number(
+          resolvedSource.source?.baselineReliability || TELEGRAM_IMPORT_DEFAULT_RELIABILITY
+        ),
+        mappedAssets: [],
+        clusterId: "cluster-enterprise-ai"
+      });
+      continue;
+    }
+
     const resolved = resolveTelegramImportSource(post.handle, sourcesByHandle);
 
     if (resolved.created) {
@@ -431,20 +495,24 @@ async function importPostsFromTelegramMessage(messageText) {
 
     sourceIds.add(resolved.source.id);
 
-    return {
+    attributedPosts.push({
       sourceId: resolved.source.id,
       createdAt: post.createdAt,
       body: post.body,
+      authorHandle: post.handle,
+      importMethod: "telegram-manual",
       actionable: false,
       claimType: "Operator commentary",
       direction: "Mixed",
       explicitness: "Explicit",
       themes: [],
-      confidence: TELEGRAM_IMPORT_DEFAULT_RELIABILITY,
+      confidence: Number(
+        resolved.source?.baselineReliability || TELEGRAM_IMPORT_DEFAULT_RELIABILITY
+      ),
       mappedAssets: [],
       clusterId: "cluster-enterprise-ai"
-    };
-  });
+    });
+  }
 
   const store = importAttributedManualPosts({
     posts: attributedPosts,
@@ -529,6 +597,10 @@ function buildIngestSuccessMessage(result) {
       {
         label: "New sources",
         value: String(result.createdSourceCount)
+      },
+      {
+        label: "Imported posts",
+        value: String(result.importedCount)
       },
       {
         label: "Feed mode",
@@ -695,6 +767,315 @@ function buildLinkedinErrorMessage(error) {
         : "The bot could not build a LinkedIn draft from that message.",
     footer:
       "If the X post is unavailable publicly, use /linkedin and paste the post text manually."
+  };
+}
+
+function normalizeTicker(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9.-]/g, "");
+}
+
+function normalizeResearchStatus(value) {
+  return String(value || "discovery")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+}
+
+function getTrackedTickers(financialProfile = {}) {
+  return [
+    ...new Set(
+      [
+        ...(financialProfile.holdings || []).map((holding) => normalizeTicker(holding.ticker)),
+        ...(financialProfile.watchlist || []).map((ticker) => normalizeTicker(ticker))
+      ].filter(Boolean)
+    )
+  ];
+}
+
+function buildDecisionPriorityScore(action) {
+  const actionPriority = {
+    SELL: 3,
+    BUY: 2,
+    HOLD: 1
+  };
+
+  return actionPriority[String(action || "").trim().toUpperCase()] || 0;
+}
+
+function sortActionEntries(entries = []) {
+  return [...entries].sort((left, right) => {
+    const actionDifference = buildDecisionPriorityScore(right.action) - buildDecisionPriorityScore(left.action);
+
+    if (actionDifference !== 0) {
+      return actionDifference;
+    }
+
+    return Number(right.confidence || 0) - Number(left.confidence || 0);
+  });
+}
+
+function buildResearchLookup() {
+  const researchByAsset = new Map();
+
+  for (const dossier of listResearchDossiers()) {
+    for (const asset of dossier?.assets || []) {
+      const cleanTicker = normalizeTicker(asset);
+
+      if (cleanTicker && !researchByAsset.has(cleanTicker)) {
+        researchByAsset.set(cleanTicker, dossier);
+      }
+    }
+  }
+
+  return researchByAsset;
+}
+
+function buildReviewLookup(reviewState) {
+  return new Map(
+    (reviewState?.current || [])
+      .map((item) => [normalizeTicker(item.asset), item])
+      .filter(([ticker]) => ticker)
+  );
+}
+
+function formatStatusLabel(value, fallbackValue = "Pending") {
+  const normalizedValue = String(value || "").trim();
+
+  if (!normalizedValue) {
+    return fallbackValue;
+  }
+
+  return normalizedValue
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatConfidence(confidence) {
+  return `${Math.round((Number(confidence) || 0) * 100)}%`;
+}
+
+function buildActionMixSummary(entries = []) {
+  const counts = entries.reduce(
+    (accumulator, entry) => {
+      const action = String(entry.action || "").trim().toUpperCase();
+
+      if (action === "BUY" || action === "HOLD" || action === "SELL") {
+        accumulator[action] += 1;
+      }
+
+      return accumulator;
+    },
+    {
+      BUY: 0,
+      HOLD: 0,
+      SELL: 0
+    }
+  );
+
+  return `${counts.SELL} SELL, ${counts.BUY} BUY, ${counts.HOLD} HOLD`;
+}
+
+function buildActionHighlight(entry, { detailed = false } = {}) {
+  if (!entry.covered || !entry.action) {
+    return `${entry.ticker} · No live monitored recommendation right now.`;
+  }
+
+  const parts = [
+    `${entry.ticker} ${entry.action}`,
+    formatConfidence(entry.confidence),
+    entry.reviewStatus ? `${formatStatusLabel(entry.reviewStatus)} review` : "No review",
+    entry.researchStatus ? `${formatStatusLabel(entry.researchStatus)} research` : "No dossier"
+  ];
+
+  if (detailed && entry.tracked) {
+    parts.push("Tracked");
+  }
+
+  if (entry.horizon) {
+    parts.push(entry.horizon);
+  }
+
+  if (detailed && entry.summary) {
+    parts.push(truncateTelegramPreview(entry.summary, 140));
+  }
+
+  return parts.join(" · ");
+}
+
+function buildPortfolioActionEntries({ latestSnapshot, financialProfile, reviewState }) {
+  const trackedTickers = getTrackedTickers(financialProfile);
+  const decisionByAsset = new Map(
+    (latestSnapshot?.appData?.decisions || [])
+      .map((decision) => [normalizeTicker(decision.asset), decision])
+      .filter(([ticker]) => ticker)
+  );
+  const reviewByAsset = buildReviewLookup(reviewState);
+  const researchByAsset = buildResearchLookup();
+  const holdingsSet = new Set(
+    (financialProfile.holdings || []).map((holding) => normalizeTicker(holding.ticker)).filter(Boolean)
+  );
+  const watchlistSet = new Set((financialProfile.watchlist || []).map((ticker) => normalizeTicker(ticker)).filter(Boolean));
+  const coveredUniverse = new Set(monitoredUniverse.map((asset) => normalizeTicker(asset.ticker)));
+
+  return sortActionEntries(
+    trackedTickers.map((ticker) => {
+      const decision = decisionByAsset.get(ticker) || null;
+      const review = reviewByAsset.get(ticker) || null;
+      const research = researchByAsset.get(ticker) || null;
+
+      return {
+        ticker,
+        holding: holdingsSet.has(ticker),
+        watchlist: watchlistSet.has(ticker),
+        covered: Boolean(coveredUniverse.has(ticker) || decision),
+        action: String(decision?.action || "").trim().toUpperCase(),
+        confidence: Number(decision?.confidence || 0),
+        horizon: String(decision?.horizon || "").trim(),
+        summary: String(decision?.decisionMathSummary || decision?.rationale?.[0] || "").trim(),
+        reviewStatus: String(review?.reviewStatus || "").trim().toLowerCase(),
+        researchStatus: normalizeResearchStatus(research?.status || "")
+      };
+    })
+  );
+}
+
+function buildDetailedActionEntries({ latestSnapshot, financialProfile, reviewState }) {
+  const reviewByAsset = buildReviewLookup(reviewState);
+  const researchByAsset = buildResearchLookup();
+  const trackedTickers = new Set(getTrackedTickers(financialProfile));
+
+  return sortActionEntries(
+    (latestSnapshot?.appData?.decisions || []).map((decision) => {
+      const ticker = normalizeTicker(decision.asset);
+      const review = reviewByAsset.get(ticker) || null;
+      const research = researchByAsset.get(ticker) || null;
+
+      return {
+        ticker,
+        tracked: trackedTickers.has(ticker),
+        covered: true,
+        action: String(decision?.action || "").trim().toUpperCase(),
+        confidence: Number(decision?.confidence || 0),
+        horizon: String(decision?.horizon || "").trim(),
+        summary: String(decision?.decisionMathSummary || decision?.rationale?.[0] || "").trim(),
+        reviewStatus: String(review?.reviewStatus || "").trim().toLowerCase(),
+        researchStatus: normalizeResearchStatus(research?.status || "")
+      };
+    })
+  );
+}
+
+function buildActionsMessage() {
+  const latestSnapshot = getLatestPipelineSnapshot();
+  const financialProfile = readFinancialProfile();
+
+  if (!latestSnapshot) {
+    return {
+      title: "Portfolio actions",
+      summary: "No pipeline snapshot is available yet.",
+      footer: "Run the pipeline first, then try /actions again."
+    };
+  }
+
+  const trackedTickers = getTrackedTickers(financialProfile);
+
+  if (!trackedTickers.length) {
+    return {
+      title: "Portfolio actions",
+      summary: "No holdings or watchlist names are saved yet.",
+      footer: "Add holdings or a watchlist in Portfolio, then try /actions again."
+    };
+  }
+
+  const reviewState = buildCurrentDecisionReviewState({
+    snapshot: latestSnapshot,
+    financialProfile
+  });
+  const entries = buildPortfolioActionEntries({
+    latestSnapshot,
+    financialProfile,
+    reviewState
+  });
+  const liveEntries = entries.filter((entry) => entry.covered && entry.action);
+  const uncoveredEntries = entries.filter((entry) => !entry.covered || !entry.action);
+
+  return {
+    title: "Portfolio actions",
+    summary: liveEntries.length
+      ? `${liveEntries.length} of ${trackedTickers.length} tracked name(s) have live monitored calls: ${buildActionMixSummary(liveEntries)}.`
+      : "No live monitored call exists yet for your current holdings or watchlist.",
+    facts: [
+      {
+        label: "Tracked tickers",
+        value: trackedTickers.join(", ")
+      },
+      {
+        label: "Live calls",
+        value: String(liveEntries.length)
+      },
+      {
+        label: "Outside coverage",
+        value: String(uncoveredEntries.length)
+      },
+      {
+        label: "Pending approvals",
+        value: String(reviewState.summary.proposedCount || 0)
+      }
+    ],
+    highlights: [
+      ...liveEntries.slice(0, 8).map((entry) => buildActionHighlight(entry)),
+      ...uncoveredEntries.slice(0, 4).map((entry) => buildActionHighlight(entry))
+    ],
+    footer: "Use /detailed_actions for the full monitored asset space."
+  };
+}
+
+function buildDetailedActionsMessage() {
+  const latestSnapshot = getLatestPipelineSnapshot();
+  const financialProfile = readFinancialProfile();
+
+  if (!latestSnapshot) {
+    return {
+      title: "Detailed actions",
+      summary: "No pipeline snapshot is available yet.",
+      footer: "Run the pipeline first, then try /detailed_actions again."
+    };
+  }
+
+  const reviewState = buildCurrentDecisionReviewState({
+    snapshot: latestSnapshot,
+    financialProfile
+  });
+  const entries = buildDetailedActionEntries({
+    latestSnapshot,
+    financialProfile,
+    reviewState
+  });
+
+  return {
+    title: "Detailed actions",
+    summary: entries.length
+      ? `${entries.length} monitored asset decision(s): ${buildActionMixSummary(entries)}.`
+      : "No monitored asset decisions are available in the latest snapshot.",
+    facts: [
+      {
+        label: "Snapshot",
+        value: latestSnapshot.generatedAt || "Pending"
+      },
+      {
+        label: "Pending approvals",
+        value: String(reviewState.summary.proposedCount || 0)
+      },
+      {
+        label: "Reviewed calls",
+        value: String(reviewState.summary.reviewedCount || 0)
+      }
+    ],
+    highlights: entries.slice(0, 16).map((entry) => buildActionHighlight(entry, { detailed: true })),
+    footer: "Tracked names are tagged when they already exist in your saved holdings or watchlist."
   };
 }
 
@@ -917,6 +1298,16 @@ async function handleTelegramCommand(command, message) {
 
   if (command === "digest") {
     await sendCommandReply(chatId, buildDigestMessage());
+    return;
+  }
+
+  if (command === "actions") {
+    await sendCommandReply(chatId, buildActionsMessage());
+    return;
+  }
+
+  if (command === "detailed_actions") {
+    await sendCommandReply(chatId, buildDetailedActionsMessage());
     return;
   }
 

@@ -12,6 +12,13 @@ const LEGACY_STORE_PATH = fileURLToPath(new URL("../data/pipeline-store.json", i
 const PIPELINE_STORE_VERSION = 2;
 const RUN_LIMIT = 24;
 const DECISION_HISTORY_LIMIT = 480;
+export const DECISION_FOLLOW_UP_STATES = [
+  "open",
+  "monitoring",
+  "confirmed",
+  "invalidated",
+  "closed"
+];
 
 function createDefaultStore() {
   return {
@@ -58,6 +65,53 @@ function parseRunRow(row) {
 
 function parseDecisionHistoryRow(row) {
   return parseJsonColumn(row.payload, null);
+}
+
+function normalizeFollowUpState(value, fallbackValue = "open") {
+  const normalizedValue = String(value || fallbackValue).trim().toLowerCase();
+  return DECISION_FOLLOW_UP_STATES.includes(normalizedValue) ? normalizedValue : fallbackValue;
+}
+
+function normalizeOptionalDate(value, fallbackValue = "") {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue) {
+    return fallbackValue;
+  }
+
+  const parsedDate = new Date(rawValue);
+  return Number.isNaN(parsedDate.getTime()) ? fallbackValue : parsedDate.toISOString();
+}
+
+function normalizeTrimmedText(value, maxLength, fallbackValue = "") {
+  const normalizedValue = String(value ?? fallbackValue).trim();
+
+  if (!normalizedValue) {
+    return "";
+  }
+
+  return normalizedValue.slice(0, maxLength);
+}
+
+function normalizeDecisionFollowUp(entry = {}, patch = {}) {
+  const now = new Date().toISOString();
+  const nextFollowUpState = normalizeFollowUpState(
+    patch.followUpState ?? entry.followUpState,
+    normalizeFollowUpState(entry.followUpState || "open")
+  );
+
+  return {
+    ...entry,
+    followUpState: nextFollowUpState,
+    nextReviewAt: normalizeOptionalDate(patch.nextReviewAt ?? entry.nextReviewAt, ""),
+    outcomeNote: normalizeTrimmedText(patch.outcomeNote ?? entry.outcomeNote, 2000),
+    invalidationReason: normalizeTrimmedText(
+      patch.invalidationReason ?? entry.invalidationReason,
+      800
+    ),
+    postmortem: normalizeTrimmedText(patch.postmortem ?? entry.postmortem, 6000),
+    followUpUpdatedAt: now
+  };
 }
 
 function computeReturn(referencePrice, latestPrice) {
@@ -174,12 +228,54 @@ function buildDecisionHistoryEntries(run) {
         return3d: null,
         return7d: null,
         outcomeState: "open",
-        lastUpdatedAt: run.generatedAt
+        lastUpdatedAt: run.generatedAt,
+        followUpState: "open",
+        nextReviewAt: "",
+        outcomeNote: "",
+        invalidationReason: "",
+        postmortem: "",
+        followUpUpdatedAt: ""
       },
       marketByTicker,
       run.generatedAt
     );
   });
+}
+
+function upsertDecisionHistoryEntry(entry) {
+  const db = getDatabase();
+  db.prepare(
+    `
+      INSERT INTO decision_history(
+        id,
+        run_id,
+        generated_at,
+        asset,
+        action,
+        outcome_state,
+        last_updated_at,
+        payload
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        run_id = excluded.run_id,
+        generated_at = excluded.generated_at,
+        asset = excluded.asset,
+        action = excluded.action,
+        outcome_state = excluded.outcome_state,
+        last_updated_at = excluded.last_updated_at,
+        payload = excluded.payload
+    `
+  ).run(
+    entry.id,
+    entry.runId,
+    entry.generatedAt,
+    entry.asset,
+    entry.action,
+    entry.outcomeState || "open",
+    entry.lastUpdatedAt || entry.generatedAt || new Date().toISOString(),
+    JSON.stringify(entry)
+  );
 }
 
 function trimRuns() {
@@ -367,6 +463,25 @@ export function listDecisionHistory(limit = DECISION_HISTORY_LIMIT) {
   return readDecisionHistoryEntries(limit);
 }
 
+export function getDecisionHistoryEntry(entryId) {
+  seedPipelineStoreIfNeeded();
+  const db = getDatabase();
+  const row = db.prepare("SELECT payload FROM decision_history WHERE id = ?").get(String(entryId || ""));
+  return row ? parseDecisionHistoryRow(row) : null;
+}
+
+export function updateDecisionHistoryEntry(entryId, patch = {}) {
+  const currentEntry = getDecisionHistoryEntry(entryId);
+
+  if (!currentEntry) {
+    throw new Error("Decision history entry not found.");
+  }
+
+  const nextEntry = normalizeDecisionFollowUp(currentEntry, patch);
+  upsertDecisionHistoryEntry(nextEntry);
+  return nextEntry;
+}
+
 export function persistPipelineRun(run) {
   seedPipelineStoreIfNeeded();
   const db = getDatabase();
@@ -405,41 +520,8 @@ export function persistPipelineRun(run) {
 
     trimRuns();
 
-    const upsertDecision = db.prepare(
-      `
-        INSERT INTO decision_history(
-          id,
-          run_id,
-          generated_at,
-          asset,
-          action,
-          outcome_state,
-          last_updated_at,
-          payload
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          run_id = excluded.run_id,
-          generated_at = excluded.generated_at,
-          asset = excluded.asset,
-          action = excluded.action,
-          outcome_state = excluded.outcome_state,
-          last_updated_at = excluded.last_updated_at,
-          payload = excluded.payload
-      `
-    );
-
     for (const entry of nextDecisionHistory) {
-      upsertDecision.run(
-        entry.id,
-        entry.runId,
-        entry.generatedAt,
-        entry.asset,
-        entry.action,
-        entry.outcomeState || "open",
-        entry.lastUpdatedAt || run.generatedAt,
-        JSON.stringify(entry)
-      );
+      upsertDecisionHistoryEntry(entry);
     }
 
     trimDecisionHistory();

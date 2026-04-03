@@ -68,6 +68,11 @@ function normalizePost(post, existingPost = {}) {
     createdAt,
     timestamp: formatBerlinTimestamp(createdAt),
     body: String(post.body || existingPost.body || "").trim(),
+    xUrl: String(post.xUrl || existingPost.xUrl || "").trim(),
+    canonicalUrl: String(post.canonicalUrl || existingPost.canonicalUrl || "").trim(),
+    authorHandle: String(post.authorHandle || existingPost.authorHandle || "").trim(),
+    authorName: String(post.authorName || existingPost.authorName || "").trim(),
+    importMethod: String(post.importMethod || existingPost.importMethod || "").trim(),
     actionable: Boolean(
       typeof post.actionable === "boolean" ? post.actionable : existingPost.actionable ?? false
     ),
@@ -290,6 +295,11 @@ export function importAttributedManualPosts({
       sourceId,
       createdAt,
       body,
+      xUrl: String(post.xUrl || "").trim(),
+      canonicalUrl: String(post.canonicalUrl || "").trim(),
+      authorHandle: String(post.authorHandle || "").trim(),
+      authorName: String(post.authorName || "").trim(),
+      importMethod: String(post.importMethod || "").trim(),
       actionable: Boolean(post.actionable),
       claimType: String(post.claimType || "Operator commentary").trim(),
       direction: String(post.direction || "Mixed").trim(),

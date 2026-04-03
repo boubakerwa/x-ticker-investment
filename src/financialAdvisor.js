@@ -1,10 +1,12 @@
 import { monitoredUniverse } from "./data.js";
 import { persistAdvisorAnswer } from "./advisorStore.js";
 import { buildCurrentDecisionReviewState } from "./decisionReviewStore.js";
+import { listEvalRuns } from "./evalStore.js";
 import { readFinancialProfile } from "./financialProfileStore.js";
 import { requestStructuredResponse, resolveLlmConfig } from "./llmClient.js";
 import { getLatestPipelineSnapshot } from "./pipelineStore.js";
 import { listResearchDossiers } from "./researchStore.js";
+import { buildTradeReadinessState } from "./tradeReadiness.js";
 
 const DEFAULT_ADVISOR_MODEL = "gpt-4.1-mini";
 const REVIEW_READY_RESEARCH_STATUSES = new Set(["validated", "approved"]);
@@ -481,6 +483,39 @@ function enforceResearchGovernance(advice, assetContext, assetTicker) {
   };
 }
 
+function enforceTradeReadyMode(advice, tradeReadiness, assetTicker) {
+  if (!tradeReadiness?.enabled || tradeReadiness.ready) {
+    return advice;
+  }
+
+  const guidance =
+    tradeReadiness.blockingGates?.[0]?.detail ||
+    "Trade-ready mode is locked because one or more platform gates are still failing.";
+
+  return {
+    ...advice,
+    headline: `${assetTicker}: Watch-only while trade-ready mode is locked`,
+    stance: "Research more",
+    suitability: advice.suitability === "Good fit" ? "Mixed fit" : advice.suitability || "Mixed fit",
+    confidence: Math.min(Number(advice.confidence) || 0.45, 0.4),
+    answer: `${guidance} ${advice.answer || ""}`.trim(),
+    rationale: uniqueStrings([guidance, ...(advice.rationale || [])]).slice(0, 5),
+    riskFlags: uniqueStrings([
+      "The desk is in fail-closed trade-ready mode, so real-world action should stay off.",
+      ...(advice.riskFlags || [])
+    ]).slice(0, 5),
+    latestSignals: uniqueStrings([
+      `Trade-ready mode: locked (${tradeReadiness.summary?.passedCount || 0}/${tradeReadiness.summary?.totalCount || 0} gates passed).`,
+      ...(advice.latestSignals || [])
+    ]).slice(0, 5),
+    nextSteps: uniqueStrings([
+      guidance,
+      "Open the How To tab and fix the blocked trade-ready gates before acting outside the platform.",
+      ...(advice.nextSteps || [])
+    ]).slice(0, 4)
+  };
+}
+
 async function runModelAdvice({ assetTicker, question, profile, latestSnapshot, config }) {
   const response = await requestStructuredResponse({
     config,
@@ -522,6 +557,18 @@ export async function answerFinancialQuestion({ assetTicker, question, profileIn
   const profile = profileInput || readFinancialProfile();
   const config = normalizeAdvisorConfig();
   const assetContext = getAssetContext(cleanTicker, latestSnapshot, profile);
+  const reviewState = buildCurrentDecisionReviewState({
+    snapshot: latestSnapshot,
+    financialProfile: profile
+  });
+  const tradeReadiness = buildTradeReadinessState({
+    snapshot: latestSnapshot,
+    evalRuns: listEvalRuns(12),
+    researchDossiers: listResearchDossiers({
+      limit: 120
+    }),
+    reviewItems: reviewState.current || []
+  });
   let advice;
   let provider = "heuristic";
 
@@ -554,6 +601,7 @@ export async function answerFinancialQuestion({ assetTicker, question, profileIn
   }
 
   advice = enforceResearchGovernance(advice, assetContext, cleanTicker);
+  advice = enforceTradeReadyMode(advice, tradeReadiness, cleanTicker);
   const response = persistAdvisorAnswer({
     assetTicker: cleanTicker,
     status: "completed",

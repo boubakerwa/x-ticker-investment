@@ -60,6 +60,31 @@ const EMPTY_DATA = {
       lastRunAt: "",
       lastRunId: "",
       lastError: ""
+    },
+    tradeReadiness: {
+      enabled: true,
+      mode: "fail-closed",
+      ready: false,
+      status: "locked",
+      generatedAt: "",
+      snapshotGeneratedAt: "",
+      snapshotAgeHours: null,
+      actionRule: "",
+      summary: {
+        passedCount: 0,
+        totalCount: 0,
+        feedMode: "",
+        postsCount: 0,
+        marketProvider: "",
+        extractorMode: "",
+        approvedResearchAssetCount: 0,
+        approvedActionAssetCount: 0,
+        latestModelEvalId: "",
+        latestModelEvalPassed: false
+      },
+      gates: [],
+      blockingGates: [],
+      readyAssets: []
     }
   },
   monitoredUniverse: [],
@@ -71,7 +96,8 @@ const EMPTY_DATA = {
   history: {
     latestRunId: "",
     runs: [],
-    decisionLog: []
+    decisionLog: [],
+    followUpStates: []
   },
   evaluation: {
     latestRun: null,
@@ -126,7 +152,42 @@ const EMPTY_DATA = {
       liabilities: [],
       documents: []
     },
-    history: []
+    history: [],
+    portfolioAssessment: null
+  },
+  paperTrading: {
+    statuses: [],
+    sides: [],
+    summary: {
+      totalCount: 0,
+      plannedCount: 0,
+      openCount: 0,
+      closedCount: 0,
+      markedCount: 0,
+      winCount: 0,
+      lossCount: 0,
+      winRate: 0,
+      totalNetPnlUsd: 0,
+      manualMarkNeededCount: 0,
+      averageOpenReturnPct: null,
+      averageClosedReturnPct: null
+    },
+    markProvider: {
+      requestedProvider: "auto",
+      activeProvider: "none",
+      configured: false,
+      note: "",
+      warnings: [],
+      summary: {
+        requestedCount: 0,
+        coveredCount: 0
+      },
+      config: {
+        requestedProvider: "auto",
+        twelveDataConfigured: false
+      }
+    },
+    trades: []
   },
   polymarket: {
     config: {
@@ -217,6 +278,7 @@ const state = {
   isSavingProfile: false,
   isAskingAdvisor: false,
   isMutating: false,
+  isAssetIntelLoading: false,
   isReplayLoading: false,
   isTestRunLoading: false,
   isRunDetailLoading: false,
@@ -229,6 +291,8 @@ const state = {
   operatorNotice: "",
   advisorNotice: "",
   advisorError: "",
+  assetIntelError: "",
+  assetIntelByTicker: {},
   polymarketStatus: null,
   polymarketMarkets: [],
   polymarketSearch: "",
@@ -255,7 +319,7 @@ const app = document.querySelector("#app");
 const actionFilters = ["ALL", "BUY", "HOLD", "SELL"];
 const DEVELOPER_VIEWS = ["admin", "tests", "sources", "logs", "docs"];
 const DECISIONS_VIEWS = ["decisions", "research", "assets"];
-const PRIMARY_VIEWS = ["dashboard", "setup", "signals", "decisions", "polymarket", "advisor"];
+const PRIMARY_VIEWS = ["dashboard", "setup", "signals", "decisions", "paper", "advisor", "howto", "polymarket"];
 const docsPrinciples = [
   {
     title: "Bounded agents, not free-form autonomy",
@@ -323,20 +387,378 @@ const getEvaluation = () => getData().evaluation || EMPTY_DATA.evaluation;
 const getResearch = () => getData().research || EMPTY_DATA.research;
 const getReviews = () => getData().reviews || EMPTY_DATA.reviews;
 const getAdvisor = () => getData().advisor || EMPTY_DATA.advisor;
+const getPortfolioAssessment = () => getAdvisor().portfolioAssessment || null;
+const getPaperTrading = () => getData().paperTrading || EMPTY_DATA.paperTrading;
 const getPolymarket = () => getData().polymarket || EMPTY_DATA.polymarket;
 const getRuntime = () => getData().runtime || EMPTY_DATA.runtime;
+const getTradeReadiness = () => getRuntime().tradeReadiness || EMPTY_DATA.runtime.tradeReadiness;
 const isDeveloperView = (view = state.view) => DEVELOPER_VIEWS.includes(view);
 const isDecisionsView = (view = state.view) => DECISIONS_VIEWS.includes(view);
 const isPrimaryView = (view = state.view) => PRIMARY_VIEWS.includes(view);
 const getPrimaryView = (view = state.view) =>
   isDecisionsView(view) ? "decisions" : isPrimaryView(view) ? view : "";
+
+function getViewLabel(view = state.view) {
+  return VIEW_LABELS[view] || formatEnumLabel(view || "workspace");
+}
+
+function getNavigationFocusAsset() {
+  const selectedTicker = normalizeTicker(state.selectedAsset);
+
+  if (selectedTicker) {
+    return {
+      ticker: selectedTicker,
+      meta: "Current asset"
+    };
+  }
+
+  const nextReview = getDecisionReviewQueue().find((item) => item.reviewStatus === "proposed");
+
+  if (nextReview?.asset) {
+    return {
+      ticker: normalizeTicker(nextReview.asset),
+      meta: "Next review"
+    };
+  }
+
+  const approvedAction = getCurrentDecisionReviews().find(
+    (item) =>
+      item.reviewStatus === "approved" &&
+      ["BUY", "SELL"].includes(String(item.action || "").trim().toUpperCase())
+  );
+
+  if (approvedAction?.asset) {
+    return {
+      ticker: normalizeTicker(approvedAction.asset),
+      meta: "Approved action"
+    };
+  }
+
+  const researchAsset = getResearchDossiers()
+    .map((dossier) => getResearchDossierAssets(dossier)[0])
+    .find(Boolean);
+
+  if (researchAsset) {
+    return {
+      ticker: normalizeTicker(researchAsset),
+      meta: "Research focus"
+    };
+  }
+
+  const trackedAsset = buildTrackedPortfolioAnalytics().priorityAssets[0];
+
+  if (trackedAsset?.ticker) {
+    return {
+      ticker: normalizeTicker(trackedAsset.ticker),
+      meta: "Watched asset"
+    };
+  }
+
+  return null;
+}
+
+function buildNavButtonAttributes(action = null) {
+  if (!action) {
+    return "";
+  }
+
+  if (action.asset) {
+    return `data-asset="${escapeHtml(action.asset)}"`;
+  }
+
+  if (action.view) {
+    return `data-view="${escapeHtml(action.view)}"`;
+  }
+
+  return "";
+}
+
+function getWorkspaceSummary() {
+  const focusAsset = getNavigationFocusAsset();
+  const editingResearch = getResearchBeingEdited();
+
+  if (state.view === "dashboard") {
+    return {
+      label: "Today",
+      detail: "Start from the blockers and the next best action instead of hunting across tabs."
+    };
+  }
+
+  if (state.view === "setup") {
+    return {
+      label: "Portfolio setup",
+      detail: "Teach the desk what you own, what you watch, and what constraints matter."
+    };
+  }
+
+  if (state.view === "signals") {
+    return {
+      label: "Feed intake",
+      detail: "Import the raw signal flow here, then move directly into queue, research, or the focused asset."
+    };
+  }
+
+  if (state.view === "decisions") {
+    return {
+      label: "Decision queue",
+      detail: "Approve or dismiss live BUY and SELL calls, then drill straight into research or the asset workspace."
+    };
+  }
+
+  if (state.view === "research") {
+    return {
+      label: editingResearch
+        ? `${getResearchDossierHeadline(editingResearch)}`
+        : "Research workspace",
+      detail: editingResearch
+        ? "You are editing a live dossier. Tighten the evidence, then validate or approve it."
+        : "Capture, validate, and approve dossiers here without backing out through the queue."
+    };
+  }
+
+  if (state.view === "assets") {
+    return {
+      label: focusAsset?.ticker ? `${focusAsset.ticker} asset workspace` : "Asset workspace",
+      detail: "Decision, research, external intel, and paper trade all live together here for one name."
+    };
+  }
+
+  if (state.view === "paper") {
+    return {
+      label: "Paper trading desk",
+      detail: "Shadow the approved plan, score the thesis, and keep execution discipline before any manual action."
+    };
+  }
+
+  if (state.view === "advisor") {
+    return {
+      label: "Advisor",
+      detail: "Ask for interpretation once the queue, research, and paper-trade context are in place."
+    };
+  }
+
+  if (state.view === "howto") {
+    return {
+      label: "How To",
+      detail: "Use the runbook when you want the workflow spelled out step by step."
+    };
+  }
+
+  if (state.view === "polymarket") {
+    return {
+      label: "Polymarket intel",
+      detail: "Treat this as event-probability context, not as a trading destination."
+    };
+  }
+
+  return {
+    label: getViewLabel(state.view),
+    detail: "Use the workflow rail below to move between the pages that matter most."
+  };
+}
+
+function getNavigationGuide() {
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const setupState = buildSingleUserSetupState(profile);
+  const tradeReadiness = getTradeReadiness();
+  const nextReview = getDecisionReviewQueue().find((item) => item.reviewStatus === "proposed") || null;
+  const reviewedActionWithoutPaper = getCurrentDecisionReviews().find(
+    (item) =>
+      item.reviewStatus === "approved" &&
+      ["BUY", "SELL"].includes(String(item.action || "").trim().toUpperCase()) &&
+      !getPaperTradeForAsset(item.asset)
+  );
+  const researchToAdvance =
+    getResearchDossiers().find(
+      (dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "validated"
+    ) ||
+    getResearchDossiers().find((dossier) =>
+      ["discovery", "candidate"].includes(normalizeResearchStatus(dossier?.status || dossier?.stage))
+    ) ||
+    null;
+
+  if (!setupState.hasDecisionFrame || !setupState.hasPortfolioContext) {
+    return {
+      title: "Finish the portfolio frame",
+      body: "Navigation gets much cleaner once the desk knows your holdings, watchlist, and risk frame.",
+      primaryAction: { label: "Open portfolio", view: "setup" },
+      secondaryAction: { label: "Back to Today", view: "dashboard" }
+    };
+  }
+
+  if (!setupState.hasRealSignalInput) {
+    return {
+      title: "Bring in live posts first",
+      body: "Import and process a few real signals so the queue and research views become worth using.",
+      primaryAction: { label: "Open feed", view: "signals" },
+      secondaryAction: { label: "Open How To", view: "howto" }
+    };
+  }
+
+  if (
+    tradeReadiness.enabled &&
+    tradeReadiness.blockingGates?.some((gate) => gate.key === "approved_research") &&
+    researchToAdvance
+  ) {
+    const researchStatus = normalizeResearchStatus(researchToAdvance?.status || researchToAdvance?.stage);
+    const asset = getResearchDossierAssets(researchToAdvance)[0] || "";
+
+    return {
+      title: asset ? `${asset} research still needs a final call` : "Research still needs a final call",
+      body:
+        researchStatus === "validated"
+          ? `${asset || "This"} dossier is validated but not approved yet, so it still does not count toward trade-ready mode.`
+          : `${asset || "This"} dossier still needs evidence work before it can unlock the downstream workflow.`,
+      primaryAction: { label: "Open research", view: "research" },
+      secondaryAction: asset ? { label: `Open ${asset}`, asset } : { label: "Open queue", view: "decisions" }
+    };
+  }
+
+  if (nextReview) {
+    return {
+      title: `${nextReview.asset} ${nextReview.action} is waiting for you`,
+      body: "Use the queue to either approve the current call or dismiss it before it lingers in limbo.",
+      primaryAction: { label: "Open queue", view: "decisions" },
+      secondaryAction: { label: `Open ${nextReview.asset}`, asset: nextReview.asset }
+    };
+  }
+
+  if (reviewedActionWithoutPaper) {
+    return {
+      title: `Open the ${reviewedActionWithoutPaper.asset} paper trade`,
+      body: `${reviewedActionWithoutPaper.asset} ${reviewedActionWithoutPaper.action} is approved. Shadow it before acting outside the platform.`,
+      primaryAction: { label: "Open asset workspace", asset: reviewedActionWithoutPaper.asset },
+      secondaryAction: { label: "Open paper book", view: "paper" }
+    };
+  }
+
+  const focusAsset = getNavigationFocusAsset();
+
+  if (focusAsset?.ticker) {
+    return {
+      title: `Use ${focusAsset.ticker} as the working focus`,
+      body: "The asset workspace is the fastest place to review the decision, research, intel, and paper trade together.",
+      primaryAction: { label: `Open ${focusAsset.ticker}`, asset: focusAsset.ticker },
+      secondaryAction: { label: "Ask advisor", view: "advisor" }
+    };
+  }
+
+  return {
+    title: "Move through the daily loop",
+    body: "Feed, queue, research, focused asset, and paper trades should feel like one path instead of disconnected pages.",
+    primaryAction: { label: "Back to Today", view: "dashboard" },
+    secondaryAction: { label: "Open How To", view: "howto" }
+  };
+}
+
+function renderWorkflowRail() {
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const setupState = buildSingleUserSetupState(profile);
+  const reviewSummary = getReviewSummary();
+  const researchSummary = getResearchSummary();
+  const paperTradeSummary = getPaperTradeSummary();
+  const focusAsset = getNavigationFocusAsset();
+  const items = [
+    {
+      label: "Portfolio",
+      meta: `${setupState.completedCount}/4 ready`,
+      view: "setup",
+      active: state.view === "setup"
+    },
+    {
+      label: "Feed",
+      meta: `${getRecentAnalysedPosts().length} posts`,
+      view: "signals",
+      active: state.view === "signals"
+    },
+    {
+      label: "Queue",
+      meta: reviewSummary.proposedCount
+        ? `${reviewSummary.proposedCount} pending`
+        : reviewSummary.approvedCount
+          ? `${reviewSummary.approvedCount} reviewed`
+          : "Review calls",
+      view: "decisions",
+      active: state.view === "decisions"
+    },
+    {
+      label: "Research",
+      meta: researchSummary.candidateCount
+        ? `${researchSummary.candidateCount} active`
+        : researchSummary.approvedCount
+          ? `${researchSummary.approvedCount} approved`
+          : "Create dossier",
+      view: "research",
+      active: state.view === "research"
+    },
+    focusAsset
+      ? {
+          label: focusAsset.ticker,
+          meta: focusAsset.meta,
+          asset: focusAsset.ticker,
+          active: state.view === "assets" && normalizeTicker(state.selectedAsset) === focusAsset.ticker,
+          emphasis: true
+        }
+      : null,
+    {
+      label: "Paper",
+      meta: paperTradeSummary.openCount ? `${paperTradeSummary.openCount} open` : "Shadow book",
+      view: "paper",
+      active: state.view === "paper"
+    },
+    {
+      label: "Advisor",
+      meta: getAdvisor().history.length ? `${getAdvisor().history.length} answers` : "Ask away",
+      view: "advisor",
+      active: state.view === "advisor"
+    }
+  ].filter(Boolean);
+
+  return `
+    <div class="office-workflow-rail">
+      ${items
+        .map(
+          (item) => `
+            <button
+              class="office-workflow-step ${item.active ? "is-active" : ""} ${item.emphasis ? "is-emphasis" : ""}"
+              type="button"
+              ${buildNavButtonAttributes(item)}
+            >
+              <span>${escapeHtml(item.label)}</span>
+              <small>${escapeHtml(item.meta)}</small>
+            </button>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function scrollToPageTop() {
+  if (typeof window === "undefined" || typeof window.scrollTo !== "function") {
+    return;
+  }
+
+  try {
+    window.scrollTo({
+      top: 0,
+      left: 0,
+      behavior: "instant"
+    });
+  } catch (_error) {
+    window.scrollTo(0, 0);
+  }
+}
+
 const PAGE_VIEW_CLASS_MAP = {
   dashboard: "today",
   setup: "portfolio",
   signals: "feed",
   decisions: "decisions",
+  paper: "decisions",
   polymarket: "polymarket",
   advisor: "advisor",
+  howto: "today",
   research: "decisions-detail",
   assets: "decisions-detail",
   admin: "developer",
@@ -372,6 +794,23 @@ const formatEnumLabel = (value) =>
     .replace(/\b\w/g, (character) => character.toUpperCase());
 const formatShortId = (value) => String(value || "").slice(0, 18) || "Pending";
 const getEvalMode = (run) => String(run?.extractor?.activeMode || run?.validationMode || run?.model?.provider || "model");
+const VIEW_LABELS = {
+  dashboard: "Today",
+  setup: "Portfolio",
+  signals: "Feed",
+  decisions: "Decisions",
+  research: "Research",
+  assets: "Asset",
+  paper: "Paper Trades",
+  advisor: "Advisor",
+  howto: "How To",
+  polymarket: "Polymarket Intel",
+  admin: "Operations",
+  tests: "Tests",
+  sources: "Sources",
+  logs: "Logs",
+  docs: "Docs"
+};
 
 function formatRatio(value) {
   const numericValue = Number(value);
@@ -704,9 +1143,61 @@ function getCurrentDecisionReviews() {
   return getReviews().current || [];
 }
 
+function getBlockedDecisionReviews() {
+  return getReviews().blocked || [];
+}
+
+function getDecisionFollowUpStates() {
+  return getHistory().followUpStates || ["open", "monitoring", "confirmed", "invalidated", "closed"];
+}
+
+function getPaperTradeStatuses() {
+  return getPaperTrading().statuses || ["planned", "open", "closed", "invalidated", "cancelled"];
+}
+
+function getPaperTradeSummary() {
+  return getPaperTrading().summary || EMPTY_DATA.paperTrading.summary;
+}
+
+function getPaperTradeMarkProvider() {
+  return getPaperTrading().markProvider || EMPTY_DATA.paperTrading.markProvider;
+}
+
+function getPaperTrades() {
+  return getPaperTrading().trades || [];
+}
+
+function getOpenPaperTrades() {
+  return getPaperTrades().filter((trade) =>
+    ["planned", "open"].includes(String(trade.status || "").trim().toLowerCase())
+  );
+}
+
+function getClosedPaperTrades() {
+  return getPaperTrades().filter((trade) =>
+    ["closed", "invalidated", "cancelled"].includes(String(trade.status || "").trim().toLowerCase())
+  );
+}
+
+function getPaperTradeForAsset(assetTicker) {
+  const cleanTicker = normalizeTicker(assetTicker);
+
+  return getPaperTrades().find((trade) => trade.asset === cleanTicker && ["planned", "open"].includes(trade.status))
+    || getPaperTrades().find((trade) => trade.asset === cleanTicker)
+    || null;
+}
+
+function getAssetIntel(ticker = state.selectedAsset) {
+  return ticker ? state.assetIntelByTicker[ticker] || null : null;
+}
+
 function getDecisionIdByAsset(ticker) {
   const latestRunId = getHistory().latestRunId || "";
   return latestRunId && ticker ? `${latestRunId}:${ticker}` : "";
+}
+
+function getDecisionHistoryEntryById(entryId) {
+  return getHistory().decisionLog.find((entry) => entry.id === entryId) || null;
 }
 
 function getCurrentDecisionReview(ticker) {
@@ -1243,6 +1734,18 @@ function renderDecisionReviewTag(status = "proposed") {
   return `<span class="tag review-tag review-${escapeHtml(status)}">${label}</span>`;
 }
 
+function renderDecisionFollowUpTag(status = "open") {
+  return `<span class="tag review-tag review-${escapeHtml(status)}">${formatEnumLabel(status)}</span>`;
+}
+
+function renderPaperTradeTag(status = "planned") {
+  return `<span class="tag review-tag review-${escapeHtml(status)}">${formatEnumLabel(status)}</span>`;
+}
+
+function renderTradeReadinessTag(status = "locked") {
+  return `<span class="tag review-tag review-${escapeHtml(status)}">${status === "ready" ? "Trade-ready" : formatEnumLabel(status)}</span>`;
+}
+
 function renderDecisionReviewActions(reviewId, reviewStatus = "proposed", extraActions = "") {
   if (!reviewId) {
     return `<span class="subtle">No live decision to review.</span>`;
@@ -1268,11 +1771,15 @@ function renderDecisionReviewGate(reviewId, reviewStatus, decision = null, resea
   const researchAction = research
     ? `<button class="mini-chip" type="button" data-view="decisions">Open Decisions</button>`
     : "";
+  const seedAction = decision?.asset
+    ? `<button class="mini-chip" type="button" data-seed-research-asset="${escapeHtml(decision.asset)}">Seed dossier</button>`
+    : "";
 
   if (!isResearchEligibleForReview(research)) {
     return `
       <div class="office-review-actions">
         <span class="subtle">${escapeHtml(getResearchBlockingReason(decision, research))}</span>
+        ${seedAction}
         ${researchAction}
       </div>
     `;
@@ -1288,6 +1795,15 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function formatDateInputValue(value) {
+  if (!value) {
+    return "";
+  }
+
+  const parsedDate = new Date(value);
+  return Number.isNaN(parsedDate.getTime()) ? "" : parsedDate.toISOString().slice(0, 10);
 }
 
 function getSourceReliabilityInfo(source) {
@@ -2246,6 +2762,7 @@ function buildDecisionHistoryAnalytics(entries) {
   return {
     actionBreakdown: countBy(entries, (entry) => entry.action),
     outcomeBreakdown: countBy(entries, (entry) => entry.outcomeState || "open"),
+    followUpBreakdown: countBy(entries, (entry) => entry.followUpState || "open"),
     averageDirectionalReturn: average(directionalReturns),
     averageConfidence: average(entries.map((entry) => entry.confidence).filter(Boolean)),
     assetRows,
@@ -2381,6 +2898,15 @@ async function loadData({ refresh = false } = {}) {
       deferredLoads.push(
         loadEvalRunDetail({
           evalId: state.selectedEvalId,
+          silent: true
+        })
+      );
+    }
+
+    if (state.view === "assets" && state.selectedAsset) {
+      deferredLoads.push(
+        loadAssetIntel({
+          ticker: state.selectedAsset,
           silent: true
         })
       );
@@ -2995,6 +3521,45 @@ async function submitResearchForm(form) {
   }, editingResearch ? "Research dossier updated." : "Research dossier captured.");
 }
 
+async function seedResearchDossiers(assets = []) {
+  await runMutation(async () => {
+    const response = await fetch("/api/operator/research", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        assets,
+        missingOnly: true
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to seed research dossiers."));
+    }
+
+    const result = await response.json();
+
+    if (result?.created?.[0]?.dossier?.id) {
+      state.editingResearchId = result.created[0].dossier.id;
+    }
+
+    return result;
+  }, (result) => {
+    if (result?.createdCount) {
+      return result.createdCount === 1
+        ? `Research dossier seeded for ${result.created[0]?.asset || "the selected asset"}.`
+        : `Seeded ${result.createdCount} research dossiers from the current queue.`;
+    }
+
+    return result?.skippedCount
+      ? result.skippedCount === 1
+        ? result.skipped[0]?.reason || "Nothing new to seed."
+        : `${result.skippedCount} assets were skipped because they already had research or no live decision was available.`
+      : "Nothing new to seed.";
+  });
+}
+
 async function updateResearchStatus(dossierId, status) {
   const actionLabel = status === "approved" ? "approved" : status === "validated" ? "validated" : status === "dismissed" ? "dismissed" : "updated";
 
@@ -3029,6 +3594,119 @@ async function deleteOperatorResearch(dossierId) {
       state.editingResearchId = "";
     }
   }, "Research dossier deleted.");
+}
+
+async function submitDecisionFollowUpForm(form) {
+  const formData = new FormData(form);
+  const entryId = String(form.dataset.decisionHistoryId || "").trim();
+
+  if (!entryId) {
+    return;
+  }
+
+  await runMutation(async () => {
+    const response = await fetch(`/api/operator/decision-history/${encodeURIComponent(entryId)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        followUpState: String(formData.get("followUpState") || "").trim(),
+        nextReviewAt: String(formData.get("nextReviewAt") || "").trim(),
+        outcomeNote: String(formData.get("outcomeNote") || "").trim(),
+        invalidationReason: String(formData.get("invalidationReason") || "").trim(),
+        postmortem: String(formData.get("postmortem") || "").trim()
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to update the decision follow-up."));
+    }
+
+    return response.json();
+  }, "Decision follow-up saved.");
+}
+
+async function loadAssetIntel({ ticker = state.selectedAsset, silent = false, force = false } = {}) {
+  const cleanTicker = normalizeTicker(ticker);
+
+  if (!cleanTicker) {
+    return;
+  }
+
+  if (!force && state.assetIntelByTicker[cleanTicker]) {
+    return;
+  }
+
+  state.assetIntelError = "";
+  state.isAssetIntelLoading = true;
+
+  if (!silent) {
+    render();
+  }
+
+  try {
+    const response = await fetch(`/api/intel/assets/${encodeURIComponent(cleanTicker)}`, {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to load asset intel."));
+    }
+
+    const payload = await response.json();
+    state.assetIntelByTicker[cleanTicker] = payload.intel || null;
+  } catch (error) {
+    state.assetIntelError = error instanceof Error ? error.message : "Failed to load asset intel.";
+  } finally {
+    state.isAssetIntelLoading = false;
+    render();
+  }
+}
+
+async function submitPaperTradeForm(form) {
+  const formData = new FormData(form);
+  const decisionId = String(form.dataset.paperTradeDecisionId || "").trim();
+  const tradeId = String(form.dataset.paperTradeId || "").trim();
+  const asset = String(form.dataset.paperTradeAsset || "").trim();
+  const payload = {
+    decisionId,
+    status: String(formData.get("status") || "").trim(),
+    thesis: String(formData.get("thesis") || "").trim(),
+    horizon: String(formData.get("horizon") || "").trim(),
+    invalidationReason: String(formData.get("invalidationReason") || "").trim(),
+    notes: String(formData.get("notes") || "").trim(),
+    postmortem: String(formData.get("postmortem") || "").trim(),
+    entryPrice: String(formData.get("entryPrice") || "").trim(),
+    positionSizeUsd: String(formData.get("positionSizeUsd") || "").trim(),
+    plannedStopPrice: String(formData.get("plannedStopPrice") || "").trim(),
+    plannedTargetPrice: String(formData.get("plannedTargetPrice") || "").trim(),
+    feesUsd: String(formData.get("feesUsd") || "").trim(),
+    slippageBps: String(formData.get("slippageBps") || "").trim(),
+    manualMarkPrice: String(formData.get("manualMarkPrice") || "").trim(),
+    exitPrice: String(formData.get("exitPrice") || "").trim()
+  };
+
+  await runMutation(async () => {
+    const response = await fetch(
+      tradeId
+        ? `/api/operator/paper-trades/${encodeURIComponent(tradeId)}`
+        : "/api/operator/paper-trades",
+      {
+        method: tradeId ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(await parseError(response, "Failed to save the paper trade."));
+    }
+
+    return response.json();
+  }, tradeId ? "Paper trade updated." : `Paper trade opened for ${asset || "the selected asset"}.`);
 }
 
 async function updateDecisionReview(decisionId, status) {
@@ -3222,6 +3900,7 @@ async function loadEvalRunDetail({ evalId = state.selectedEvalId, silent = false
 function setView(view) {
   if (!state.developerMode && isDeveloperView(view)) {
     state.view = "dashboard";
+    scrollToPageTop();
     render();
     return;
   }
@@ -3253,6 +3932,13 @@ function setView(view) {
       silent: true
     });
   }
+  if (view === "assets" && state.selectedAsset && !getAssetIntel(state.selectedAsset)) {
+    loadAssetIntel({
+      ticker: state.selectedAsset,
+      silent: true
+    });
+  }
+  scrollToPageTop();
   render();
 }
 
@@ -3264,18 +3950,27 @@ function setDeveloperMode(enabled) {
     state.view = "dashboard";
   }
 
+  scrollToPageTop();
   render();
 }
 
 function setAsset(ticker) {
   state.selectedAsset = ticker;
   state.view = "assets";
+  if (!getAssetIntel(ticker)) {
+    loadAssetIntel({
+      ticker,
+      silent: true
+    });
+  }
+  scrollToPageTop();
   render();
 }
 
 function setSource(sourceId) {
   state.selectedSource = sourceId;
   state.view = "sources";
+  scrollToPageTop();
   render();
 }
 
@@ -3377,6 +4072,14 @@ function attachListeners() {
     button.addEventListener("click", () => setEditingResearch(""));
   });
 
+  document.querySelectorAll("[data-seed-research]").forEach((button) => {
+    button.addEventListener("click", () => seedResearchDossiers());
+  });
+
+  document.querySelectorAll("[data-seed-research-asset]").forEach((button) => {
+    button.addEventListener("click", () => seedResearchDossiers([button.dataset.seedResearchAsset]));
+  });
+
   document.querySelectorAll("[data-delete-research]").forEach((button) => {
     button.addEventListener("click", () => deleteOperatorResearch(button.dataset.deleteResearch));
   });
@@ -3391,6 +4094,20 @@ function attachListeners() {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       submitResearchForm(form);
+    });
+  });
+
+  document.querySelectorAll("[data-decision-follow-up-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitDecisionFollowUpForm(form);
+    });
+  });
+
+  document.querySelectorAll("[data-paper-trade-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitPaperTradeForm(form);
     });
   });
 
@@ -3652,6 +4369,53 @@ function renderStatusBanner() {
     `;
   }
 
+  const tradeReadiness = getTradeReadiness();
+
+  if (tradeReadiness.enabled && !tradeReadiness.ready) {
+    return `
+      <section class="section-card status-banner status-error">
+        <div>
+          <span class="eyebrow">Trade-ready mode</span>
+          <h3>Locked by fail-closed rules</h3>
+          <p>${escapeHtml(tradeReadiness.actionRule || "Real-world action is locked until all gates pass.")}</p>
+          <div class="chip-row">
+            <span class="tag">${tradeReadiness.summary?.passedCount || 0}/${tradeReadiness.summary?.totalCount || 0} gates passed</span>
+            <span class="tag">${formatEnumLabel(tradeReadiness.summary?.feedMode || "unknown")} feed</span>
+            <span class="tag">${formatEnumLabel(tradeReadiness.summary?.marketProvider || "unknown")} market</span>
+          </div>
+          ${
+            tradeReadiness.blockingGates?.length
+              ? `<ul class="research-evidence-list">${tradeReadiness.blockingGates
+                  .slice(0, 3)
+                  .map(
+                    (gate) =>
+                      `<li><strong>${escapeHtml(gate.label)}:</strong> ${escapeHtml(gate.detail || "Blocked.")}</li>`
+                  )
+                  .join("")}</ul>`
+              : ""
+          }
+        </div>
+        <div class="office-form-actions">
+          <button class="refresh-button" type="button" data-view="howto">Open How To</button>
+          <button class="mini-chip" type="button" data-refresh>Refresh</button>
+        </div>
+      </section>
+    `;
+  }
+
+  if (tradeReadiness.enabled && tradeReadiness.ready && (state.view === "dashboard" || state.view === "howto")) {
+    return `
+      <section class="section-card status-banner status-success">
+        <div>
+          <span class="eyebrow">Trade-ready mode</span>
+          <h3>Ready for manual action outside the platform</h3>
+          <p>${escapeHtml(tradeReadiness.actionRule || "Use only the currently approved BUY/SELL assets and keep execution outside the platform.")}</p>
+        </div>
+        <button class="refresh-button" type="button" data-view="paper">Open Paper Trades</button>
+      </section>
+    `;
+  }
+
   return "";
 }
 
@@ -3722,9 +4486,13 @@ function renderNav() {
   const setupState = buildSingleUserSetupState(profile);
   const researchSummary = getResearchSummary();
   const reviewSummary = getReviewSummary();
+  const paperTradeSummary = getPaperTradeSummary();
+  const tradeReadiness = getTradeReadiness();
   const polymarketSummary = getPolymarket().summary || EMPTY_DATA.polymarket.summary;
   const trackedAssets = buildTrackedPortfolioAnalytics(profile).trackedAssets.length;
   const scheduler = getRuntime().scheduler || EMPTY_DATA.runtime.scheduler;
+  const workspaceSummary = getWorkspaceSummary();
+  const navigationGuide = getNavigationGuide();
   const primaryItems = [
     ["dashboard", "Today", reviewSummary.proposedCount ? `${reviewSummary.proposedCount} to review` : "Clear"],
     ["setup", "Portfolio", trackedAssets ? `${trackedAssets} tracked` : "Start here"],
@@ -3740,15 +4508,16 @@ function renderNav() {
       } active`
     ],
     [
-      "polymarket",
-      "Polymarket Bets",
-      polymarketSummary.buyReadyCount
-        ? `${polymarketSummary.buyReadyCount} live ideas`
-        : polymarketSummary.analysisCount
-          ? `${polymarketSummary.analysisCount} analysed`
-          : "Bet desk"
+      "paper",
+      "Paper Trades",
+      paperTradeSummary.openCount
+        ? `${paperTradeSummary.openCount} open`
+        : paperTradeSummary.totalCount
+          ? `${paperTradeSummary.totalCount} tracked`
+          : "Shadow book"
     ],
-    ["advisor", "Advisor", getAdvisor().history.length ? `${getAdvisor().history.length} answers` : "Ask away"]
+    ["advisor", "Advisor", getAdvisor().history.length ? `${getAdvisor().history.length} answers` : "Ask away"],
+    ["howto", "How To", tradeReadiness.ready ? "Trade-ready" : "Runbook"]
   ];
   const developerItems = [
     ["admin", "Operations"],
@@ -3787,6 +4556,10 @@ function renderNav() {
             <span>Setup</span>
             <strong>${setupState.completedCount}/4</strong>
           </div>
+          <div class="office-meta-pill">
+            <span>Trade-ready</span>
+            <strong>${tradeReadiness.ready ? "Ready" : "Locked"}</strong>
+          </div>
           <button class="refresh-button office-refresh" data-refresh>
             ${state.isRefreshing ? "Refreshing..." : "Refresh"}
           </button>
@@ -3811,6 +4584,37 @@ function renderNav() {
           )
           .join("")}
       </div>
+      <div class="office-nav-guide">
+        <div class="office-nav-guide-copy">
+          <span class="eyebrow">Current workspace</span>
+          <strong>${escapeHtml(workspaceSummary.label)}</strong>
+          <p>${escapeHtml(workspaceSummary.detail)}</p>
+        </div>
+        <div class="office-nav-guide-actions">
+          <div class="office-nav-guide-next">
+            <span class="eyebrow">Next best step</span>
+            <strong>${escapeHtml(navigationGuide.title)}</strong>
+            <p>${escapeHtml(navigationGuide.body)}</p>
+          </div>
+          <div class="office-form-actions">
+            ${
+              navigationGuide.primaryAction
+                ? `<button class="refresh-button" type="button" ${buildNavButtonAttributes(navigationGuide.primaryAction)}>${escapeHtml(navigationGuide.primaryAction.label)}</button>`
+                : ""
+            }
+            ${
+              navigationGuide.secondaryAction
+                ? `<button class="mini-chip" type="button" ${buildNavButtonAttributes(navigationGuide.secondaryAction)}>${escapeHtml(navigationGuide.secondaryAction.label)}</button>`
+                : ""
+            }
+            <button class="mini-chip mini-chip-stack ${state.view === "polymarket" ? "is-active" : ""}" type="button" data-view="polymarket">
+              Polymarket Intel
+              <small>${escapeHtml(polymarketSummary.analysisCount ? `${polymarketSummary.analysisCount} analysed` : "Event odds")}</small>
+            </button>
+          </div>
+        </div>
+      </div>
+      ${renderWorkflowRail()}
       ${
         state.developerMode
           ? `
@@ -4841,6 +5645,314 @@ function renderDocsPage() {
   `;
 }
 
+function renderHowToPage() {
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const setupState = buildSingleUserSetupState(profile);
+  const tradeReadiness = getTradeReadiness();
+  const telegramBot = getRuntime().telegramBot || {};
+  const feedMode = getFeedMode();
+  const paperTradeSummary = getPaperTradeSummary();
+  const readyAssets = tradeReadiness.readyAssets || [];
+  const blockingGates = tradeReadiness.blockingGates || [];
+
+  return `
+    <main class="office-content page-main page-today-main">
+      ${renderStatusBanner()}
+      <section class="office-panel today-hero-panel">
+        <div class="today-hero-grid">
+          <div class="today-hero-copy">
+            <span class="eyebrow">How To</span>
+            <h2>Operator runbook for the supervised investing desk</h2>
+            <p>This platform is a supervised research and decision workflow. It does not place broker trades. You ingest signal flow, review research, paper trade ideas, and only act manually outside the platform when trade-ready mode says the desk is unlocked.</p>
+            <div class="briefing-kicker-row">
+              ${renderTradeReadinessTag(tradeReadiness.status || "locked")}
+              <span class="tag">${formatEnumLabel(feedMode)} feed</span>
+              <span class="tag">${telegramBot.running ? "Telegram live" : "Telegram idle"}</span>
+              <span class="tag">${paperTradeSummary.openCount || 0} paper trades open</span>
+            </div>
+          </div>
+          <div class="today-hero-rail">
+            <article class="briefing-action-card">
+              <span class="eyebrow">Current status</span>
+              <strong>${tradeReadiness.ready ? "Desk unlocked for manual action" : "Desk locked to watch-only / paper trading"}</strong>
+              <p>${escapeHtml(tradeReadiness.actionRule || "Trade-ready mode controls whether real-world action is allowed.")}</p>
+              <div class="office-form-actions">
+                <button class="refresh-button" type="button" data-view="decisions">Open Decisions</button>
+                <button class="mini-chip" type="button" data-view="paper">Open Paper Trades</button>
+              </div>
+            </article>
+            <article class="briefing-summary-card">
+              <span>Setup progress</span>
+              <strong>${setupState.completedCount}/4</strong>
+              <p>${setupState.nextStep?.body || "Core setup is complete."}</p>
+            </article>
+            <article class="briefing-summary-card">
+              <span>Trade-ready gates</span>
+              <strong>${tradeReadiness.summary?.passedCount || 0}/${tradeReadiness.summary?.totalCount || 0}</strong>
+              <p>${blockingGates[0]?.detail || "All hard gates are currently passing."}</p>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">What it is</span>
+              <h3>Platform scope</h3>
+            </div>
+          </div>
+          <div class="office-checklist">
+            <div class="office-checklist-row is-complete">
+              <strong>Research desk first</strong>
+              <span>Purpose</span>
+              <p>Posts become structured claims, claims become clusters, clusters become governed BUY/HOLD/SELL candidates.</p>
+            </div>
+            <div class="office-checklist-row is-complete">
+              <strong>Execution stays manual</strong>
+              <span>Boundary</span>
+              <p>You place any real trade outside the platform yourself. This product is decision support, governance, and paper-trading discipline.</p>
+            </div>
+            <div class="office-checklist-row is-complete">
+              <strong>Polymarket is read-only context</strong>
+              <span>Boundary</span>
+              <p>Polymarket probabilities are used only as market-implied event context. No Polymarket betting is required or assumed.</p>
+            </div>
+          </div>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">When to act</span>
+              <h3>Fail-closed rule</h3>
+            </div>
+          </div>
+          ${
+            tradeReadiness.ready
+              ? `
+                <article class="status-inline status-success">
+                  <strong>Manual action is allowed</strong>
+                  <p>${escapeHtml(tradeReadiness.actionRule)}</p>
+                </article>
+              `
+              : `
+                <article class="status-inline status-inline-error">
+                  <strong>Manual action is blocked</strong>
+                  <p>${escapeHtml(tradeReadiness.actionRule)}</p>
+                </article>
+              `
+          }
+          <div class="feed-list">
+            ${
+              blockingGates.length
+                ? blockingGates
+                    .map(
+                      (gate) => `
+                        <article class="feed-item">
+                          <div class="feed-head">
+                            <strong>${escapeHtml(gate.label)}</strong>
+                            ${renderTradeReadinessTag("locked")}
+                          </div>
+                          <p>${escapeHtml(gate.detail || "Blocked.")}</p>
+                        </article>
+                      `
+                    )
+                    .join("")
+                : `
+                  <article class="feed-item">
+                    <div class="feed-head">
+                      <strong>Current approved action set</strong>
+                      ${renderTradeReadinessTag("ready")}
+                    </div>
+                    <p>${
+                      readyAssets.length
+                        ? readyAssets.map((item) => `${item.asset} ${item.action}`).join(", ")
+                        : "No approved BUY/SELL assets are listed right now."
+                    }</p>
+                  </article>
+                `
+            }
+          </div>
+        </section>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Start here</span>
+            <h3>First-time setup</h3>
+          </div>
+          <button class="mini-chip" type="button" data-view="setup">Open Portfolio</button>
+        </div>
+        <div class="docs-checks">
+          ${[
+            "Fill Portfolio with your watchlist, risk tolerance, liquidity context, and at least the rough account buckets you care about.",
+            "Use Telegram as the manual signal inbox. Public X links are enough; a paid X API is not required.",
+            "Ingest a few real posts, then process them so Feed, Decisions, and Advisor stop relying on demo data.",
+            "Seed and validate research dossiers for assets you actually care about before approving decisions.",
+            "Use paper trades to score thesis quality before trusting any manual real-world action."
+          ]
+            .map(
+              (item, index) => `
+                <article class="pipeline-card">
+                  <span class="pipeline-index">0${index + 1}</span>
+                  <p>${item}</p>
+                </article>
+              `
+            )
+            .join("")}
+        </div>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Daily loop</span>
+            <h3>How to operate the desk</h3>
+          </div>
+        </div>
+        <div class="decision-grid">
+          ${[
+            {
+              title: "1. Capture signal flow",
+              body: "Send public X post URLs or pasted posts to Telegram with /ingest. Keep source trust and asset scope maintained in Sources."
+            },
+            {
+              title: "2. Process the queue",
+              body: "Run /process or wait for the cron. The pipeline turns queued posts into structured claims, clusters, and decisions."
+            },
+            {
+              title: "3. Review the feed",
+              body: "Check Feed to see whether the post was mapped cleanly, whether it stayed actionable, and which assets it touched."
+            },
+            {
+              title: "4. Promote research",
+              body: "In Decisions, seed a dossier if the thesis is still undocumented. Add supporting evidence, contradicting evidence, and citations."
+            },
+            {
+              title: "5. Approve or dismiss",
+              body: "Only approve current BUY or SELL decisions after the research packet is strong enough. Otherwise keep it watch-only."
+            },
+            {
+              title: "6. Open a paper trade",
+              body: "From the asset page, open a paper trade with thesis, invalidation, size, fees, slippage, and target/stop assumptions."
+            },
+            {
+              title: "7. Act outside the platform",
+              body: "Only if trade-ready mode is green. Real trades remain manual and external to this product."
+            }
+          ]
+            .map(
+              (item) => `
+                <article class="decision-card">
+                  <h4>${item.title}</h4>
+                  <p>${item.body}</p>
+                </article>
+              `
+            )
+            .join("")}
+        </div>
+      </section>
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Telegram</span>
+              <h3>Command guide</h3>
+            </div>
+          </div>
+          <div class="feed-list">
+            ${[
+              { command: "/start", body: "Show the bot introduction and remind yourself what the desk does." },
+              { command: "/status", body: "See the latest pipeline and bot status." },
+              { command: "/actions", body: "Show the latest aggregated actions for the names in your holdings and watchlist." },
+              { command: "/detailed_actions", body: "Show the latest detailed actions across the full monitored asset universe." },
+              { command: "/ingest <x-post-url>", body: "Import a public X post URL directly into the manual feed and map trust to the real source handle." },
+              { command: "/ingest append", body: "Append multiple pasted posts or URLs instead of replacing the current manual queue." },
+              { command: "/process", body: "Run the queued manual posts through the pipeline immediately." },
+              { command: "/digest", body: "Get the latest operator digest." },
+              { command: "/polymarket", body: "Check the read-only Polymarket desk state." },
+              { command: "/linkedin <x-post-url or text>", body: "Create a LinkedIn draft from an X post or manual paste." },
+              { command: "/help", body: "Show the available commands and quick usage notes." }
+            ]
+              .map(
+                (item) => `
+                  <article class="feed-item">
+                    <div class="feed-head">
+                      <strong>${escapeHtml(item.command)}</strong>
+                      <span>${telegramBot.running ? "Live" : "Available when bot is running"}</span>
+                    </div>
+                    <p>${escapeHtml(item.body)}</p>
+                  </article>
+                `
+              )
+              .join("")}
+          </div>
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Screens</span>
+              <h3>What each tab is for</h3>
+            </div>
+          </div>
+          <div class="feed-list">
+            ${[
+              { title: "Today", body: "Quickest view of blockers, queue pressure, and what to do next." },
+              { title: "Portfolio", body: "Investor profile, holdings, watchlist, liquidity, liabilities, and account buckets." },
+              { title: "Feed", body: "Recent ingested posts, mapped assets, and the raw signal flow." },
+              { title: "Decisions", body: "Research lifecycle, approval queue, and current BUY/HOLD/SELL logic." },
+              { title: "Paper Trades", body: "Shadow book, marks, postmortems, and execution discipline before any live money." },
+              { title: "Advisor", body: "Portfolio-aware Q&A that stays conservative and now respects trade-ready mode." },
+              { title: "How To", body: "This operator manual and the current trade-ready state." }
+            ]
+              .map(
+                (item) => `
+                  <article class="feed-item">
+                    <div class="feed-head">
+                      <strong>${escapeHtml(item.title)}</strong>
+                      <span>Purpose</span>
+                    </div>
+                    <p>${escapeHtml(item.body)}</p>
+                  </article>
+                `
+              )
+              .join("")}
+          </div>
+        </section>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Operating rules</span>
+            <h3>Non-negotiables</h3>
+          </div>
+        </div>
+        <div class="office-checklist">
+          <div class="office-checklist-row is-complete">
+            <strong>No auto-execution</strong>
+            <span>Boundary</span>
+            <p>The platform never places broker trades for you. Any execution happens manually outside the app.</p>
+          </div>
+          <div class="office-checklist-row is-complete">
+            <strong>Research before approval</strong>
+            <span>Governance</span>
+            <p>If the dossier is weak, missing, or not approved, the thesis stays watch-only.</p>
+          </div>
+          <div class="office-checklist-row is-complete">
+            <strong>Paper trade before trust</strong>
+            <span>Discipline</span>
+            <p>Use paper trades to learn whether the signal, timing, and invalidation logic are actually working.</p>
+          </div>
+          <div class="office-checklist-row is-complete">
+            <strong>Trade-ready mode is the final gate</strong>
+            <span>Safety</span>
+            <p>If the banner says locked, do not act outside the platform. Read, monitor, and paper trade instead.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  `;
+}
+
 function renderDecisionCards() {
   const filteredDecisions = getFilteredDecisions();
 
@@ -5130,6 +6242,8 @@ function renderDashboard() {
   );
   const reviewSummary = getReviewSummary();
   const researchSummary = getResearchSummary();
+  const paperTradeSummary = getPaperTradeSummary();
+  const tradeReadiness = getTradeReadiness();
   const researchDossiers = getResearchDossiers();
   const featuredResearch = researchDossiers.find(
     (dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate"
@@ -5137,7 +6251,9 @@ function renderDashboard() {
   const reviewQueue = getDecisionReviewQueue().slice(0, 4);
   const nextReviewItem = reviewQueue.find((item) => item.reviewStatus === "proposed") || null;
   const nextAction =
-    !setupState.hasDecisionFrame || !setupState.hasPortfolioContext
+    tradeReadiness.enabled && !tradeReadiness.ready
+      ? `Trade-ready mode is locked. Fix ${tradeReadiness.blockingGates?.[0]?.label || "the blocked gates"} before acting outside the platform.`
+      : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext
       ? "Finish the essentials in Portfolio so the brief can become personal."
       : reviewSummary.proposedCount
         ? `Approve or dismiss ${nextReviewItem?.asset || "the next queued call"} in Decisions.`
@@ -5156,6 +6272,15 @@ function renderDashboard() {
       body: "Add your watchlist and at least a little ownership context so the brief ranks the right names.",
       actionView: "setup",
       actionLabel: "Open Portfolio"
+    });
+  }
+
+  if (tradeReadiness.enabled && !tradeReadiness.ready) {
+    attentionItems.push({
+      title: "Trade-ready mode is locked",
+      body: tradeReadiness.blockingGates?.[0]?.detail || "One or more hard gates are still failing, so real-world action should stay off.",
+      actionView: "howto",
+      actionLabel: "Open How To"
     });
   }
 
@@ -5189,6 +6314,17 @@ function renderDashboard() {
     });
   }
 
+  if (paperTradeSummary.openCount) {
+    attentionItems.push({
+      title: `${paperTradeSummary.openCount} paper trade${paperTradeSummary.openCount === 1 ? "" : "s"} still open`,
+      body: paperTradeSummary.manualMarkNeededCount
+        ? `${paperTradeSummary.manualMarkNeededCount} open trade${paperTradeSummary.manualMarkNeededCount === 1 ? "" : "s"} still need a usable mark.`
+        : "The shadow book has active positions that should be monitored before live execution is considered.",
+      actionView: "paper",
+      actionLabel: "Open paper book"
+    });
+  }
+
   return `
     <main class="office-content page-main page-today-main">
       ${renderStatusBanner()}
@@ -5203,16 +6339,17 @@ function renderDashboard() {
               <span class="tag">${reviewSummary.proposedCount ? `${reviewSummary.proposedCount} approvals waiting` : "Queue clear"}</span>
               <span class="tag">${getRecentAnalysedPosts().length} recent posts</span>
               <span class="tag">${trackedAssets.length ? `${trackedAssets.length} tracked names` : "Portfolio first"}</span>
+              <span class="tag">${paperTradeSummary.openCount ? `${paperTradeSummary.openCount} paper trades open` : "No paper trades open"}</span>
             </div>
           </div>
           <div class="today-hero-rail">
             <article class="briefing-action-card">
               <span class="eyebrow">Do this next</span>
-              <strong>${reviewSummary.proposedCount ? "Review the approval queue" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Finish portfolio essentials" : !setupState.hasRealSignalInput ? "Bring in real feed input" : "Stay in the daily loop"}</strong>
+              <strong>${tradeReadiness.enabled && !tradeReadiness.ready ? "Unlock trade-ready mode" : reviewSummary.proposedCount ? "Review the approval queue" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Finish portfolio essentials" : !setupState.hasRealSignalInput ? "Bring in real feed input" : "Stay in the daily loop"}</strong>
               <p>${nextAction}</p>
               <div class="office-form-actions">
-                <button class="refresh-button" type="button" data-view="${reviewSummary.proposedCount ? "decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "setup" : "signals"}">
-                  ${reviewSummary.proposedCount ? "Open Decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Open Portfolio" : "Open Feed"}
+                <button class="refresh-button" type="button" data-view="${tradeReadiness.enabled && !tradeReadiness.ready ? "howto" : reviewSummary.proposedCount ? "decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "setup" : "signals"}">
+                  ${tradeReadiness.enabled && !tradeReadiness.ready ? "Open How To" : reviewSummary.proposedCount ? "Open Decisions" : !setupState.hasDecisionFrame || !setupState.hasPortfolioContext ? "Open Portfolio" : "Open Feed"}
                 </button>
                 <button class="mini-chip" type="button" data-view="advisor">Ask Advisor</button>
               </div>
@@ -5699,6 +6836,7 @@ function renderResearchView() {
   const dossiers = getResearchDossiers();
   const summary = getResearchSummary();
   const scorecards = getResearchScorecards();
+  const blockedReviews = getBlockedDecisionReviews();
   const lifecycleCounts = getResearchLifecycleCounts(dossiers);
   const featuredDossier = dossiers.find((dossier) => normalizeResearchStatus(dossier?.status || dossier?.stage) === "candidate") || dossiers[0] || null;
   const editingResearch = getResearchBeingEdited();
@@ -5718,7 +6856,14 @@ function renderResearchView() {
             <h2>Dossiers before candidate approval</h2>
             <p class="section-copy">This view makes the upstream work explicit: thesis evidence, source quality, and conservative math before a decision gets promoted.</p>
           </div>
-          <button class="mini-chip" data-view="decisions">Back to Decisions</button>
+          <div class="tag-row">
+            ${
+              blockedReviews.length
+                ? `<button class="mini-chip" type="button" data-seed-research>Seed from queue (${blockedReviews.length})</button>`
+                : ""
+            }
+            <button class="mini-chip" data-view="decisions">Back to Decisions</button>
+          </div>
         </div>
         <div class="office-summary-grid research-summary-grid">
           <article class="office-metric">
@@ -5945,6 +7090,593 @@ function renderResearchView() {
   `;
 }
 
+function renderAssetIntelStatusCard(title, body) {
+  return `
+    <article class="status-inline">
+      <strong>${escapeHtml(title)}</strong>
+      <p>${escapeHtml(body)}</p>
+    </article>
+  `;
+}
+
+function renderPaperTradeSection(asset, decision, review, paperTrade) {
+  const decisionId = getDecisionIdByAsset(asset.ticker);
+  const decisionLogEntry = getDecisionHistoryEntryById(decisionId);
+  const entryPriceValue =
+    paperTrade?.entryPrice ?? decisionLogEntry?.referencePrice ?? "";
+  const thesisValue =
+    paperTrade?.thesis || decision?.rationale?.[0] || asset.thesis || "";
+
+  if (!decision || !["BUY", "SELL"].includes(decision.action || "")) {
+    return `
+      <article class="section-card nested-card">
+        <span class="eyebrow">Paper trade</span>
+        <h3>Simulate the approved execution plan</h3>
+        ${renderAssetIntelStatusCard(
+          "No tradeable decision yet",
+          "Paper trades open only from BUY or SELL decisions."
+        )}
+      </article>
+    `;
+  }
+
+  if (review?.reviewStatus !== "approved" && !paperTrade) {
+    return `
+      <article class="section-card nested-card">
+        <span class="eyebrow">Paper trade</span>
+        <h3>Simulate the approved execution plan</h3>
+        ${renderAssetIntelStatusCard(
+          "Approval required",
+          "Approve the current decision first. Paper trades are intentionally gated behind the review step."
+        )}
+      </article>
+    `;
+  }
+
+  return `
+    <article class="section-card nested-card">
+      <span class="eyebrow">Paper trade</span>
+      <h3>Simulate the approved execution plan</h3>
+      ${
+        paperTrade
+          ? `
+            <div class="chip-row">
+              ${renderPaperTradeTag(paperTrade.status || "open")}
+              <span class="tag">${paperTrade.side === "short" ? "Short" : "Long"}</span>
+              <span class="tag">${formatUsdValue(paperTrade.positionSizeUsd || 0)}</span>
+              <span class="tag">${paperTrade.markPrice != null ? formatSignedReturn(paperTrade.netReturnPct) : "Mark pending"}</span>
+            </div>
+            <div class="context-grid">
+              <div class="context-item">
+                <span>Mark price</span>
+                <strong>${paperTrade.markPrice != null ? formatUsdValue(paperTrade.markPrice) : "Pending"}</strong>
+              </div>
+              <div class="context-item">
+                <span>Net PnL</span>
+                <strong>${paperTrade.netPnlUsd != null ? formatUsdValue(paperTrade.netPnlUsd) : "Pending"}</strong>
+              </div>
+              <div class="context-item">
+                <span>Costs</span>
+                <strong>${formatUsdValue(paperTrade.totalCostsUsd || 0)}</strong>
+              </div>
+              <div class="context-item">
+                <span>Mark source</span>
+                <strong>${formatEnumLabel(paperTrade.markPriceSource || "unavailable")}</strong>
+              </div>
+            </div>
+            ${
+              paperTrade.markWarning
+                ? `<p class="subtle">${escapeHtml(paperTrade.markWarning)}</p>`
+                : ""
+            }
+          `
+          : `<p class="subtle">No paper trade has been opened for this approved decision yet.</p>`
+      }
+      <form class="operator-form office-form" data-paper-trade-form data-paper-trade-asset="${escapeHtml(asset.ticker)}" data-paper-trade-decision-id="${escapeHtml(decisionId)}" ${paperTrade?.id ? `data-paper-trade-id="${escapeHtml(paperTrade.id)}"` : ""}>
+        <div class="field-grid">
+          <label class="form-field">
+            <span>Status</span>
+            <select name="status">
+              ${getPaperTradeStatuses()
+                .map(
+                  (status) => `
+                    <option value="${status}" ${(paperTrade?.status || "open") === status ? "selected" : ""}>
+                      ${formatEnumLabel(status)}
+                    </option>
+                  `
+                )
+                .join("")}
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Entry price</span>
+            <input name="entryPrice" type="number" step="0.0001" min="0" value="${escapeHtml(String(entryPriceValue || ""))}" placeholder="Uses decision reference price if blank on new trade" />
+          </label>
+          <label class="form-field">
+            <span>Position size USD</span>
+            <input name="positionSizeUsd" type="number" step="0.01" min="0" value="${escapeHtml(String(paperTrade?.positionSizeUsd ?? 1000))}" />
+          </label>
+          <label class="form-field">
+            <span>Fees USD</span>
+            <input name="feesUsd" type="number" step="0.01" min="0" value="${escapeHtml(String(paperTrade?.feesUsd ?? 0))}" />
+          </label>
+          <label class="form-field">
+            <span>Slippage bps</span>
+            <input name="slippageBps" type="number" step="0.1" min="0" value="${escapeHtml(String(paperTrade?.slippageBps ?? 0))}" />
+          </label>
+          <label class="form-field">
+            <span>Manual mark</span>
+            <input name="manualMarkPrice" type="number" step="0.0001" min="0" value="${escapeHtml(String(paperTrade?.manualMarkPrice ?? ""))}" placeholder="Optional latest price override" />
+          </label>
+          <label class="form-field">
+            <span>Exit price</span>
+            <input name="exitPrice" type="number" step="0.0001" min="0" value="${escapeHtml(String(paperTrade?.exitPrice ?? ""))}" placeholder="Only when closing / invalidating" />
+          </label>
+          <label class="form-field">
+            <span>Stop / invalidation</span>
+            <input name="plannedStopPrice" type="number" step="0.0001" min="0" value="${escapeHtml(String(paperTrade?.plannedStopPrice ?? ""))}" placeholder="Price or level" />
+          </label>
+          <label class="form-field">
+            <span>Target</span>
+            <input name="plannedTargetPrice" type="number" step="0.0001" min="0" value="${escapeHtml(String(paperTrade?.plannedTargetPrice ?? ""))}" placeholder="Optional target" />
+          </label>
+          <label class="form-field">
+            <span>Horizon</span>
+            <input name="horizon" value="${escapeHtml(paperTrade?.horizon || decision?.horizon || "")}" placeholder="2-7 days" />
+          </label>
+        </div>
+        <label class="form-field">
+          <span>Thesis</span>
+          <textarea name="thesis" rows="3" placeholder="Why does this paper trade exist?">${escapeHtml(thesisValue)}</textarea>
+        </label>
+        <label class="form-field">
+          <span>Invalidation reason</span>
+          <input name="invalidationReason" value="${escapeHtml(paperTrade?.invalidationReason || "")}" placeholder="What makes the thesis wrong?" />
+        </label>
+        <label class="form-field">
+          <span>Monitoring note</span>
+          <textarea name="notes" rows="2" placeholder="What changed since entry?">${escapeHtml(paperTrade?.notes || "")}</textarea>
+        </label>
+        <label class="form-field">
+          <span>Postmortem</span>
+          <textarea name="postmortem" rows="3" placeholder="Capture what worked, what failed, and what to change next time.">${escapeHtml(paperTrade?.postmortem || "")}</textarea>
+        </label>
+        <div class="office-form-actions">
+          <button class="mini-chip" type="submit" ${state.isMutating ? "disabled" : ""}>
+            ${paperTrade ? "Save paper trade" : "Open paper trade"}
+          </button>
+          <button class="mini-chip" type="button" data-view="paper">Open paper book</button>
+        </div>
+      </form>
+    </article>
+  `;
+}
+
+function renderFredSection(assetIntel) {
+  const fred = assetIntel?.fred || null;
+
+  if (!fred) {
+    return `
+      <article class="section-card nested-card">
+        <span class="eyebrow">Macro overlay</span>
+        <h3>FRED regime context</h3>
+        ${renderAssetIntelStatusCard("Loading", "Pulling the macro overlay for this asset.")}
+      </article>
+    `;
+  }
+
+  return `
+    <article class="section-card nested-card">
+      <span class="eyebrow">Macro overlay</span>
+      <h3>FRED regime context</h3>
+      ${
+        fred.series?.length
+          ? `
+            <div class="context-grid">
+              ${fred.series
+                .map(
+                  (series) => `
+                    <div class="context-item">
+                      <span>${escapeHtml(series.label)}</span>
+                      <strong>${series.latestValue != null ? escapeHtml(String(series.latestValue)) : "Pending"}</strong>
+                      <small>${series.delta != null ? `${series.delta > 0 ? "+" : ""}${series.delta}` : series.date || ""}</small>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+          : renderAssetIntelStatusCard("FRED not enabled", fred.note || "Macro overlay is not configured yet.")
+      }
+      <p class="subtle">${escapeHtml(fred.note || "FRED should tune confidence and sizing rather than create single-name trades.")}</p>
+    </article>
+  `;
+}
+
+function renderSecEdgarSection(assetIntel) {
+  const secEdgar = assetIntel?.secEdgar || null;
+
+  if (!secEdgar) {
+    return `
+      <article class="section-card nested-card full-span">
+        <span class="eyebrow">Official filings</span>
+        <h3>SEC EDGAR paper trail</h3>
+        ${renderAssetIntelStatusCard("Loading", "Pulling recent official filings for this asset.")}
+      </article>
+    `;
+  }
+
+  if (!secEdgar.supported || !secEdgar.filings?.length) {
+    return `
+      <article class="section-card nested-card full-span">
+        <span class="eyebrow">Official filings</span>
+        <h3>SEC EDGAR paper trail</h3>
+        ${renderAssetIntelStatusCard("No matching filings", secEdgar.note || "No recent filings matched the selected forms.")}
+      </article>
+    `;
+  }
+
+  return `
+    <article class="section-card nested-card full-span">
+      <span class="eyebrow">Official filings</span>
+      <h3>SEC EDGAR paper trail</h3>
+      <div class="research-linked-grid">
+        ${secEdgar.filings
+          .map(
+            (filing) => `
+              <article class="research-linked-card">
+                <div class="decision-topline">
+                  <strong>${escapeHtml(filing.form)}</strong>
+                  <span class="tag">${escapeHtml(filing.filingDate || "Pending date")}</span>
+                </div>
+                <p>${escapeHtml(filing.primaryDocDescription || filing.primaryDocument || "Official filing")}</p>
+                <div class="chip-row">
+                  ${filing.reportDate ? `<span class="tag">Report ${escapeHtml(filing.reportDate)}</span>` : ""}
+                  ${
+                    filing.url
+                      ? `<a class="mini-chip" href="${escapeHtml(filing.url)}" target="_blank" rel="noreferrer">Open filing</a>`
+                      : ""
+                  }
+                </div>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+      <p class="subtle">${escapeHtml(secEdgar.note || "Use official filings to confirm or reject the narrative.")}</p>
+    </article>
+  `;
+}
+
+function renderPolymarketIntelSection(assetIntel) {
+  const polymarketIntel = assetIntel?.polymarket || null;
+
+  if (!polymarketIntel) {
+    return `
+      <article class="section-card nested-card full-span">
+        <span class="eyebrow">Market-implied context</span>
+        <h3>Polymarket probability lane</h3>
+        ${renderAssetIntelStatusCard("Loading", "Pulling market-implied catalyst context for this asset.")}
+      </article>
+    `;
+  }
+
+  if (!polymarketIntel.markets?.length) {
+    return `
+      <article class="section-card nested-card full-span">
+        <span class="eyebrow">Market-implied context</span>
+        <h3>Polymarket probability lane</h3>
+        ${renderAssetIntelStatusCard("No strong market match", "No active Polymarket market matched this asset cleanly enough to show here yet.")}
+        <p class="subtle">${escapeHtml(polymarketIntel.note || "")}</p>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="section-card nested-card full-span">
+      <span class="eyebrow">Market-implied context</span>
+      <h3>Polymarket probability lane</h3>
+      <div class="research-linked-grid">
+        ${polymarketIntel.markets
+          .map(
+            (market) => `
+              <article class="research-linked-card">
+                <div class="decision-topline">
+                  <strong>${escapeHtml(market.question || market.eventTitle || "Polymarket market")}</strong>
+                  <span class="tag">${formatPolymarketProbability(market.displayProbability)}</span>
+                </div>
+                <p>${escapeHtml(market.eventTitle || market.eventContext || "Market-implied event probability")}</p>
+                <div class="chip-row">
+                  <span class="tag">${formatUsdValue(market.liquidity || 0)} liq</span>
+                  <span class="tag">${formatUsdValue(market.volume24hr || 0)} 24h</span>
+                  ${market.spread != null ? `<span class="tag">${Math.round(Number(market.spread || 0) * 100)} bps spread</span>` : ""}
+                  ${market.endDate ? `<span class="tag">Ends ${escapeHtml(formatGeneratedAt(market.endDate))}</span>` : ""}
+                  ${
+                    market.url
+                      ? `<a class="mini-chip" href="${escapeHtml(market.url)}" target="_blank" rel="noreferrer">Open market</a>`
+                      : ""
+                  }
+                </div>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+      <p class="subtle">${escapeHtml(polymarketIntel.note || "")}</p>
+    </article>
+  `;
+}
+
+function renderPaperTradeProviderStatus(markProvider) {
+  const providerConfig = markProvider?.config || {};
+  const activeProvider = String(markProvider?.activeProvider || "none").trim().toLowerCase();
+  const isConfigured = Boolean(markProvider?.configured || providerConfig?.twelveDataConfigured);
+  const coverageSummary = markProvider?.summary || { requestedCount: 0, coveredCount: 0 };
+  const headline =
+    activeProvider !== "none"
+      ? formatEnumLabel(activeProvider)
+      : isConfigured
+        ? "Configured, waiting for quotes"
+        : "Manual marks only";
+
+  return `
+    <article class="section-card nested-card">
+      <span class="eyebrow">Mark provider</span>
+      <h3>Automatic paper-trade marks</h3>
+      <div class="chip-row">
+        <span class="tag">${escapeHtml(headline)}</span>
+        <span class="tag">${coverageSummary.coveredCount || 0}/${coverageSummary.requestedCount || 0} covered</span>
+        <span class="tag">Fallback ${formatEnumLabel(markProvider?.fallbackProvider || "none")}</span>
+      </div>
+      <p>${escapeHtml(markProvider?.note || "Manual marks remain available even when no automatic quote provider is configured.")}</p>
+      ${
+        markProvider?.warnings?.length
+          ? `<p class="subtle">${escapeHtml(markProvider.warnings[0])}</p>`
+          : `<p class="subtle">${
+              isConfigured
+                ? "Set refresh expectations around quote-provider limits; this lane is intentionally separate from the core pipeline."
+                : "Set TWELVE_DATA_API_KEY if you want open paper trades to pick up automatic mark prices."
+            }</p>`
+      }
+      <div class="office-form-actions">
+        <button class="mini-chip" type="button" data-refresh>Refresh prices</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderPaperTradeCard(trade, asset = null, { compact = false } = {}) {
+  const status = String(trade?.status || "planned").trim().toLowerCase();
+  const isClosed = ["closed", "invalidated", "cancelled"].includes(status);
+  const thesis = trade?.thesis || asset?.thesis || "No thesis recorded yet.";
+
+  return `
+    <article class="${compact ? "feed-item" : "section-card nested-card"}">
+      <div class="feed-head">
+        <strong><button class="inline-link" data-asset="${escapeHtml(trade.asset)}">${escapeHtml(trade.asset)}</button> ${trade.side === "short" ? "Short" : "Long"}</strong>
+        ${renderPaperTradeTag(status)}
+      </div>
+      <p>${escapeHtml(thesis)}</p>
+      <div class="chip-row">
+        <span class="tag">${formatUsdValue(trade.positionSizeUsd || 0)}</span>
+        <span class="tag">${trade.markPrice != null ? formatSignedReturn(trade.netReturnPct) : "Mark pending"}</span>
+        <span class="tag">${formatEnumLabel(trade.markPriceSource || "unavailable")}</span>
+        ${trade.horizon ? `<span class="tag">${escapeHtml(trade.horizon)}</span>` : ""}
+      </div>
+      <div class="context-grid">
+        <div class="context-item">
+          <span>Entry</span>
+          <strong>${trade.entryPrice != null ? formatUsdValue(trade.entryPrice) : "Pending"}</strong>
+        </div>
+        <div class="context-item">
+          <span>Mark</span>
+          <strong>${trade.markPrice != null ? formatUsdValue(trade.markPrice) : "Pending"}</strong>
+        </div>
+        <div class="context-item">
+          <span>Net PnL</span>
+          <strong>${trade.netPnlUsd != null ? formatUsdValue(trade.netPnlUsd) : "Pending"}</strong>
+        </div>
+        <div class="context-item">
+          <span>${isClosed ? "Closed" : "Updated"}</span>
+          <strong>${escapeHtml(formatGeneratedAt(trade.closedAt || trade.updatedAt || trade.openedAt || ""))}</strong>
+        </div>
+      </div>
+      ${
+        trade.plannedStopPrice != null || trade.plannedTargetPrice != null
+          ? `
+            <div class="chip-row">
+              ${trade.plannedStopPrice != null ? `<span class="tag">Stop ${formatUsdValue(trade.plannedStopPrice)}</span>` : ""}
+              ${trade.plannedTargetPrice != null ? `<span class="tag">Target ${formatUsdValue(trade.plannedTargetPrice)}</span>` : ""}
+            </div>
+          `
+          : ""
+      }
+      ${
+        trade.markWarning
+          ? `<p class="subtle">${escapeHtml(trade.markWarning)}</p>`
+          : ""
+      }
+      ${
+        trade.postmortem
+          ? `<p class="subtle">${escapeHtml(trade.postmortem)}</p>`
+          : ""
+      }
+      <div class="office-form-actions">
+        <button class="mini-chip" type="button" data-asset="${escapeHtml(trade.asset)}">Open asset</button>
+        <button class="mini-chip" type="button" data-view="logs">Open logs</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderPaperTradingView() {
+  const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
+  const watchedUniverse = getWatchedUniverse(profile);
+  const trackedAssets = new Map(
+    [...watchedUniverse, ...(getData().monitoredUniverse || [])]
+      .map((asset) => [normalizeTicker(asset?.ticker), asset])
+      .filter(([ticker]) => ticker)
+  );
+  const summary = getPaperTradeSummary();
+  const markProvider = getPaperTradeMarkProvider();
+  const openTrades = getOpenPaperTrades();
+  const closedTrades = getClosedPaperTrades();
+  const nextTradeToReview = openTrades[0] || null;
+
+  return `
+    <main class="office-content page-main page-decisions-main">
+      ${renderStatusBanner()}
+      ${renderOperatorNotice()}
+      <section class="office-panel today-hero-panel">
+        <div class="today-hero-grid">
+          <div class="today-hero-copy">
+            <span class="eyebrow">Paper trading</span>
+            <h2>${openTrades.length ? "Monitor the shadow book before risking capital" : "Build a shadow book before live execution"}</h2>
+            <p>${
+              openTrades.length
+                ? summary.manualMarkNeededCount
+                  ? `${summary.manualMarkNeededCount} open trade${summary.manualMarkNeededCount === 1 ? "" : "s"} still need a manual or real quote-based mark.`
+                  : `${openTrades.length} open trade${openTrades.length === 1 ? "" : "s"} are being tracked with fees, slippage, and thesis notes.`
+                : "Approved BUY and SELL calls can be opened here as simulated positions, then monitored from one place."
+            }</p>
+            <div class="briefing-kicker-row">
+              <span class="tag">${summary.openCount || 0} open</span>
+              <span class="tag">${summary.closedCount || 0} closed</span>
+              <span class="tag">${summary.markedCount || 0} marked</span>
+              <span class="tag">${formatUsdValue(summary.totalNetPnlUsd || 0)} net</span>
+            </div>
+          </div>
+          <div class="today-hero-rail">
+            <article class="briefing-action-card">
+              <span class="eyebrow">Do this next</span>
+              <strong>${
+                summary.manualMarkNeededCount
+                  ? "Update missing marks"
+                  : nextTradeToReview
+                    ? `Review ${escapeHtml(nextTradeToReview.asset)}`
+                    : "Open the first approved idea"
+              }</strong>
+              <p>${
+                summary.manualMarkNeededCount
+                  ? "A few trades still cannot be evaluated properly because no usable real mark is attached yet."
+                  : nextTradeToReview
+                    ? nextTradeToReview.thesis || "Check the lead open trade against thesis and invalidation."
+                    : "Approve a BUY or SELL decision first, then open the paper trade from the asset detail page."
+              }</p>
+              <div class="office-form-actions">
+                <button class="refresh-button" type="button" ${nextTradeToReview ? `data-asset="${escapeHtml(nextTradeToReview.asset)}"` : 'data-view="decisions"'}>
+                  ${nextTradeToReview ? "Open lead trade" : "Open Decisions"}
+                </button>
+                <button class="mini-chip" type="button" data-refresh>Refresh marks</button>
+              </div>
+            </article>
+            <article class="briefing-summary-card">
+              <span>Open return</span>
+              <strong>${summary.averageOpenReturnPct != null ? formatSignedReturn(summary.averageOpenReturnPct) : "Pending"}</strong>
+              <p>${summary.openCount ? `${summary.openCount} trade${summary.openCount === 1 ? "" : "s"} are still active.` : "No open trades are being monitored yet."}</p>
+            </article>
+            <article class="briefing-summary-card">
+              <span>Closed win rate</span>
+              <strong>${summary.closedCount ? formatPercent(summary.winRate || 0) : "Pending"}</strong>
+              <p>${summary.closedCount ? `${summary.winCount || 0} wins across ${summary.closedCount} closed trades.` : "Win rate begins once the first trade is closed or invalidated."}</p>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section class="stat-grid">
+        <article class="stat-card">
+          <span class="eyebrow">Open book</span>
+          <strong>${summary.openCount || 0}</strong>
+          <p>planned and open paper trades still being monitored.</p>
+        </article>
+        <article class="stat-card">
+          <span class="eyebrow">Marked coverage</span>
+          <strong>${summary.markedCount || 0}/${summary.totalCount || 0}</strong>
+          <p>trades with a usable mark or exit price attached.</p>
+        </article>
+        <article class="stat-card">
+          <span class="eyebrow">Manual marks needed</span>
+          <strong>${summary.manualMarkNeededCount || 0}</strong>
+          <p>open trades that still need manual help because no real quote was available.</p>
+        </article>
+        <article class="stat-card">
+          <span class="eyebrow">Net PnL</span>
+          <strong>${formatUsdValue(summary.totalNetPnlUsd || 0)}</strong>
+          <p>aggregate marked result after fees and slippage.</p>
+        </article>
+      </section>
+      <section class="office-grid office-grid-two">
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Provider</span>
+              <h3>How mark prices are sourced</h3>
+            </div>
+            <button class="mini-chip" type="button" data-refresh>Refresh data</button>
+          </div>
+          ${renderPaperTradeProviderStatus(markProvider)}
+        </section>
+        <section class="office-panel">
+          <div class="office-panel-head">
+            <div>
+              <span class="eyebrow">Exceptions</span>
+              <h3>Trades that need attention</h3>
+            </div>
+            <button class="mini-chip" type="button" data-view="decisions">Open Decisions</button>
+          </div>
+          <div class="feed-list">
+            ${
+              openTrades.filter((trade) => trade.markWarning).length
+                ? openTrades
+                    .filter((trade) => trade.markWarning)
+                    .map((trade) => renderPaperTradeCard(trade, trackedAssets.get(trade.asset), { compact: true }))
+                    .join("")
+                : `<article class="status-inline"><strong>No mark blockers right now</strong><p>Every open trade has either a manual mark, an exit price, or a usable real quote source.</p></article>`
+            }
+          </div>
+        </section>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Open trades</span>
+            <h3>Shadow book in progress</h3>
+          </div>
+          <button class="mini-chip" type="button" data-view="decisions">Open decisions</button>
+        </div>
+        <div class="research-linked-grid">
+          ${
+            openTrades.length
+              ? openTrades
+                  .map((trade) => renderPaperTradeCard(trade, trackedAssets.get(trade.asset)))
+                  .join("")
+              : `<article class="status-inline"><strong>No open paper trades yet</strong><p>Once an approved BUY or SELL is promoted into a simulated trade, it will show up here with live mark tracking.</p></article>`
+          }
+        </div>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Closed trades</span>
+            <h3>What the shadow book has taught us</h3>
+          </div>
+          <button class="mini-chip" type="button" data-view="logs">Open logs</button>
+        </div>
+        <div class="research-linked-grid">
+          ${
+            closedTrades.length
+              ? closedTrades
+                  .slice(0, 12)
+                  .map((trade) => renderPaperTradeCard(trade, trackedAssets.get(trade.asset)))
+                  .join("")
+              : `<article class="status-inline"><strong>No closed paper trades yet</strong><p>Close or invalidate trades over time to build a real learning loop instead of a collection of unscored ideas.</p></article>`
+          }
+        </div>
+      </section>
+    </main>
+  `;
+}
+
 function renderAssetsView() {
   const profile = getAdvisor().financialProfile || EMPTY_DATA.advisor.financialProfile;
   const watchedUniverse = getWatchedUniverse(profile);
@@ -5958,6 +7690,9 @@ function renderAssetsView() {
   }
 
   const decision = getDecisionByAsset(asset.ticker);
+  const currentReview = getCurrentDecisionReview(asset.ticker);
+  const paperTrade = getPaperTradeForAsset(asset.ticker);
+  const assetIntel = getAssetIntel(asset.ticker);
   const relatedResearch = getResearchDossiers().filter((dossier) =>
     getResearchDossierAssets(dossier).includes(asset.ticker)
   );
@@ -6051,6 +7786,22 @@ function renderAssetsView() {
               </div>
               <p class="subtle">Risk flag: ${asset.riskFlag}</p>
             </article>
+            ${renderPaperTradeSection(asset, decision, currentReview, paperTrade)}
+            ${
+              state.assetIntelError && !assetIntel
+                ? `
+                  <article class="section-card nested-card full-span">
+                    <span class="eyebrow">Asset intel</span>
+                    <h3>External evidence lanes</h3>
+                    ${renderAssetIntelStatusCard("Load failed", state.assetIntelError)}
+                  </article>
+                `
+                : `
+                  ${renderFredSection(assetIntel)}
+                  ${renderSecEdgarSection(assetIntel)}
+                  ${renderPolymarketIntelSection(assetIntel)}
+                `
+            }
             <article class="section-card nested-card full-span">
               <span class="eyebrow">Research context</span>
               <h3>Evidence packets tied to ${asset.ticker}</h3>
@@ -7202,6 +8953,211 @@ function renderPolymarketView() {
   `;
 }
 
+function renderPortfolioAssessmentAssetCard(asset) {
+  const action = String(asset?.action || "").trim().toUpperCase();
+  const confidence = Number(asset?.confidence || 0);
+  const hasWeight = asset?.weightRatio != null;
+
+  return `
+    <article class="operator-card">
+      <div class="operator-card-head">
+        <div>
+          <strong>${escapeHtml(asset?.ticker || "Asset")}</strong>
+          <span>${escapeHtml(asset?.name || asset?.sourceLabel || "Tracked asset")}</span>
+        </div>
+        ${
+          action
+            ? `<span class="decision-badge decision-${action.toLowerCase()}">${escapeHtml(action)}</span>`
+            : `<span class="tag">${escapeHtml(asset?.inUniverse ? "No live call" : "Outside coverage")}</span>`
+        }
+      </div>
+      <p>${escapeHtml(asset?.note || "No portfolio note is available for this asset yet.")}</p>
+      <div class="tag-row">
+        <span class="tag">${escapeHtml(asset?.sourceLabel || "Tracked")}</span>
+        ${asset?.bucket ? `<span class="tag">${escapeHtml(asset.bucket)}</span>` : ""}
+        ${hasWeight ? `<span class="tag">${formatPercent(asset.weightRatio || 0)} weight</span>` : ""}
+        ${asset?.currentValue ? `<span class="tag">${formatUsdValue(asset.currentValue)}</span>` : ""}
+        ${action ? `<span class="tag">${formatPercent(confidence)}</span>` : ""}
+        ${asset?.reviewStatus ? `<span class="tag">${escapeHtml(formatEnumLabel(asset.reviewStatus))} review</span>` : ""}
+        ${asset?.researchStatus ? `<span class="tag">${escapeHtml(formatEnumLabel(asset.researchStatus))} research</span>` : ""}
+        ${asset?.paperTradeStatus ? `<span class="tag">${escapeHtml(formatEnumLabel(asset.paperTradeStatus))} paper</span>` : ""}
+      </div>
+      ${
+        asset?.summary
+          ? `<p class="subtle">${escapeHtml(asset.summary)}</p>`
+          : ""
+      }
+      <div class="office-form-actions">
+        ${
+          asset?.inUniverse
+            ? `<button class="mini-chip" type="button" data-asset="${escapeHtml(asset.ticker)}">Open asset</button>`
+            : `<button class="mini-chip" type="button" data-view="setup">Open portfolio</button>`
+        }
+      </div>
+    </article>
+  `;
+}
+
+function renderPortfolioAssessmentPanel() {
+  const assessment = getPortfolioAssessment();
+
+  if (!assessment) {
+    return `
+      <section class="office-panel status-inline">
+        <strong>Portfolio assessment is loading</strong>
+        <p>The service will appear here once the latest app state is available.</p>
+      </section>
+    `;
+  }
+
+  const metrics = assessment.metrics || {};
+  const scores = assessment.scores || {};
+  const insights = assessment.insights || {};
+  const trackedAssets = Array.isArray(assessment.trackedAssets) ? assessment.trackedAssets : [];
+
+  return `
+    <section class="office-panel office-summary-panel">
+      <div class="office-panel-head">
+        <div>
+          <span class="eyebrow">Assessment service</span>
+          <h2>Portfolio assessment</h2>
+          <p class="section-copy">This deterministic service checks concentration, liquidity, coverage, governance, and the paper-trade learning loop against your saved profile.</p>
+        </div>
+        <div class="office-inline-meta">
+          <span>${escapeHtml(formatEnumLabel(assessment.status || "mixed"))}</span>
+          <span>${assessment.tradeReadiness?.ready ? "Trade-ready green" : "Trade-ready locked"}</span>
+        </div>
+      </div>
+      <div class="office-summary-grid">
+        <article class="office-metric">
+          <span>Overall</span>
+          <strong>${Math.round(scores.overall || 0)}</strong>
+          <small>${escapeHtml(formatEnumLabel(assessment.status || "mixed"))}</small>
+        </article>
+        <article class="office-metric">
+          <span>Coverage</span>
+          <strong>${formatPercent(metrics.decisionCoverageRatio || 0)}</strong>
+          <small>${metrics.liveDecisionCount || 0}/${metrics.trackedTickerCount || 0} tracked names have live calls</small>
+        </article>
+        <article class="office-metric">
+          <span>Governance</span>
+          <strong>${Math.round(scores.governance || 0)}</strong>
+          <small>${metrics.approvedResearchCount || 0} approved dossiers, ${metrics.actionableTrackedCount || 0} actionable names</small>
+        </article>
+        <article class="office-metric">
+          <span>Liquidity</span>
+          <strong>${metrics.emergencyCoverageMonths ? `${metrics.emergencyCoverageMonths}m` : "Pending"}</strong>
+          <small>Target ${metrics.targetEmergencyFundMonths || 0}m</small>
+        </article>
+        <article class="office-metric">
+          <span>Concentration</span>
+          <strong>${metrics.largestHoldingWeightRatio != null ? formatPercent(metrics.largestHoldingWeightRatio) : "Pending"}</strong>
+          <small>Largest listed holding weight</small>
+        </article>
+        <article class="office-metric">
+          <span>Learning loop</span>
+          <strong>${metrics.paperTradeClosedCount || 0}</strong>
+          <small>${metrics.paperTradeOpenCount || 0} open, ${formatPercent(metrics.paperTradeWinRate || 0)} win rate</small>
+        </article>
+      </div>
+      <article class="research-linked-card">
+        <div class="research-card-head">
+          <div>
+            <strong>${escapeHtml(assessment.headline || "Portfolio assessment")}</strong>
+            <span>${formatGeneratedAt(assessment.generatedAt)}</span>
+          </div>
+        </div>
+        <p>${escapeHtml(assessment.summary || "No assessment summary is available yet.")}</p>
+        <div class="tag-row">
+          ${metrics.totalHoldingsValue ? `<span class="tag">${formatUsdValue(metrics.totalHoldingsValue)} holdings</span>` : ""}
+          ${metrics.totalLiabilitiesValue ? `<span class="tag">${formatUsdValue(metrics.totalLiabilitiesValue)} liabilities</span>` : ""}
+          ${metrics.uncoveredTrackedCount ? `<span class="tag">${metrics.uncoveredTrackedCount} uncovered</span>` : ""}
+          ${metrics.pendingReviewCount ? `<span class="tag">${metrics.pendingReviewCount} pending approvals</span>` : ""}
+        </div>
+      </article>
+    </section>
+    <section class="office-grid office-grid-two">
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Strengths and risks</span>
+            <h3>What looks solid and what needs attention</h3>
+          </div>
+        </div>
+        <div class="research-linked-grid">
+          <article class="research-linked-card">
+            <div class="decision-topline">
+              <strong>Strengths</strong>
+              <span class="tag">${(insights.strengths || []).length}</span>
+            </div>
+            <ul class="research-evidence-list">
+              ${(insights.strengths || ["No clear portfolio strength is registered yet."])
+                .map((item) => `<li>${escapeHtml(item)}</li>`)
+                .join("")}
+            </ul>
+          </article>
+          <article class="research-linked-card">
+            <div class="decision-topline">
+              <strong>Risks</strong>
+              <span class="tag">${(insights.risks || []).length}</span>
+            </div>
+            <ul class="research-evidence-list">
+              ${(insights.risks || ["No immediate portfolio risk is registered yet."])
+                .map((item) => `<li>${escapeHtml(item)}</li>`)
+                .join("")}
+            </ul>
+          </article>
+        </div>
+      </section>
+      <section class="office-panel">
+        <div class="office-panel-head">
+          <div>
+            <span class="eyebrow">Next steps</span>
+            <h3>What the desk wants you to do next</h3>
+          </div>
+        </div>
+        <article class="research-linked-card">
+          <ul class="research-evidence-list">
+            ${(insights.nextSteps || ["No next step is available yet."])
+              .map((item) => `<li>${escapeHtml(item)}</li>`)
+              .join("")}
+          </ul>
+          ${
+            assessment.tradeReadiness?.blockingGate
+              ? `<p class="subtle">${escapeHtml(assessment.tradeReadiness.blockingGate)}</p>`
+              : ""
+          }
+          <div class="office-form-actions">
+            <button class="mini-chip" type="button" data-view="decisions">Open Decisions</button>
+            <button class="mini-chip" type="button" data-view="paper">Open Paper Trades</button>
+          </div>
+        </article>
+      </section>
+    </section>
+    <section class="office-panel">
+      <div class="office-panel-head">
+        <div>
+          <span class="eyebrow">Tracked asset coverage</span>
+          <h3>How your saved names currently map into the desk</h3>
+        </div>
+        <div class="office-form-actions">
+          <button class="mini-chip" type="button" data-view="setup">Open Portfolio</button>
+        </div>
+      </div>
+      ${
+        trackedAssets.length
+          ? `<div class="operator-list">${trackedAssets.map((asset) => renderPortfolioAssessmentAssetCard(asset)).join("")}</div>`
+          : `
+              <article class="status-inline">
+                <strong>No tracked assets yet</strong>
+                <p>Add at least one holding or watchlist name in Portfolio before relying on the assessment service.</p>
+              </article>
+            `
+      }
+    </section>
+  `;
+}
+
 function renderAdvisorView() {
   const advisor = getAdvisor();
   const profile = advisor.financialProfile || EMPTY_DATA.advisor.financialProfile;
@@ -7280,6 +9236,7 @@ function renderAdvisorView() {
           </article>
         </div>
       </section>
+      ${renderPortfolioAssessmentPanel()}
       ${
         !canAsk
           ? `
@@ -7668,6 +9625,9 @@ function renderLogs() {
   const outcomeBreakdown = Object.entries(historyAnalytics.outcomeBreakdown || {}).sort(
     ([left], [right]) => left.localeCompare(right)
   );
+  const followUpBreakdown = Object.entries(historyAnalytics.followUpBreakdown || {}).sort(
+    ([left], [right]) => left.localeCompare(right)
+  );
   const selectedScenarioCases = selectedEval?.scenarioCases || [];
 
   return `
@@ -7857,10 +9817,56 @@ function renderLogs() {
                     <span class="tag">${formatScorePercent(entry.confidence)}</span>
                     <span class="tag">${entry.vetoed ? "Policy-adjusted" : "Direct output"}</span>
                     ${entry.reviewStatus ? renderDecisionReviewTag(entry.reviewStatus) : ""}
+                    ${renderDecisionFollowUpTag(entry.followUpState || "open")}
                     <span class="tag">${formatEnumLabel(entry.outcomeState || "open")}</span>
                     <span class="tag">${formatSignedReturn(entry.returnSinceDecision)}</span>
                     <span class="tag">${formatShortId(entry.runId)}</span>
                   </div>
+                  <details>
+                    <summary>Monitoring loop</summary>
+                    <form class="operator-form office-form" data-decision-follow-up-form data-decision-history-id="${escapeHtml(entry.id)}">
+                      <div class="field-grid">
+                        <label class="form-field">
+                          <span>Follow-up state</span>
+                          <select name="followUpState">
+                            ${getDecisionFollowUpStates()
+                              .map(
+                                (status) => `
+                                  <option value="${status}" ${(entry.followUpState || "open") === status ? "selected" : ""}>
+                                    ${formatEnumLabel(status)}
+                                  </option>
+                                `
+                              )
+                              .join("")}
+                          </select>
+                        </label>
+                        <label class="form-field">
+                          <span>Next review date</span>
+                          <input name="nextReviewAt" type="date" value="${escapeHtml(formatDateInputValue(entry.nextReviewAt))}" />
+                        </label>
+                      </div>
+                      <label class="form-field">
+                        <span>Invalidation reason</span>
+                        <input name="invalidationReason" value="${escapeHtml(entry.invalidationReason || "")}" placeholder="What would make this thesis wrong?" />
+                      </label>
+                      <label class="form-field">
+                        <span>Monitoring note</span>
+                        <textarea name="outcomeNote" rows="2" placeholder="What changed since the decision was recorded?">${escapeHtml(entry.outcomeNote || "")}</textarea>
+                      </label>
+                      <label class="form-field">
+                        <span>Postmortem</span>
+                        <textarea name="postmortem" rows="3" placeholder="Capture what worked, what failed, and what to change next time.">${escapeHtml(entry.postmortem || "")}</textarea>
+                      </label>
+                      <div class="office-form-actions">
+                        <button class="mini-chip" type="submit" ${state.isMutating ? "disabled" : ""}>Save follow-up</button>
+                        ${
+                          entry.nextReviewAt
+                            ? `<span class="subtle">Next review ${escapeHtml(formatGeneratedAt(entry.nextReviewAt))}</span>`
+                            : '<span class="subtle">No next review date saved yet.</span>'
+                        }
+                      </div>
+                    </form>
+                  </details>
                 </article>
               `
               )
@@ -8083,6 +10089,19 @@ function renderLogs() {
               `
               )
               .join("")}
+            ${followUpBreakdown
+              .map(
+                ([status, count]) => `
+                <article class="timeline-item">
+                  <span class="timeline-step">${String(count).padStart(2, "0")}</span>
+                  <div>
+                    <strong>${formatEnumLabel(status)}</strong>
+                    <p>${count} stored decisions currently sit in this operator follow-up state.</p>
+                  </div>
+                </article>
+              `
+              )
+              .join("")}
           </div>
         </div>
       </section>
@@ -8122,6 +10141,10 @@ function renderContent() {
     return renderDecisionsPage();
   }
 
+  if (state.view === "paper") {
+    return renderPaperTradingView();
+  }
+
   if (state.view === "polymarket") {
     return renderPolymarketView();
   }
@@ -8132,6 +10155,10 @@ function renderContent() {
 
   if (state.view === "advisor") {
     return renderAdvisorView();
+  }
+
+  if (state.view === "howto") {
+    return renderHowToPage();
   }
 
   if (state.view === "admin") {

@@ -2810,6 +2810,13 @@ body {
   color: var(--ink);
 }
 
+.mini-chip-stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  text-align: left;
+}
+
 .mini-chip.is-active {
   border-color: var(--night);
   background: var(--night);
@@ -2852,6 +2859,101 @@ body {
   color: inherit;
   opacity: 0.7;
   font-size: 0.76rem;
+}
+
+.office-nav-guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
+  gap: 0.9rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.office-nav-guide-copy,
+.office-nav-guide-next {
+  display: grid;
+  gap: 0.26rem;
+}
+
+.office-nav-guide-copy strong,
+.office-nav-guide-next strong {
+  font-family: var(--font-display);
+  font-size: 1.12rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.office-nav-guide-copy p,
+.office-nav-guide-next p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.office-nav-guide-actions {
+  display: grid;
+  gap: 0.75rem;
+  align-content: center;
+}
+
+.office-workflow-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.55rem;
+}
+
+.office-workflow-step {
+  display: grid;
+  gap: 0.18rem;
+  align-content: start;
+  min-height: 78px;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.54);
+  text-align: left;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.office-workflow-step:hover {
+  transform: translateY(-1px);
+  border-color: rgba(17, 24, 39, 0.18);
+}
+
+.office-workflow-step span {
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.office-workflow-step small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.office-workflow-step.is-active {
+  border-color: var(--night);
+  background: var(--night);
+  color: #fff8ef;
+}
+
+.office-workflow-step.is-active small {
+  color: rgba(255, 248, 239, 0.74);
+}
+
+.office-workflow-step.is-emphasis {
+  border-color: rgba(178, 95, 48, 0.22);
+  background: rgba(178, 95, 48, 0.08);
+}
+
+.mini-chip small {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  opacity: 0.72;
 }
 
 .developer-tray {
@@ -3342,6 +3444,19 @@ body {
   .office-meta-pill,
   .developer-toggle,
   .office-tab {
+    width: 100%;
+  }
+
+  .office-nav-guide,
+  .office-workflow-rail {
+    grid-template-columns: 1fr;
+  }
+
+  .office-nav-guide-actions .office-form-actions {
+    width: 100%;
+  }
+
+  .office-nav-guide-actions .office-form-actions > * {
     width: 100%;
   }
 

@@ -262,6 +262,25 @@ function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_polymarket_orders_market_id
       ON polymarket_orders(market_id);
 
+    CREATE TABLE IF NOT EXISTS paper_trades (
+      id TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      asset TEXT NOT NULL,
+      status TEXT NOT NULL,
+      decision_id TEXT NOT NULL DEFAULT '',
+      payload TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_paper_trades_updated_at
+      ON paper_trades(updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_paper_trades_asset
+      ON paper_trades(asset);
+
+    CREATE INDEX IF NOT EXISTS idx_paper_trades_status
+      ON paper_trades(status);
+
     CREATE TABLE IF NOT EXISTS linkedin_drafts (
       id TEXT PRIMARY KEY,
       created_at TEXT NOT NULL,

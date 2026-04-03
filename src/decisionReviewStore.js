@@ -251,6 +251,11 @@ function indexDecisionReviewsByAsset(limit = REVIEW_LIMIT) {
   return reviewsByAsset;
 }
 
+export function getDecisionReviewByAsset(asset) {
+  const cleanTicker = normalizeTicker(asset);
+  return cleanTicker ? indexDecisionReviewsByAsset().get(cleanTicker) || null : null;
+}
+
 export function saveDecisionReview(review) {
   const normalizedStatus = normalizeReviewStatus(review?.status);
   const now = buildTimestamp();

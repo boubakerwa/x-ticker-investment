@@ -23,6 +23,7 @@ import {
   buildCurrentDecisionReviewState,
   decorateDecisionHistoryWithReviews,
   DECISION_REVIEW_STATUSES,
+  getDecisionReviewByAsset,
   listDecisionReviews,
   updateDecisionReviewStatus
 } from "./src/decisionReviewStore.js";
@@ -48,10 +49,13 @@ import { getNotificationStatus, sendNotification } from "./src/notificationProvi
 import { ensureLatestPipelineRun } from "./src/pipelineRunner.js";
 import { getPostVerificationOverride, setPostVerificationOverride } from "./src/postVerificationStore.js";
 import {
+  DECISION_FOLLOW_UP_STATES,
+  getDecisionHistoryEntry,
   getLatestPipelineSnapshot,
   getPipelineRun,
   listDecisionHistory,
-  listPipelineRuns
+  listPipelineRuns,
+  updateDecisionHistoryEntry
 } from "./src/pipelineStore.js";
 import { executePipelineJob, getOrchestratorStatus, sendDailyDigest } from "./src/orchestrator.js";
 import { monitoredUniverse } from "./src/data.js";
@@ -64,6 +68,20 @@ import {
   getPolymarketStatus,
   placePolymarketOrder
 } from "./src/polymarketDesk.js";
+import { buildAssetIntel } from "./src/assetIntelProvider.js";
+import {
+  buildStoredPaperTradingState,
+  createPaperTrade,
+  findActivePaperTradeByDecisionId,
+  getPaperTrade,
+  listPaperTrades,
+  updatePaperTrade
+} from "./src/paperTradeStore.js";
+import { buildPortfolioAssessment } from "./src/portfolioAssessment.js";
+import {
+  getPaperTradePriceProviderConfig,
+  getPaperTradePriceSnapshot
+} from "./src/paperTradePriceProvider.js";
 import {
   createSource,
   deleteSource,
@@ -79,6 +97,7 @@ import {
   RESEARCH_DOSSIER_STATUSES,
   updateResearchDossier
 } from "./src/researchStore.js";
+import { buildTradeReadinessState } from "./src/tradeReadiness.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 3000);
@@ -561,6 +580,342 @@ function decorateReviewItemWithResearch(item, researchByAsset) {
   };
 }
 
+function truncateText(value, maxLength = 220) {
+  const text = String(value || "").trim();
+
+  if (!text) {
+    return "";
+  }
+
+  return text.length <= maxLength ? text : `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function roundScore(value, digits = 2) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? Number(numericValue.toFixed(digits)) : 0;
+}
+
+function buildSeedThemeForDecision(assetProfile, decision = {}) {
+  if (decision?.clusterIds?.[0]) {
+    return String(decision.clusterIds[0])
+      .replace(/^cluster-/, "")
+      .replace(/-/g, " ")
+      .replace(/\b\w/g, (match) => match.toUpperCase());
+  }
+
+  return assetProfile?.bucket || "General";
+}
+
+function buildSeedSupportingEvidence(decision, relatedPosts, sourceById) {
+  const evidence = [];
+
+  for (const rationale of decision?.rationale || []) {
+    if (!String(rationale || "").trim()) {
+      continue;
+    }
+
+    evidence.push({
+      label: "Engine rationale",
+      summary: String(rationale).trim(),
+      source: "Decision engine",
+      weight: 0.58
+    });
+  }
+
+  for (const post of relatedPosts) {
+    const source = sourceById.get(post.sourceId);
+    evidence.push({
+      label: source?.name || source?.handle || post.sourceId,
+      summary: truncateText(post.body, 240),
+      source: source?.name || source?.handle || "Imported source",
+      url: post.canonicalUrl || post.xUrl || "",
+      publishedAt: post.createdAt || "",
+      weight: Number(source?.baselineReliability || 0.6),
+      note: post.authorHandle ? `Imported from ${post.authorHandle}` : ""
+    });
+  }
+
+  return evidence.slice(0, 8);
+}
+
+function buildSeedContradictingEvidence(decision) {
+  const entries = [];
+
+  for (const item of decision?.whyNot || []) {
+    if (String(item || "").trim()) {
+      entries.push({
+        label: "Why not",
+        summary: String(item).trim(),
+        source: "Decision engine",
+        weight: 0.46
+      });
+    }
+  }
+
+  for (const item of decision?.uncertainty || []) {
+    if (String(item || "").trim()) {
+      entries.push({
+        label: "Uncertainty",
+        summary: String(item).trim(),
+        source: "Decision engine",
+        weight: 0.42
+      });
+    }
+  }
+
+  if (decision?.vetoReason) {
+    entries.push({
+      label: "Policy veto",
+      summary: String(decision.vetoReason).trim(),
+      source: "Policy layer",
+      weight: 0.54
+    });
+  }
+
+  return entries.slice(0, 8);
+}
+
+function buildSeedCitations(relatedPosts, sourceById) {
+  return relatedPosts.slice(0, 6).map((post, index) => {
+    const source = sourceById.get(post.sourceId);
+
+    return {
+      id: `seed-citation-${index + 1}`,
+      label: source?.handle || source?.name || post.sourceId || `Citation ${index + 1}`,
+      summary: truncateText(post.body, 200),
+      source: source?.name || source?.handle || "Imported source",
+      url: post.canonicalUrl || post.xUrl || "",
+      publishedAt: post.createdAt || "",
+      note: post.importMethod ? `Imported via ${post.importMethod}` : ""
+    };
+  });
+}
+
+function buildResearchSeedPayload(assetTicker, decision, relatedPosts, sourceById) {
+  const cleanTicker = normalizeTicker(assetTicker);
+  const assetProfile = monitoredUniverse.find((asset) => asset.ticker === cleanTicker) || null;
+  const supportingEvidence = buildSeedSupportingEvidence(decision, relatedPosts, sourceById);
+  const contradictingEvidence = buildSeedContradictingEvidence(decision);
+  const citations = buildSeedCitations(relatedPosts, sourceById);
+  const averageSourceQuality =
+    relatedPosts.reduce((sum, post) => {
+      const source = sourceById.get(post.sourceId);
+      return sum + Number(source?.baselineReliability || 0.6);
+    }, 0) / Math.max(relatedPosts.length, 1);
+
+  return {
+    title: `${cleanTicker} thesis seed`,
+    theme: buildSeedThemeForDecision(assetProfile, decision),
+    assets: [cleanTicker],
+    horizon: String(decision?.horizon || assetProfile?.bucket || "2-7 days").trim(),
+    thesis: String((decision?.rationale || []).join(" ") || assetProfile?.thesis || "").trim(),
+    summary: String(
+      decision?.decisionMathSummary ||
+        decision?.rationale?.[0] ||
+        assetProfile?.thesis ||
+        `${cleanTicker} research seed created from the latest decision queue.`
+    ).trim(),
+    supportingEvidence,
+    contradictingEvidence,
+    citations,
+    sourceQualityScore: roundScore(
+      relatedPosts.length ? averageSourceQuality : decision?.confidence || 0.62
+    ),
+    timelinessScore: roundScore(relatedPosts.length ? 0.72 : 0.58),
+    edgeHypothesis: String(
+      decision?.decisionMathSummary ||
+        `If the current ${cleanTicker} thesis holds, the setup may still be mispriced relative to the recent narrative and market context.`
+    ).trim(),
+    riskFactors: [
+      ...new Set(
+        [
+          ...(decision?.uncertainty || []),
+          ...(assetProfile?.riskFlag ? [assetProfile.riskFlag] : [])
+        ]
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+      )
+    ].slice(0, 6),
+    status: "candidate",
+    linkedClusterIds: Array.isArray(decision?.clusterIds) ? decision.clusterIds : []
+  };
+}
+
+async function seedResearchDossiersFromLiveQueue({
+  assets = [],
+  missingOnly = true
+} = {}) {
+  const persistedState = await getPersistedAppState();
+  const decisions = persistedState.snapshot?.appData?.decisions || [];
+  const blockedReviewAssets = (persistedState.appData?.reviews?.blocked || []).map((item) => item.asset);
+  const requestedAssets = Array.isArray(assets)
+    ? assets.map((asset) => normalizeTicker(asset)).filter(Boolean)
+    : [];
+  const targetAssets = requestedAssets.length
+    ? requestedAssets
+    : [...new Set(blockedReviewAssets.length ? blockedReviewAssets : decisions.map((decision) => decision.asset))];
+  const sourceById = new Map(
+    (persistedState.snapshot?.appData?.sources || listSources()).map((source) => [source.id, source])
+  );
+  const posts = persistedState.snapshot?.appData?.posts || [];
+  const existingResearchByAsset = buildResearchLookup(buildResearchDashboardState().dossiers);
+  const created = [];
+  const skipped = [];
+
+  for (const assetTicker of targetAssets) {
+    const decision = decisions.find((item) => normalizeTicker(item.asset) === assetTicker);
+
+    if (!decision) {
+      skipped.push({
+        asset: assetTicker,
+        reason: "No current decision was available to seed from."
+      });
+      continue;
+    }
+
+    if (missingOnly && existingResearchByAsset.get(assetTicker)) {
+      skipped.push({
+        asset: assetTicker,
+        reason: "Research dossier already exists for this asset."
+      });
+      continue;
+    }
+
+    const relatedPosts = posts
+      .filter((post) => (post.mappedAssets || []).map((item) => normalizeTicker(item)).includes(assetTicker))
+      .slice(0, 6);
+    const dossier = createResearchDossier(
+      buildResearchSeedPayload(assetTicker, decision, relatedPosts, sourceById)
+    );
+
+    created.push({
+      asset: assetTicker,
+      dossier
+    });
+  }
+
+  return {
+    requestedAssets: targetAssets,
+    createdCount: created.length,
+    skippedCount: skipped.length,
+    created,
+    skipped
+  };
+}
+
+function derivePaperTradeSide(action) {
+  const normalizedAction = String(action || "").trim().toUpperCase();
+
+  if (normalizedAction === "BUY") {
+    return "long";
+  }
+
+  if (normalizedAction === "SELL") {
+    return "short";
+  }
+
+  throw new Error("Only BUY or SELL decisions can open a paper trade.");
+}
+
+function getLatestMarketSnapshot() {
+  return getLatestPipelineSnapshot()?.appData?.market || null;
+}
+
+function mergeMarkSnapshots(primarySnapshot = null, fallbackSnapshot = null) {
+  if (!primarySnapshot && !fallbackSnapshot) {
+    return null;
+  }
+
+  if (!primarySnapshot) {
+    return fallbackSnapshot;
+  }
+
+  if (!fallbackSnapshot) {
+    return primarySnapshot;
+  }
+
+  const primaryByTicker = primarySnapshot.byTicker || {};
+  const fallbackAssets = Array.isArray(fallbackSnapshot.assets) ? fallbackSnapshot.assets : [];
+  const primaryAssets = Array.isArray(primarySnapshot.assets) ? primarySnapshot.assets : [];
+
+  return {
+    ...fallbackSnapshot,
+    ...primarySnapshot,
+    generatedAt: primarySnapshot.generatedAt || fallbackSnapshot.generatedAt || new Date().toISOString(),
+    warnings: [
+      ...(fallbackSnapshot.warnings || []),
+      ...(primarySnapshot.warnings || [])
+    ],
+    assets: [
+      ...fallbackAssets.filter((asset) => !primaryByTicker[asset.ticker]),
+      ...primaryAssets
+    ],
+    byTicker: {
+      ...(fallbackSnapshot.byTicker || {}),
+      ...primaryByTicker
+    }
+  };
+}
+
+async function getPaperTradeMarkWorkspace({ tickers = [] } = {}) {
+  const latestMarketSnapshot = getLatestMarketSnapshot();
+  const priceSnapshot = await getPaperTradePriceSnapshot({ tickers });
+  const mergedMarketSnapshot =
+    priceSnapshot.activeProvider !== "none"
+      ? mergeMarkSnapshots(priceSnapshot, latestMarketSnapshot)
+      : latestMarketSnapshot;
+
+  return {
+    marketSnapshot: mergedMarketSnapshot,
+    markProvider: {
+      ...priceSnapshot,
+      fallbackProvider: latestMarketSnapshot?.activeProvider || "none",
+      fallbackGeneratedAt: latestMarketSnapshot?.generatedAt || "",
+      config: getPaperTradePriceProviderConfig()
+    }
+  };
+}
+
+function resolvePaperTradeEntryPrice(payload, decisionEntry, marketSnapshot) {
+  const manualEntryPrice = Number(payload.entryPrice);
+
+  if (Number.isFinite(manualEntryPrice) && manualEntryPrice > 0) {
+    return {
+      price: manualEntryPrice,
+      source: "manual",
+      asOf: payload.entryPriceAsOf || new Date().toISOString()
+    };
+  }
+
+  const referencePrice = Number(decisionEntry?.referencePrice);
+
+  if (Number.isFinite(referencePrice) && referencePrice > 0) {
+    return {
+      price: referencePrice,
+      source: "decision-reference",
+      asOf: decisionEntry.generatedAt || new Date().toISOString()
+    };
+  }
+
+  const marketPrice = Number(marketSnapshot?.byTicker?.[decisionEntry?.asset]?.lastPrice);
+
+  if (
+    Number.isFinite(marketPrice) &&
+    marketPrice > 0 &&
+    marketSnapshot?.activeProvider !== "mock"
+  ) {
+    return {
+      price: marketPrice,
+      source: "market-snapshot",
+      asOf: marketSnapshot.byTicker[decisionEntry.asset]?.generatedAt || marketSnapshot.generatedAt || ""
+    };
+  }
+
+  throw new Error(
+    "An entry price is required because no usable real market snapshot is available for this asset."
+  );
+}
+
 function buildReviewSummary(items, blockedItems = []) {
   const proposedCount = items.filter((item) => item.reviewStatus === "proposed").length;
   const approvedCount = items.filter((item) => item.reviewStatus === "approved").length;
@@ -740,6 +1095,35 @@ async function getPersistedAppState() {
   const gatedReviewState = filterReviewStateByResearch(decisionReviewState, researchByAsset);
   const decoratedDecisionHistory = decorateDecisionHistoryWithReviews(decisionHistory);
   const recentDecisionReviews = listDecisionReviews(16);
+  const tradeReadiness = buildTradeReadinessState({
+    snapshot: decoratedSnapshot,
+    evalRuns,
+    researchDossiers: researchState.dossiers,
+    reviewItems: gatedReviewState.current
+  });
+  const paperTradeTickers = [
+    ...new Set(
+      listPaperTrades()
+        .filter((trade) => ["planned", "open"].includes(String(trade.status || "").trim().toLowerCase()))
+        .map((trade) => trade.asset)
+        .filter(Boolean)
+    )
+  ];
+  const paperTradeWorkspace = await getPaperTradeMarkWorkspace({
+    tickers: paperTradeTickers
+  });
+  const paperTradingState = buildStoredPaperTradingState({
+    marketSnapshot: paperTradeWorkspace.marketSnapshot,
+    markProvider: paperTradeWorkspace.markProvider
+  });
+  const portfolioAssessment = buildPortfolioAssessment({
+    snapshot: decoratedSnapshot,
+    financialProfile,
+    researchDossiers: researchState.dossiers,
+    reviewItems: decisionReviewState.current,
+    paperTradingState,
+    tradeReadiness
+  });
 
   return {
     snapshot: decoratedSnapshot,
@@ -750,12 +1134,14 @@ async function getPersistedAppState() {
         scheduler: getBackgroundPipelineStatus(),
         manualFeedCron: getManualFeedCronStatus(),
         orchestrator: getOrchestratorStatus(),
-        telegramBot: getTelegramBotStatus()
+        telegramBot: getTelegramBotStatus(),
+        tradeReadiness
       },
       history: {
         latestRunId: latestSnapshot.runId,
         runs: pipelineRuns.map((run) => summarizeRun(run)),
-        decisionLog: decoratedDecisionHistory
+        decisionLog: decoratedDecisionHistory,
+        followUpStates: DECISION_FOLLOW_UP_STATES
       },
       evaluation: {
         latestRun: summarizeEvalRun(latestEvalRun),
@@ -771,8 +1157,10 @@ async function getPersistedAppState() {
       },
       advisor: {
         financialProfile,
-        history: advisorHistory
+        history: advisorHistory,
+        portfolioAssessment
       },
+      paperTrading: paperTradingState,
       polymarket: buildStoredPolymarketState(),
       placeholders: buildPlaceholders(decoratedDecisionHistory, evalRuns)
     },
@@ -1139,6 +1527,31 @@ createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname.startsWith("/api/intel/assets/") && request.method === "GET") {
+      const ticker = decodeURIComponent(requestUrl.pathname.replace("/api/intel/assets/", ""));
+
+      if (!ticker) {
+        sendError(response, 400, "Asset ticker is required.");
+        return;
+      }
+
+      try {
+        const intel = await buildAssetIntel(ticker);
+        sendJson(response, 200, {
+          ok: true,
+          intel
+        });
+      } catch (error) {
+        sendError(
+          response,
+          400,
+          error instanceof Error ? error.message : "Asset intel lookup failed."
+        );
+      }
+
+      return;
+    }
+
     if (requestUrl.pathname === "/api/operator/sources") {
       if (request.method === "GET") {
         sendJson(response, 200, {
@@ -1194,6 +1607,128 @@ createServer(async (request, response) => {
       }
     }
 
+    if (requestUrl.pathname === "/api/operator/paper-trades") {
+      if (request.method === "GET") {
+        const paperTradeWorkspace = await getPaperTradeMarkWorkspace({
+          tickers: listPaperTrades()
+            .filter((trade) => ["planned", "open"].includes(String(trade.status || "").trim().toLowerCase()))
+            .map((trade) => trade.asset)
+        });
+
+        sendJson(response, 200, {
+          ok: true,
+          ...buildStoredPaperTradingState({
+            marketSnapshot: paperTradeWorkspace.marketSnapshot,
+            markProvider: paperTradeWorkspace.markProvider
+          })
+        });
+        return;
+      }
+
+      if (request.method === "POST") {
+        const payload = await readJsonBody(request);
+        const decisionId = String(payload.decisionId || "").trim();
+
+        if (!decisionId) {
+          sendError(response, 400, "decisionId is required.");
+          return;
+        }
+
+        const decisionEntry = getDecisionHistoryEntry(decisionId);
+
+        if (!decisionEntry) {
+          sendError(response, 404, "Decision history entry not found.");
+          return;
+        }
+
+        const review = getDecisionReviewByAsset(decisionEntry.asset);
+
+        if (review?.status !== "approved") {
+          sendError(
+            response,
+            400,
+            "Approve the current decision before opening a paper trade."
+          );
+          return;
+        }
+
+        try {
+          derivePaperTradeSide(decisionEntry.action);
+        } catch (error) {
+          sendError(
+            response,
+            400,
+            error instanceof Error ? error.message : "Paper trade side could not be derived."
+          );
+          return;
+        }
+
+        const existingTrade = findActivePaperTradeByDecisionId(decisionId, {
+          marketSnapshot: getLatestMarketSnapshot()
+        });
+
+        if (existingTrade) {
+          sendError(
+            response,
+            400,
+            "An active paper trade already exists for this decision."
+          );
+          return;
+        }
+
+        try {
+          const paperTradeWorkspace = await getPaperTradeMarkWorkspace({
+            tickers: [decisionEntry.asset]
+          });
+          const marketSnapshot = paperTradeWorkspace.marketSnapshot;
+          const entrySeed = resolvePaperTradeEntryPrice(payload, decisionEntry, marketSnapshot);
+          const trade = createPaperTrade({
+            decisionId: decisionEntry.id,
+            reviewId: review?.id || "",
+            asset: decisionEntry.asset,
+            decisionAction: decisionEntry.action,
+            reviewStatus: review?.status || "",
+            side: derivePaperTradeSide(decisionEntry.action),
+            status: payload.status || "open",
+            openedAt: payload.openedAt || new Date().toISOString(),
+            thesis: payload.thesis || decisionEntry.summary || "",
+            horizon: payload.horizon || decisionEntry.horizon || "",
+            invalidationReason: payload.invalidationReason || "",
+            notes: payload.notes || "",
+            postmortem: payload.postmortem || "",
+            entryPrice: entrySeed.price,
+            entryPriceSource: payload.entryPriceSource || entrySeed.source,
+            entryPriceAsOf: payload.entryPriceAsOf || entrySeed.asOf,
+            positionSizeUsd: payload.positionSizeUsd || 1000,
+            feesUsd: payload.feesUsd || 0,
+            slippageBps: payload.slippageBps || 0,
+            plannedStopPrice: payload.plannedStopPrice,
+            plannedTargetPrice: payload.plannedTargetPrice,
+            manualMarkPrice: payload.manualMarkPrice,
+            manualMarkAsOf: payload.manualMarkAsOf,
+            exitPrice: payload.exitPrice,
+            exitPriceAsOf: payload.exitPriceAsOf
+          });
+
+          sendJson(response, 201, {
+            ok: true,
+            trade: getPaperTrade(trade.id, {
+              marketSnapshot
+            }),
+            markProvider: paperTradeWorkspace.markProvider
+          });
+        } catch (error) {
+          sendError(
+            response,
+            400,
+            error instanceof Error ? error.message : "Paper trade create failed."
+          );
+        }
+
+        return;
+      }
+    }
+
     if (requestUrl.pathname === "/api/operator/research") {
       if (request.method === "GET") {
         const researchState = buildResearchDashboardState();
@@ -1217,6 +1752,29 @@ createServer(async (request, response) => {
         } catch (error) {
           const message = error instanceof Error ? error.message : "Research dossier create failed.";
           sendError(response, 400, message);
+        }
+
+        return;
+      }
+
+      if (request.method === "PUT") {
+        const payload = await readJsonBody(request);
+
+        try {
+          const seedResult = await seedResearchDossiersFromLiveQueue({
+            assets: payload.assets,
+            missingOnly: payload.missingOnly !== false
+          });
+          sendJson(response, 200, {
+            ok: true,
+            ...seedResult
+          });
+        } catch (error) {
+          sendError(
+            response,
+            400,
+            error instanceof Error ? error.message : "Research dossier seed failed."
+          );
         }
 
         return;
@@ -1266,6 +1824,15 @@ createServer(async (request, response) => {
       sendJson(response, 200, {
         ok: true,
         answers: listAdvisorAnswers(20)
+      });
+      return;
+    }
+
+    if (requestUrl.pathname === "/api/advisor/portfolio-assessment" && request.method === "GET") {
+      const persistedState = await getPersistedAppState();
+      sendJson(response, 200, {
+        ok: true,
+        assessment: persistedState.appData?.advisor?.portfolioAssessment || null
       });
       return;
     }
@@ -1450,6 +2017,110 @@ createServer(async (request, response) => {
         } catch (error) {
           const message = error instanceof Error ? error.message : "Decision review update failed.";
           sendError(response, message === "Decision review not found." ? 404 : 400, message);
+        }
+
+        return;
+      }
+    }
+
+    if (requestUrl.pathname.startsWith("/api/operator/decision-history/")) {
+      const entryId = decodeURIComponent(
+        requestUrl.pathname.replace("/api/operator/decision-history/", "")
+      );
+
+      if (!entryId) {
+        sendError(response, 400, "Decision history id is required.");
+        return;
+      }
+
+      if (request.method === "PUT") {
+        const payload = await readJsonBody(request);
+        const followUpState = String(payload.followUpState || "").trim().toLowerCase();
+
+        if (followUpState && !DECISION_FOLLOW_UP_STATES.includes(followUpState)) {
+          sendError(
+            response,
+            400,
+            `followUpState must be one of: ${DECISION_FOLLOW_UP_STATES.join(", ")}.`
+          );
+          return;
+        }
+
+        try {
+          const entry = updateDecisionHistoryEntry(entryId, {
+            followUpState,
+            nextReviewAt: payload.nextReviewAt,
+            outcomeNote: payload.outcomeNote,
+            invalidationReason: payload.invalidationReason,
+            postmortem: payload.postmortem
+          });
+
+          sendJson(response, 200, {
+            ok: true,
+            entry
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Decision history update failed.";
+          sendError(response, message === "Decision history entry not found." ? 404 : 400, message);
+        }
+
+        return;
+      }
+    }
+
+    if (requestUrl.pathname.startsWith("/api/operator/paper-trades/")) {
+      const tradeId = decodeURIComponent(
+        requestUrl.pathname.replace("/api/operator/paper-trades/", "")
+      );
+
+      if (!tradeId) {
+        sendError(response, 400, "Paper trade id is required.");
+        return;
+      }
+
+      if (request.method === "GET") {
+        const storedTrade = getPaperTrade(tradeId);
+
+        if (!storedTrade) {
+          sendError(response, 404, "Paper trade not found.");
+          return;
+        }
+
+        const paperTradeWorkspace = await getPaperTradeMarkWorkspace({
+          tickers: [storedTrade.asset]
+        });
+        const trade = getPaperTrade(tradeId, {
+          marketSnapshot: paperTradeWorkspace.marketSnapshot
+        });
+
+        sendJson(response, 200, {
+          ok: true,
+          trade,
+          markProvider: paperTradeWorkspace.markProvider
+        });
+        return;
+      }
+
+      if (request.method === "PUT") {
+        const payload = await readJsonBody(request);
+
+        try {
+          const trade = updatePaperTrade(tradeId, payload);
+          const paperTradeWorkspace = await getPaperTradeMarkWorkspace({
+            tickers: [trade.asset]
+          });
+
+          sendJson(response, 200, {
+            ok: true,
+            trade: getPaperTrade(trade.id, {
+              marketSnapshot: paperTradeWorkspace.marketSnapshot
+            }),
+            markProvider: paperTradeWorkspace.markProvider
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Paper trade update failed.";
+          sendError(response, message === "Paper trade not found." ? 404 : 400, message);
         }
 
         return;
