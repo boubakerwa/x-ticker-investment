@@ -311,6 +311,78 @@ Supporting runtime:
 - [src/modelClaimExtractor.js](/Users/wassimboubaker/x-ticker-investment/src/modelClaimExtractor.js)
 - [src/marketDataProvider.js](/Users/wassimboubaker/x-ticker-investment/src/marketDataProvider.js)
 
+## Updates
+
+### 2026-04-03
+
+**UI / UX redesign** — simplified navigation and header
+
+- Navigation restructured from 5 tabs to 4: **Today**, **Feed**, **Research**, **Decisions**
+- Research promoted from a hidden sub-view inside Decisions to a first-class top-level tab
+- Portfolio / Setup moved to a small ⚙ gear icon in the header — it is a one-time config, not a daily destination
+- Advisor accessible from the Decisions tab and the Today attention checklist
+- Header compacted: brand copy paragraph removed, four meta pills collapsed to a single status line (`Updated N ago · feed mode · N pending`)
+- Developer tools moved to a subtle footer link, away from the main interaction zone
+- Dashboard (Today) simplified: hero panel with tagline cards removed, replaced by a 3-step onboarding prompt for first-time users; Research and Advisor bottom sections removed (they now live in their own tabs)
+- Feed item card padding reduced for better visual density
+
+**Decision card enrichment** — more context at the point of review
+
+Each decision card in the approval queue now shows:
+- **Corroboration badge** (top-right): how many independent sources back the signal — 1 source (amber), 2 (neutral), 3+ (green)
+- **Counter** block: the first item from `whyNot[]` — the strongest reason the call might be wrong
+- **Signal evidence** block: up to 2 verbatim post snippets (handle, timestamp, 140-char body) — what actually drove the decision
+- **Watch** block (when present): the primary uncertainty from `uncertainty[]`
+- **Horizon** added to the chip row
+- **Ask Advisor** button on every card, linking directly to the Advisor tab
+- Fixed: the "Open Research" link in the decision gate now correctly navigates to the Research tab
+
+**Noise gates** — fewer, better decisions in the queue
+
+- *Actionability floor*: commentary posts, neutral-direction posts, and policy-noise cluster posts (all flagged `actionable: false` by the engine) no longer flow into decision clusters. Previously they passed through because `blocksActionability` is only raised for posts that are actionable but lack corroboration.
+- *Zero-post guard*: if no eligible, actionable posts are mapped to an asset in the current window, no candidate decision is generated for it. Previously the engine produced a decision for every monitored asset on every run regardless of whether there was any signal basis.
+
+---
+
+## Roadmap / Wishlist
+
+Features prioritised by impact on financial quality and decision confidence. None are live yet.
+
+### High priority
+
+**Outcome attribution**
+Lock the market price at the moment a decision is approved. After the decision's horizon passes, fetch the resolved price and compute return. Surface win rate by asset, by cluster, and by source tier. Without this, there is no objective feedback loop on whether the system generates any alpha.
+
+**Macro regime weighting**
+The engine already captures market regime (`Risk-on / Diverging / Risk-off`) from `marketDataProvider.js` but does not use it in decision confidence. A `Risk-off` regime should apply a confidence penalty on BUY calls and cap the size band one tier lower.
+
+**Source credibility feedback loop**
+Source tiers are currently set manually and never adjusted. After outcome attribution is live, compute per-source accuracy over rolling 30-decision windows. Auto-downgrade sources with sustained poor track records and flag candidates for upgrade.
+
+### Medium priority
+
+**Consensus scoring**
+The corroboration check is binary. Replace it with a weighted agreement score: `(high-tier × 1.0 + solid-tier × 0.7 + mixed-tier × 0.4) / total relevant sources`. Surface the score on decision cards and flag anything below 0.4 as low-conviction.
+
+**Expanded eval suite**
+The current eval harness covers basic extraction cases. Add: cross-cluster conflict cases, direction-flip cases (back-to-back opposing signals from the same source), and decision-math assertions with expected `sizeBand` and `rewardRisk` outputs. Add a gate that fails the eval run if decision-level accuracy falls below 85%.
+
+**Config-driven cluster definitions**
+Narrative clusters are currently hard-coded in `agenticEngine.js`. Extract them to `/config/clusters.json` so new themes (e.g. autonomous vehicles, energy AI) can be added without touching source code. Validate schema at startup.
+
+### Lower priority
+
+**Route decomposition**
+`server.js` is ~51 KB and handles all routes. Extract into route modules under `src/routes/` (`pipeline`, `research`, `decisions`, `sources`, `advisor`, `eval`). `server.js` becomes a thin mount point.
+
+**Structured logging**
+All logging is `console.log`. Add a thin `src/logger.js` wrapper that emits JSON (`{ level, ts, module, msg }`) when `LOG_FORMAT=json` is set, falling back to the current format otherwise.
+
+**Run history analytics**
+Pipeline run snapshots are persisted but there is no UI for trends. Add a simple analytics view: decision count per run over time, average lag from post ingestion to approval, and outcome win rate by asset once attribution is live.
+
+---
+
 ## Further Reading
 
 - [docs/single-user-setup.md](/Users/wassimboubaker/x-ticker-investment/docs/single-user-setup.md)
